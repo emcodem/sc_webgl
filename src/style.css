@@ -60,6 +60,22 @@ html, body {
 }
 #pip-marker.would-hit { border-color: var(--hud-on); }
 
+/* Mouse-look vjoy reticle + ESP ring — one full-screen SVG overlay, elements positioned/sized by
+   hud.ts each frame. Hidden by default; JS toggles visibility per element (vjoy only while
+   captured, ESP ring always while piloting, per the original project's drawMouseReticle/drawEspCircle). */
+#flight-hud-svg {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 5;
+}
+#esp-circle { stroke: rgba(255, 122, 69, 0.35); stroke-width: 1; visibility: hidden; }
+#vjoy-outer { stroke: rgba(143, 211, 199, 0.3); stroke-width: 1; visibility: hidden; }
+#vjoy-line { stroke: var(--hud-accent); stroke-width: 1.5; visibility: hidden; }
+#vjoy-dot { stroke: var(--hud-accent); stroke-width: 1.5; visibility: hidden; }
+
 #damage-flash {
   position: fixed;
   inset: 0;

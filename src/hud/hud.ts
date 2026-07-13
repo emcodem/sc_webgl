@@ -4,6 +4,8 @@ import { getStatusMessage } from '../control/mode';
 import * as Input from '../input/input';
 import { computeAxes } from '../math/quaternion';
 import { findActivePip } from '../combat/pipTargeting';
+import * as MouseLook from '../input/mouseLook';
+import * as EspAssist from '../combat/espAssist';
 
 // Minimal DOM HUD overlay. The heavy flight HUD from the original project (scenario readouts,
 // etc.) can be re-added later; this is enough to fly, fight, and walk.
@@ -14,6 +16,10 @@ const hintEl = document.getElementById('capture-hint') as HTMLElement;
 const crosshairEl = document.getElementById('crosshair') as HTMLElement;
 const damageFlashEl = document.getElementById('damage-flash') as HTMLElement;
 const pipMarkerEl = document.getElementById('pip-marker') as HTMLElement;
+const espCircleEl = document.getElementById('esp-circle') as unknown as SVGCircleElement;
+const vjoyOuterEl = document.getElementById('vjoy-outer') as unknown as SVGCircleElement;
+const vjoyLineEl = document.getElementById('vjoy-line') as unknown as SVGLineElement;
+const vjoyDotEl = document.getElementById('vjoy-dot') as unknown as SVGCircleElement;
 
 function row(k: string, v: string, on = false): string {
   return `<div class="hud-row"><span class="k">${k}</span> <span class="v${on ? ' on' : ''}">${v}</span></div>`;
@@ -54,6 +60,7 @@ export function updateHUD(world: World): void {
   crosshairEl.classList.toggle('hit', world.hitMarkerTimer > 0);
   damageFlashEl.style.opacity = String(ship.hitFlash * 0.8);
   updatePipMarker(world);
+  updateFlightRings(world);
 
   // capture hint / status line
   if (!Input.isCaptured()) {
@@ -90,6 +97,46 @@ function updatePipMarker(world: World): void {
   pipMarkerEl.style.left = `${pip.screenX}px`;
   pipMarkerEl.style.top = `${pip.screenY}px`;
   pipMarkerEl.classList.toggle('would-hit', pip.wouldHit);
+}
+
+// Mouse-look virtual-joystick reticle + ESP dampening-zone ring. Ported from the original
+// project's render/render.ts::drawMouseReticle/drawEspCircle (canvas draws) onto this DOM HUD's
+// SVG overlay. Vjoy only shows while mouse-look is actually captured (matches the original); the
+// ESP ring is always shown while piloting, regardless of input device or scenario state — ESP is
+// a standing user setting (see the F4 controls panel), not scenario-gated.
+function updateFlightRings(world: World): void {
+  const piloting = world.player.mode === 'pilot' && world.player.ship.respawnTimer <= 0;
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+
+  espCircleEl.style.visibility = piloting ? 'visible' : 'hidden';
+  if (piloting) {
+    espCircleEl.setAttribute('cx', String(cx));
+    espCircleEl.setAttribute('cy', String(cy));
+    espCircleEl.setAttribute('r', String(EspAssist.getCircleRadius()));
+  }
+
+  const showVjoy = piloting && MouseLook.isCaptured();
+  vjoyOuterEl.style.visibility = showVjoy ? 'visible' : 'hidden';
+  vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
+  vjoyDotEl.style.visibility = showVjoy ? 'visible' : 'hidden';
+  if (showVjoy) {
+    const { x, y, max } = MouseLook.getOffset();
+    const scale = 0.55; // keep the reticle's travel visually inside the crosshair area
+    const rx = cx + x * scale, ry = cy + y * scale;
+
+    vjoyOuterEl.setAttribute('cx', String(cx));
+    vjoyOuterEl.setAttribute('cy', String(cy));
+    vjoyOuterEl.setAttribute('r', String(max * scale));
+
+    vjoyLineEl.setAttribute('x1', String(cx));
+    vjoyLineEl.setAttribute('y1', String(cy));
+    vjoyLineEl.setAttribute('x2', String(rx));
+    vjoyLineEl.setAttribute('y2', String(ry));
+
+    vjoyDotEl.setAttribute('cx', String(rx));
+    vjoyDotEl.setAttribute('cy', String(ry));
+    vjoyDotEl.setAttribute('r', '5');
+  }
 }
 
 // Scenario-mode HUD: name, elapsed time, shots/accuracy/kills always, plus per-winCondition
