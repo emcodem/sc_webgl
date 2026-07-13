@@ -17,7 +17,10 @@ export interface ProjectedPoint {
   depth: number;
 }
 
-const FOCAL_LENGTH = 500;
+// Vertical FOV of the real three.js camera (render/renderer.ts's `new THREE.PerspectiveCamera(70, ...)`)
+// — kept in sync here so this HUD-space math lines up with what's actually on screen, rather than
+// the original canvas renderer's arbitrary fixed focal length (there was no real 3D camera to match).
+const CAMERA_FOV_DEG = 70;
 
 export function project(
   px: number, py: number, pz: number,
@@ -31,6 +34,7 @@ export function project(
   const cy = dx * up.x + dy * up.y + dz * up.z;
   const cz = dx * forward.x + dy * forward.y + dz * forward.z;
   if (cz <= 1) return null; // behind camera
-  const f = FOCAL_LENGTH / cz;
+  const focalLength = viewportHeight / (2 * Math.tan((CAMERA_FOV_DEG * Math.PI) / 180 / 2));
+  const f = focalLength / cz;
   return { x: viewportWidth / 2 + cx * f, y: viewportHeight / 2 - cy * f, scale: f, depth: cz };
 }

@@ -2,15 +2,18 @@ import type { World } from '../core/world';
 import { length, sub } from '../math/vec';
 import { getStatusMessage } from '../control/mode';
 import * as Input from '../input/input';
+import { computeAxes } from '../math/quaternion';
+import { findActivePip } from '../combat/pipTargeting';
 
-// Minimal DOM HUD overlay. The heavy flight HUD from the original project (full PIP, scenario
-// readouts, etc.) can be re-added later; this is enough to fly, fight, and walk.
+// Minimal DOM HUD overlay. The heavy flight HUD from the original project (scenario readouts,
+// etc.) can be re-added later; this is enough to fly, fight, and walk.
 
 const modeEl = document.getElementById('hud-mode') as HTMLElement;
 const readoutEl = document.getElementById('hud-readout') as HTMLElement;
 const hintEl = document.getElementById('capture-hint') as HTMLElement;
 const crosshairEl = document.getElementById('crosshair') as HTMLElement;
 const damageFlashEl = document.getElementById('damage-flash') as HTMLElement;
+const pipMarkerEl = document.getElementById('pip-marker') as HTMLElement;
 
 function row(k: string, v: string, on = false): string {
   return `<div class="hud-row"><span class="k">${k}</span> <span class="v${on ? ' on' : ''}">${v}</span></div>`;
@@ -50,6 +53,7 @@ export function updateHUD(world: World): void {
 
   crosshairEl.classList.toggle('hit', world.hitMarkerTimer > 0);
   damageFlashEl.style.opacity = String(ship.hitFlash * 0.8);
+  updatePipMarker(world);
 
   // capture hint / status line
   if (!Input.isCaptured()) {
@@ -64,6 +68,28 @@ export function updateHUD(world: World): void {
       hintEl.classList.add('hidden');
     }
   }
+}
+
+// Predicted-impact-point reticle: reuses the exact same findActivePip call as the ESP damping in
+// control/pilot.ts, so the drawn diamond always matches what's actually steering the crosshair
+// assist. Ported from the original project's render/render.ts::drawPip, moved from a 2D canvas
+// draw call to a positioned DOM element since this HUD is DOM, not canvas.
+function updatePipMarker(world: World): void {
+  const ship = world.player.ship;
+  if (world.player.mode !== 'pilot' || ship.respawnTimer > 0) {
+    pipMarkerEl.style.display = 'none';
+    return;
+  }
+  const cam = { pos: ship.pos, axes: computeAxes(ship.quat) };
+  const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
+  if (!pip) {
+    pipMarkerEl.style.display = 'none';
+    return;
+  }
+  pipMarkerEl.style.display = 'block';
+  pipMarkerEl.style.left = `${pip.screenX}px`;
+  pipMarkerEl.style.top = `${pip.screenY}px`;
+  pipMarkerEl.classList.toggle('would-hit', pip.wouldHit);
 }
 
 // Scenario-mode HUD: name, elapsed time, shots/accuracy/kills always, plus per-winCondition

@@ -45,6 +45,21 @@ html, body {
   margin: -5px 0 0 -5px;
 }
 
+/* Diamond reticle over the active PIP's screen position; JS drives left/top/display (hud.ts),
+   the yellow/green swap mirrors the original project's wouldHit-color rule. */
+#pip-marker {
+  position: fixed;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 1.5px solid #ffe696;
+  transform: rotate(45deg);
+  pointer-events: none;
+  z-index: 5;
+  display: none;
+}
+#pip-marker.would-hit { border-color: var(--hud-on); }
+
 #damage-flash {
   position: fixed;
   inset: 0;
