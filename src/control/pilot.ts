@@ -38,7 +38,7 @@ export function stepPilot(world: World, dt: number): void {
 
   const roll = Keybinds.digitalAxis('rollLeft', 'rollRight') + Joystick.readAxis('roll');
   let yawInput = Keybinds.digitalAxis('yawLeft', 'yawRight') + mouse.yaw + Joystick.readAxis('yaw');
-  let pitchInput = Keybinds.digitalAxis('pitchDown', 'pitchUp') + mouse.pitch + Joystick.readAxis('pitch');
+  let pitchInput = Keybinds.digitalAxis('pitchUp', 'pitchDown') + mouse.pitch + Joystick.readAxis('pitch');
 
   const strafeX = Keybinds.digitalAxis('strafeLeft', 'strafeRight') + Joystick.readAxis('strafeLateral');
   const strafeY = Keybinds.digitalAxis('strafeDown', 'strafeUp') + Joystick.readAxis('strafeVertical');
