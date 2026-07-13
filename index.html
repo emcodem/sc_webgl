@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Vector — WebGL Universe</title>
+  </head>
+  <body>
+    <!-- three.js renders into this canvas; it fills the viewport -->
+    <canvas id="c"></canvas>
+
+    <!-- Fixed crosshair at screen center (both flight boresight and on-foot look center) -->
+    <div id="crosshair"></div>
+
+    <!-- Full-screen damage vignette; opacity driven by the player ship's hitFlash -->
+    <div id="damage-flash"></div>
+
+    <!-- Click-to-capture hint / mode banner -->
+    <div id="capture-hint">Click to capture mouse — WASD/arrows fly, <b>F</b> to exit ship</div>
+
+    <!-- Minimal HUD overlay (DOM, layered over the canvas) -->
+    <div id="hud">
+      <div id="hud-mode" class="hud-block"></div>
+      <div id="hud-readout" class="hud-block"></div>
+    </div>
+
+    <!-- Top-right toggle row: F1 restart, F2 fullscreen, F3 menu, F4 controls -->
+    <div id="toggle-bar">
+      <button id="restart-toggle" class="toggle-btn">F1 RESTART</button>
+      <button id="fullscreen-toggle" class="toggle-btn">F2 FULLSCREEN</button>
+      <button id="menu-toggle" class="toggle-btn">F3 MENU</button>
+      <button id="controls-toggle" class="toggle-btn">F4 CONTROLS</button>
+    </div>
+
+    <!-- F3: dimmed full-screen overlay, pauses the sim while open. Also hosts the training
+         scenario picker/results views (see ui/scenarioMenu.ts) below the Resume/Restart row. -->
+    <div id="main-menu-overlay">
+      <div id="main-menu-box">
+        <h2>Vector</h2>
+        <div class="menu-sub">Newtonian flight sim — fly, fight, land, walk.</div>
+        <div id="main-menu-buttons">
+          <button id="main-menu-resume">Resume</button>
+          <button id="main-menu-restart">Restart Flight</button>
+        </div>
+        <div id="scenario-menu-picker">
+          <h3 id="scenario-menu-heading">Training Scenarios</h3>
+          <div id="scenario-menu-list"></div>
+        </div>
+        <div id="scenario-menu-result" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- F4: fixed side panel, pauses the sim while open. Structure mirrors the original
+         starcitizen_flightsim project's controls panel section-for-section. -->
+    <div id="ctrl-panel">
+      <button id="ctrl-close-btn" aria-label="Close controls panel">CLOSE</button>
+      <h3>Control Preset</h3>
+      <br><br>
+
+      <section id="ctrl-preset-storage-section">
+        <label>Saved presets (this browser)</label>
+        <input type="text" id="ctrl-preset-name" placeholder="preset name">
+        <button id="ctrl-save-preset-btn">Save Current</button>
+        <select id="ctrl-preset-list"></select>
+        <button id="ctrl-load-preset-btn">Load</button>
+        <button id="ctrl-delete-preset-btn">Delete</button>
+        <div class="ctrl-status" id="ctrl-preset-status"></div>
+      </section>
+
+      <section>
+        <label>Export / import this preset as a file</label>
+        <button id="ctrl-export-btn">Export Preset (.json)</button>
+        <button type="button" id="ctrl-import-preset-btn">Import Preset (.json)</button>
+        <input type="file" id="ctrl-import-preset-input" accept=".json" style="display:none">
+        <div class="ctrl-status" id="ctrl-preset-file-status"></div>
+      </section>
+
+      <section>
+        <label>Import from Star Citizen actionmaps.xml (auto-mapped)</label>
+        <div class="ctrl-status" style="margin-bottom:6px">
+          Default profile folder — click the file dialog's address bar (or press
+          Ctrl+L) and paste this path, then Enter to jump straight there:
+        </div>
+        <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px">
+          <input type="text" id="ctrl-default-path" readonly
+            value="C:\Program Files\Roberts Space Industries\StarCitizen\LIVE\USER\Client\0\Profiles\default"
+            style="flex:1; font-size:11px" onclick="this.select()">
+          <button id="ctrl-copy-path-btn" style="margin:0; white-space:nowrap">Copy Path</button>
+        </div>
+        <button type="button" id="ctrl-import-actionmaps-btn">Import actionmaps.xml</button>
+        <input type="file" id="ctrl-file-input" accept=".xml" style="display:none">
+        <div id="ctrl-import-results" class="ctrl-list"></div>
+        <div class="ctrl-status" id="ctrl-import-status"></div>
+      </section>
+
+      <section>
+        <h3 style="margin-top:0">Joystick / HOTAS Detection (experimental)</h3>
+        <div class="ctrl-status" style="margin-bottom:6px">
+          Checks whether the browser sees the same physical stick(s) your actionmaps.xml
+          refers to, matched by USB vendor/product ID (not by SC's js1/js2 numbering —
+          those can differ from browser enumeration order). Load the same actionmaps.xml
+          above first, then press a button or wiggle each stick — browsers only reveal a
+          device to the page after it sees input from it.
+        </div>
+        <label>Devices found in your actionmaps.xml</label>
+        <div id="ctrl-sc-devices-list" class="ctrl-list">(load actionmaps.xml above)</div>
+        <div class="ctrl-status ctrl-missing" id="ctrl-vjoy-chrome-warning" style="display:none"></div>
+        <details class="ctrl-collapsible" open>
+          <summary>Devices the browser currently sees</summary>
+          <div id="ctrl-gamepad-list" class="ctrl-list">(none yet — press a button on each device)</div>
+        </details>
+        <button type="button" id="ctrl-vjoy-info-btn">Using vJoy? Read this</button>
+        <div class="ctrl-status" id="ctrl-vjoy-info" style="display:none">
+          <b>vJoy (virtual joystick) support:</b><br>
+          • <b>Chrome / Edge — important:</b> if vJoy is installed, Chromium <b>can fail to detect some of your
+          real devices</b> (not just vJoy — a physical stick may not appear either), and vJoy's own axes
+          read as zero. To use a real stick in Chrome you may need to <b>uninstall or disable vJoy</b>. Otherwise use
+          <b>Firefox</b>, which is unaffected.<br>
+          • <b>Firefox:</b> works, including vJoy. Note that each vJoy device only appears in the list above
+          <i>after</i> you move one of its axes or press one of its buttons — the browser hides it until then.<br>
+          • To bind two vJoy devices to different controls, give each a <i>different</i> number of axes/buttons
+          in the vJoy config — that's how they're told apart (they share one USB vendor/product ID).
+        </div>
+        <div class="ctrl-status" id="ctrl-gamepad-support-status"></div>
+
+        <label style="margin-top:8px">Resolved analog axes (live)</label>
+        <div id="ctrl-axis-map-list" class="ctrl-list">(load actionmaps.xml above)</div>
+        <div class="ctrl-status" style="margin-top:4px">
+          If an axis moves the wrong way, use the Invert checkbox next to it in the Bindings
+          table below. The axis-letter-to-index mapping (which [N] is X vs Y vs twist) is a
+          best-effort default — use the live per-device axis readout above to confirm it
+          matches your hardware.
+        </div>
+      </section>
+
+      <section>
+        <h3 style="margin-top:0">Bindings</h3>
+        <div id="ctrl-bindings-list" class="ctrl-list"></div>
+        <div class="ctrl-status" id="ctrl-rebind-status"></div>
+      </section>
+
+      <section>
+        <label style="color:var(--hud-fg)">Mouse Look (absolute — SC-style virtual joystick)</label>
+        <div class="ctrl-status" id="ctrl-mouse-status">Click the game view to enable.</div>
+        <label style="margin-top:8px">Sensitivity</label>
+        <input type="range" id="ctrl-mouse-sens" min="0.5" max="4" step="0.1" style="width:100%">
+        <label style="margin-top:8px">Deadzone</label>
+        <input type="range" id="ctrl-mouse-deadzone" min="0" max="0.3" step="0.01" style="width:100%">
+        <label style="display:flex; align-items:center; gap:6px; margin-top:6px">
+          <input type="checkbox" id="ctrl-mouse-invert" style="width:auto"> Invert Y
+        </label>
+        <button id="ctrl-mouse-recenter">Recenter Stick</button>
+      </section>
+
+      <section>
+        <label style="color:var(--hud-fg)">ESP / Aim Assist (always active — dampens yaw/pitch near the lead indicator)</label>
+        <label style="margin-top:8px">Circle Size</label>
+        <input type="range" id="ctrl-esp-circle-size" min="15" max="120" step="5" style="width:100%">
+        <label style="margin-top:8px">Dampening Strength</label>
+        <input type="range" id="ctrl-esp-dampening" min="0" max="0.95" step="0.05" style="width:100%">
+      </section>
+
+      <section>
+        <button id="ctrl-reset-btn">Reset to Sandbox Defaults</button>
+      </section>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

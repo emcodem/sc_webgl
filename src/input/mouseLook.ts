@@ -1,0 +1,100 @@
+import { registerConfig } from './configRegistry';
+
+// ============================================================================================
+// MouseLook — the "full vjoy" the flight model wants: models Star Citizen's default ABSOLUTE
+// mouse-flight mode. The mouse acts like a virtual joystick that stays deflected once moved,
+// driving a continuous pitch/yaw rate until you move it back toward center — it does NOT reset
+// every frame the way FPS-style relative look does (which is what control/foot.ts still uses for
+// on-foot look; this module is only consumed by control/pilot.ts for flight aim).
+//
+// Reacts passively to pointer-lock state (input/input.ts's canvas click handler owns actually
+// requesting the lock) via its own 'pointerlockchange' listener — both modules observing the same
+// browser-owned lock state is fine, there's no exclusivity conflict.
+// ============================================================================================
+
+export interface MouseLookInput {
+  pitch: number;
+  yaw: number;
+}
+
+const canvas = document.getElementById('c') as HTMLCanvasElement;
+
+let captured = false;
+let offsetX = 0, offsetY = 0; // persistent virtual-stick deflection, in pixels
+const MAX_OFFSET = 220; // pixels of mouse travel for full deflection
+let sensitivity = 1.5;
+let invertY = true;
+let deadzone = 0.05; // fraction of MAX_OFFSET ignored near center, absorbs sensor/hand jitter
+const listeners: Array<(captured: boolean) => void> = [];
+
+function notify(): void {
+  listeners.forEach(fn => fn(captured));
+}
+
+document.addEventListener('pointerlockchange', () => {
+  captured = document.pointerLockElement === canvas;
+  offsetX = 0; offsetY = 0; // recenter whenever capture state changes
+  notify();
+});
+document.addEventListener('pointerlockerror', () => {
+  captured = false;
+  notify();
+});
+document.addEventListener('mousemove', (e) => {
+  if (!captured) return;
+  offsetX = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, offsetX + (e.movementX || 0)));
+  offsetY = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, offsetY + (e.movementY || 0)));
+});
+window.addEventListener('blur', () => {
+  try { if (document.pointerLockElement === canvas) document.exitPointerLock(); } catch { /* ignore */ }
+});
+
+export function recenter(): void {
+  offsetX = 0; offsetY = 0;
+}
+
+// Reads the CURRENT stick deflection — does not reset it, since the deflection should keep
+// driving rotation until the mouse is physically moved back or recenter() is called.
+export function consume(): MouseLookInput {
+  let xRatio = offsetX / MAX_OFFSET;
+  let yRatio = offsetY / MAX_OFFSET;
+  if (Math.abs(xRatio) < deadzone) xRatio = 0;
+  if (Math.abs(yRatio) < deadzone) yRatio = 0;
+  const yaw = Math.max(-1, Math.min(1, xRatio * sensitivity));
+  let pitch = Math.max(-1, Math.min(1, yRatio * sensitivity));
+  if (invertY) pitch = -pitch;
+  return { pitch, yaw };
+}
+
+export function isCaptured(): boolean {
+  return captured;
+}
+export function getOffset(): { x: number; y: number; max: number } {
+  return { x: offsetX, y: offsetY, max: MAX_OFFSET };
+}
+export function onChange(fn: (captured: boolean) => void): void {
+  listeners.push(fn);
+}
+export function getSensitivity(): number { return sensitivity; }
+export function setSensitivity(v: number): void { sensitivity = v; }
+export function getInvertY(): boolean { return invertY; }
+export function setInvertY(v: boolean): void { invertY = v; }
+export function getDeadzone(): number { return deadzone; }
+export function setDeadzone(v: number): void { deadzone = v; }
+
+interface MouseLookConfig {
+  sensitivity: number;
+  invertY: boolean;
+  deadzone: number;
+}
+registerConfig({
+  key: 'mouseLook',
+  serialize: (): MouseLookConfig => ({ sensitivity, invertY, deadzone }),
+  deserialize: (data) => {
+    const d = data as Partial<MouseLookConfig> | null | undefined;
+    if (!d) return;
+    if (typeof d.sensitivity === 'number') sensitivity = d.sensitivity;
+    if (typeof d.invertY === 'boolean') invertY = d.invertY;
+    if (typeof d.deadzone === 'number') deadzone = d.deadzone;
+  }
+});
