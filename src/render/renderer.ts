@@ -8,13 +8,20 @@ import type { Vec3 } from '../core/types';
 import type { FlightGate } from '../scenarios/types';
 import { ENEMY_EXPLOSION_DURATION } from '../scenarios/runtime';
 import { computeAxes } from '../math/quaternion';
-import { normalize } from '../math/vec';
+import { add, cross, dot, normalize, scale as vecScale } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
-import { createBodyMesh, createPipMarkerMesh, createProjectileMesh, createShipMesh, createStarfield } from './meshes';
+import {
+  createBodyMesh, createPipMarkerMesh, createProjectileMesh, createShipMesh, createSpaceDust, createStarfield,
+  PROJECTILE_STREAK_LENGTH, type SpaceDust
+} from './meshes';
 import { setCameraBasis, setObjectBasis } from './camera';
+import { cloneArrow, loadArrowTemplate } from './shipModels';
+import { loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
 
-const PROJECTILE_COLOR = { player: 0x9fe6ff, enemy: 0xff6a55 };
+// Player and enemy tracers share one look — a saturated laser red — so a dogfight's incoming vs.
+// outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
+const LASER_COLOR = 0xff2a2a;
 
 // ============================================================================================
 // three.js render layer. This is the ONLY module that knows about the GPU, and the only place the
@@ -34,14 +41,19 @@ export class Renderer {
   private shipMesh: THREE.Object3D;
   private enemyMeshes = new Map<EnemyShip, THREE.Object3D>();
   private currentEnemyList: EnemyShip[] | null = null;
-  private projectilePool: THREE.Mesh[] = [];
+  private arrowTemplate: THREE.Object3D | null = null;
+  private projectilePool: THREE.Object3D[] = [];
   private gateMeshes: THREE.Mesh[] = [];
   private currentGatePath: FlightGate[] | null = null;
   private rangeBubbleMesh: THREE.Mesh | null = null;
   private explosionPool: THREE.Mesh[] = [];
   private pipMarkerMesh: THREE.Mesh | null = null;
   private starfield: THREE.Points;
+  private spaceDust: SpaceDust;
+  private meteoriteFieldMesh: THREE.InstancedMesh | null = null;
+  private meteoriteFieldCenter: Vec3 | null = null;
   private sunLight: THREE.DirectionalLight;
+  private fillLight: THREE.DirectionalLight;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
 
@@ -65,11 +77,39 @@ export class Renderer {
     this.starfield = createStarfield();
     this.scene.add(this.starfield);
 
+    // speed-reactive ambient dust (see createSpaceDust's doc comment) — piloting-only, updated
+    // per frame in render() below
+    this.spaceDust = createSpaceDust();
+    this.scene.add(this.spaceDust.mesh);
+
     // celestial bodies
     for (const body of world.bodies) {
       const mesh = createBodyMesh(body);
       this.bodyMeshes.set(body.name, mesh);
       this.scene.add(mesh);
+    }
+
+    // real meteorite scan (see render/celestialModels.ts) loads in async — the meteorite body
+    // renders as the procedural placeholder rock (createBodyMesh's meteorite branch) until it
+    // resolves, then swaps onto the real model, same split as the Arrow enemy model below.
+    const meteoriteBody = world.bodies.find((b) => b.meteorite);
+    if (meteoriteBody) {
+      loadMeteoriteTemplate().then((model) => {
+        const old = this.bodyMeshes.get(meteoriteBody.name);
+        if (old) this.scene.remove(old);
+        this.bodyMeshes.set(meteoriteBody.name, model);
+        this.scene.add(model);
+      });
+
+      // a scattered field of smaller copies of the same rock around it (see
+      // celestialModels.ts::loadMeteoriteField's doc comment on how 80 instances cost about as
+      // much as 1) — positioned every frame in render() below, same floating-origin convention as
+      // every other object in the scene.
+      this.meteoriteFieldCenter = meteoriteBody.pos;
+      loadMeteoriteField().then((field) => {
+        this.meteoriteFieldMesh = field;
+        this.scene.add(field);
+      });
     }
 
     // ship — hidden while piloting (no cockpit yet; the camera sits at the ship origin), shown when
@@ -83,12 +123,29 @@ export class Renderer {
     // a different length at any time (see scenarios/runtime.ts::startScenario).
     this.rebuildEnemyMeshes(world.enemies);
 
-    // lighting: a strong warm directional light from the sun, plus a dim cool hemisphere fill so
-    // shadowed sides read as starlit rather than pure black.
+    // "Arrow" drone model (see shipModels.ts) loads in async — enemies render as the procedural
+    // placeholder ship until it resolves, then get rebuilt onto the real model. Cached at module
+    // level, so this is a no-op fetch/decode after the very first Renderer in the page's lifetime.
+    loadArrowTemplate().then((template) => {
+      this.arrowTemplate = template;
+      this.rebuildEnemyMeshes(this.currentEnemyList ?? world.enemies);
+    });
+
+    // lighting: a strong warm directional light from the sun, a dim cool hemisphere fill so
+    // shadowed sides read as starlit rather than pure black, a soft ambient floor (metals with no
+    // env map have no diffuse response at all, so they need *some* non-directional light or their
+    // unlit faces go true black), and a "headlight" that always shines in the direction the camera
+    // is looking (see its per-frame update in render()) so whatever ship you're looking at — an
+    // opponent on the far side of the sun from you, say — always has its camera-facing side lit
+    // regardless of where the sun happens to be.
     this.sunLight = new THREE.DirectionalLight(0xfff2d8, 2.6);
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
-    this.scene.add(new THREE.HemisphereLight(0x35506e, 0x0a0a12, 0.5));
+    this.scene.add(new THREE.HemisphereLight(0x3d5a7a, 0x14161e, 0.65));
+    this.scene.add(new THREE.AmbientLight(0x404652, 0.35));
+    this.fillLight = new THREE.DirectionalLight(0xcfe0ff, 1.1);
+    this.scene.add(this.fillLight);
+    this.scene.add(this.fillLight.target);
 
     // post: bloom (only bright things — sun, engine glow, bright stars) + tone-mapping output pass
     this.composer = new EffectComposer(this.renderer);
@@ -138,7 +195,15 @@ export class Renderer {
       if (mesh) mesh.position.set(body.pos.x - eye.x, body.pos.y - eye.y, body.pos.z - eye.z);
     }
 
+    if (this.meteoriteFieldMesh && this.meteoriteFieldCenter) {
+      const c = this.meteoriteFieldCenter;
+      this.meteoriteFieldMesh.position.set(c.x - eye.x, c.y - eye.y, c.z - eye.z);
+    }
+
     const ship = world.player.ship;
+    this.spaceDust.mesh.visible = world.player.mode === 'pilot';
+    if (this.spaceDust.mesh.visible) this.updateSpaceDust(ship.pos, ship.vel);
+
     this.shipMesh.visible = world.player.mode === 'onfoot';
     if (this.shipMesh.visible) {
       this.shipMesh.position.set(ship.pos.x - eye.x, ship.pos.y - eye.y, ship.pos.z - eye.z);
@@ -165,14 +230,54 @@ export class Renderer {
       setObjectBasis(mesh, axes.forward, axes.up);
     });
 
-    // weapon-round tracers — a pooled mesh per live projectile, orientated along its velocity
+    // weapon-round tracers — a pooled mesh per live projectile. The streak (mesh.children[1] — see
+    // createProjectileMesh) is a screen-space "stretched billboard": it always fully faces the
+    // camera, and its apparent length/rotation come from projecting the 3D tail offset onto the
+    // camera's own (right, up) plane rather than from any 3D orientation of the quad itself. A
+    // plane oriented along the true 3D travel direction goes edge-on and vanishes whenever that
+    // direction is close to the camera's own view direction — which is exactly the player's own
+    // fire, travelling almost straight away from the camera that's aiming it, so a naive "orient
+    // toward the camera" billboard still went invisible for the single most common case in this
+    // game. camRight/camUp are the same for every projectile this frame, computed once from the
+    // camera's own basis (matches render/camera.ts::setCameraBasis's construction exactly).
+    const camRight = normalize(cross(view.forward, view.up));
+    const camUp = normalize(cross(camRight, view.forward));
     world.projectiles.forEach((p, i) => {
-      const mesh = this.projectileMesh(i, p.owner);
+      const mesh = this.projectileMesh(i);
       mesh.visible = true;
       mesh.position.set(p.pos.x - eye.x, p.pos.y - eye.y, p.pos.z - eye.z);
+
       const dir = normalize(p.vel);
-      const up = Math.abs(dir.y) > 0.99 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
-      setObjectBasis(mesh, dir, up);
+      const tailOffset = vecScale(dir, -PROJECTILE_STREAK_LENGTH);
+      const dx = dot(tailOffset, camRight), dy = dot(tailOffset, camUp);
+      // On-screen beam length = the 3D tail offset projected onto the camera plane. While piloting,
+      // the ship's own forward axis IS the camera's forward axis, so the player's own fire
+      // (dir ~= view.forward) projects to ~0 here — that's the single most common case, not a rare
+      // edge. There is NO honest 2D direction for a bolt flying straight away from you, so rather
+      // than invent one (an earlier version floored the length and fell back to camUp, which drew
+      // every boresighted shot as an upright vertical "candle" 90deg off the true into-screen travel
+      // line) we simply hide the streak below STREAK_MIN and let the head spark alone carry a
+      // dead-ahead shot — which is also what you'd actually see. Above the threshold: a proper long
+      // gradient beam for anything with real screen-space travel (enemy fire, your own shots once
+      // you're off-boresight).
+      const projected = Math.hypot(dx, dy);
+      const STREAK_MIN = 1.5;
+      const streak = mesh.children[1];
+      if (projected > STREAK_MIN) {
+        streak.visible = true;
+        const screenDir = normalize(add(vecScale(camRight, dx), vecScale(camUp, dy)));
+        setObjectBasis(streak, view.forward, screenDir);
+        streak.scale.set(1, projected, 1);
+      } else {
+        streak.visible = false;
+      }
+
+      // Head glow: a small spark that grows modestly as the beam lengthens on screen, so it reads
+      // as the hot tip of a tracer rather than a fixed round ball dominating a short/collapsed beam
+      // (the old fixed 1.1 scale looked like a "tennisball on the tip" for dead-ahead fire). Ranges
+      // ~0.5 dead-on to ~1.0 fully side-on.
+      const headSprite = mesh.children[0];
+      headSprite.scale.setScalar(0.5 + 0.06 * Math.min(projected, PROJECTILE_STREAK_LENGTH));
     });
     for (let i = world.projectiles.length; i < this.projectilePool.length; i++) {
       this.projectilePool[i].visible = false;
@@ -245,31 +350,37 @@ export class Renderer {
     this.sunLight.position.set(sunRel.x, sunRel.y, sunRel.z);
     this.sunLight.target.position.set(0, 0, 0);
 
+    // the headlight shines in the direction the camera looks — position it behind the origin along
+    // -forward so light travels toward +forward, same as the view direction (see the lighting
+    // comment in the constructor)
+    this.fillLight.position.set(-view.forward.x * 1e5, -view.forward.y * 1e5, -view.forward.z * 1e5);
+    this.fillLight.target.position.set(0, 0, 0);
+
     this.composer.render();
   }
 
-  // Lazily grows the projectile mesh pool to match however many rounds are in flight; the material
-  // color is re-tinted per owner each frame rather than keeping separate pools, since which slot a
-  // given round occupies isn't stable frame to frame.
-  private projectileMesh(i: number, owner: 'player' | 'enemy'): THREE.Mesh {
+  // Lazily grows the projectile mesh pool to match however many rounds are in flight. Every round
+  // uses the same LASER_COLOR regardless of owner, so unlike the pool's other users there's nothing
+  // to re-tint per frame.
+  private projectileMesh(i: number): THREE.Object3D {
     if (i >= this.projectilePool.length) {
-      const mesh = createProjectileMesh(PROJECTILE_COLOR[owner]);
+      const mesh = createProjectileMesh(LASER_COLOR);
       this.scene.add(mesh);
       this.projectilePool.push(mesh);
     }
-    const mesh = this.projectilePool[i];
-    (mesh.material as THREE.MeshBasicMaterial).color.set(PROJECTILE_COLOR[owner]);
-    return mesh;
+    return this.projectilePool[i];
   }
 
-  // Tears down and recreates one mesh per current enemy, tinted red so a dogfight reads at a
-  // glance against the player's own orange accent. Called whenever world.enemies is swapped for a
-  // brand-new array (scenario start/switch, restart) — see the render() call site.
+  // Tears down and recreates one mesh per current enemy, using the model's own natural color (no
+  // tint) rather than a distinguishing accent — see cloneArrow's own doc comment for how an
+  // omitted tint skips the color-multiply step entirely. Called whenever world.enemies is swapped
+  // for a brand-new array (scenario start/switch, restart) — see the render() call site — and once
+  // more when the "Arrow" drone model (shipModels.ts) finishes loading, to swap the placeholder for it.
   private rebuildEnemyMeshes(enemies: EnemyShip[]): void {
     for (const mesh of this.enemyMeshes.values()) this.scene.remove(mesh);
     this.enemyMeshes.clear();
     for (const enemy of enemies) {
-      const mesh = createShipMesh(0xff3344);
+      const mesh = this.arrowTemplate ? cloneArrow(this.arrowTemplate) : createShipMesh();
       this.scene.add(mesh);
       this.enemyMeshes.set(enemy, mesh);
     }
@@ -323,6 +434,33 @@ export class Renderer {
     this.scene.add(mesh);
     this.pipMarkerMesh = mesh;
     return mesh;
+  }
+
+  // Recomputes every dust mote's head/tail vertex positions and head alpha from the ship's current
+  // absolute position and velocity — see createSpaceDust's doc comment for why no eye-subtraction
+  // is needed here (the ship's own position IS the eye while piloting).
+  private updateSpaceDust(shipPos: Vec3, vel: Vec3): void {
+    const { bases, field } = this.spaceDust;
+    const m = field * 2;
+    const streakSeconds = 0.0225; // matches the original's DUST_STREAK_SECONDS
+    const speed = Math.hypot(vel.x, vel.y, vel.z);
+    const visibility = speed < 0.05 ? 0 : Math.min(0.22, Math.max(0.05, Math.sqrt(speed) / 20));
+    const wrap = (v: number) => (((v % m) + m) % m) - field;
+
+    const posAttr = this.spaceDust.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const alphaAttr = this.spaceDust.mesh.geometry.getAttribute('aAlpha') as THREE.BufferAttribute;
+    for (let i = 0; i < bases.length; i++) {
+      const b = bases[i];
+      const relX = wrap(b.x - shipPos.x), relY = wrap(b.y - shipPos.y), relZ = wrap(b.z - shipPos.z);
+      const proximity = Math.min(1, Math.max(0, 1 - Math.hypot(relX, relY, relZ) / field));
+      const i2 = i * 2;
+      posAttr.setXYZ(i2, relX, relY, relZ);
+      posAttr.setXYZ(i2 + 1, relX + vel.x * streakSeconds, relY + vel.y * streakSeconds, relZ + vel.z * streakSeconds);
+      alphaAttr.setX(i2, proximity * visibility);
+      alphaAttr.setX(i2 + 1, 0);
+    }
+    posAttr.needsUpdate = true;
+    alphaAttr.needsUpdate = true;
   }
 
   private relDir(body: CelestialBody, eye: Vec3): Vec3 {

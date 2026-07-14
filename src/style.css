@@ -25,25 +25,27 @@ html, body {
   display: block;
 }
 
+/* Boresight crosshair: two 1px bars crossing at screen center — matches the original project's
+   design (a plus, not a circle). */
 #crosshair {
   position: fixed;
-  left: 50%;
   top: 50%;
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  border: 1px solid rgba(143, 211, 199, 0.6);
-  border-radius: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
   pointer-events: none;
   z-index: 5;
 }
-
-#crosshair.hit {
-  border-color: var(--hud-on);
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
+#crosshair::before, #crosshair::after {
+  content: '';
+  position: absolute;
+  background: rgba(143, 211, 199, 0.6);
 }
+#crosshair::before { top: 9px; left: 0; width: 20px; height: 1px; }
+#crosshair::after { top: 0; left: 9px; width: 1px; height: 20px; }
+
+#crosshair.hit::before, #crosshair.hit::after { background: var(--hud-on); }
 
 /* Diamond reticle over the active PIP's screen position; JS drives left/top/display (hud.ts),
    the yellow/green swap mirrors the original project's wouldHit-color rule. */
@@ -105,8 +107,7 @@ html, body {
 
 #hud {
   position: fixed;
-  left: 16px;
-  bottom: 16px;
+  inset: 0;
   z-index: 5;
   pointer-events: none;
   font-size: 12px;
@@ -114,17 +115,55 @@ html, body {
   text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
 }
 
-.hud-block { margin-bottom: 8px; white-space: pre; }
+/* ---------- Ported from the original project's HUD (starcitizen_flightsim/src/style.css):
+   a bottom-left flight-stats panel, a top-center mission-stats/scenario panel, and a top-center
+   PIP Trainer panel, all built from the same .panel/.row/.label/.value/.bar-* primitives. ---------- */
+#title {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(143, 211, 199, 0.6);
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
 
-#hud-mode {
+.panel {
+  position: fixed;
+  background: rgba(5, 10, 12, 0.55);
+  border: 1px solid rgba(143, 211, 199, 0.3);
+  padding: 10px 14px;
+  line-height: 1.6;
+}
+#stats { bottom: 16px; left: 16px; min-width: 200px; }
+#scenario-hud, #pip-trainer-hud { top: 44px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 200px; }
+
+#stats-mode {
   font-size: 14px;
   letter-spacing: 1px;
   color: var(--hud-accent);
+  margin-bottom: 6px;
 }
 
-.hud-row .k { color: rgba(143, 211, 199, 0.6); }
-.hud-row .v { color: var(--hud-fg); }
-.hud-row .v.on { color: var(--hud-on); }
+.row { display: flex; justify-content: space-between; gap: 18px; }
+.label { color: rgba(143, 211, 199, 0.6); }
+.value { color: var(--hud-fg); }
+.value.on { color: var(--hud-accent); font-weight: bold; }
+.bar-bg { background: rgba(255, 255, 255, 0.06); height: 4px; width: 100%; margin-top: 2px; }
+.bar-fill { background: var(--hud-fg); height: 4px; }
+
+/* DECOUPLED row doubles as a click target (same effect as the decoupleToggle keybind) */
+#mode-flag { pointer-events: auto; cursor: pointer; align-items: center; }
+#mode-flag .value {
+  border: 1px solid rgba(143, 211, 199, 0.3);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 10px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+#mode-flag:hover .value { border-color: var(--hud-accent); color: var(--hud-accent); }
+#mode-flag .value.on { border-color: var(--hud-accent); background: rgba(255, 122, 69, 0.12); }
 
 /* ---------- Top-right toggle row (F1-F4) ---------- */
 #toggle-bar {

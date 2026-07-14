@@ -68,4 +68,10 @@ describe('gatePath', () => {
     const playerPos = { x: gate.pos.x, y: gate.pos.y, z: gate.pos.z - 1 };
     expect(evaluateGateCrossing(playerPos, gate)).toBe('ahead');
   });
+
+  it('counts crossing exactly at the gate\'s radius boundary as cleared (uses <=, not <)', () => {
+    const gate = path[0];
+    const playerPos = { x: gate.pos.x + gate.radius, y: gate.pos.y, z: gate.pos.z + 1 };
+    expect(evaluateGateCrossing(playerPos, gate)).toBe('cleared');
+  });
 });

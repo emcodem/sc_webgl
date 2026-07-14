@@ -37,7 +37,7 @@ export function firePlayerWeaponIfRequested(world: World, dt: number): boolean {
     (mouseReady && MouseButtons.isPressed('primaryFire'));
   if (player.mode !== 'pilot' || !firing || ship.fireCooldown > 0) return false;
   const axes = computeAxes(ship.quat);
-  spawnProjectileFrom(ship.pos, ship.vel, axes.forward, 'player', world.projectiles);
+  spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles);
   ship.fireCooldown = 1 / WEAPON.fireRate;
   return true;
 }
@@ -89,7 +89,7 @@ export function stepCombat(world: World, dt: number): void {
       const axes = computeAxes(enemy.quat);
       const dist = length(sub(ship.pos, enemy.pos));
       if (canFire(axes.forward, decision.aimDir, dist, enemy.ai.tuning)) {
-        spawnProjectileFrom(enemy.pos, enemy.vel, axes.forward, 'enemy', world.projectiles);
+        spawnProjectileFrom(enemy.pos, enemy.vel, axes.forward, axes.right, axes.up, 'enemy', world.projectiles);
         enemy.fireCooldown = 1 / WEAPON.fireRate;
       }
     }

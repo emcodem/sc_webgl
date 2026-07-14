@@ -17,9 +17,9 @@ import type { PipTrainerState } from '../combat/pipTrainer';
 // The sim never needs to know about this; it just moves things in absolute space.
 // ============================================================================================
 
-// A star, planet, moon, or station. Bodies are spheres for now (radius = surface radius). Walkable
-// bodies have gravity and an on-foot-collidable surface; backdrop bodies (sun, distant planet) are
-// purely visual and far enough that the player can't reach them this milestone.
+// A star, planet, moon, or free-floating rock. Bodies are spheres for now (radius = surface
+// radius). Walkable bodies have gravity and an on-foot-collidable surface; backdrop bodies (sun,
+// distant planet) are purely visual and far enough that the player can't reach them this milestone.
 export interface CelestialBody {
   name: string;
   pos: Vec3;              // absolute world position of the body's center
@@ -29,9 +29,12 @@ export interface CelestialBody {
   color: number;          // base albedo (three.js hex), used by the render layer
   emissive?: boolean;     // true for the sun — self-lit and acts as the scene light source
   atmosphere?: number;    // optional atmosphere tint (three.js hex) for a soft rim glow
-  station?: boolean;      // true for a space station — render layer builds a ring-and-hub mesh
-                           // instead of a sphere; `radius` is its overall bounding size, not a
-                           // walkable surface
+  meteorite?: boolean;    // true for the free-flight sandbox's nearby rock — render layer loads a
+                           // real scanned-meteorite glTF model (see render/celestialModels.ts)
+                           // instead of building a sphere; `radius` is its overall bounding size,
+                           // not a walkable surface (not walkable at all currently — see
+                           // physics/characterController.ts's nearestWalkable, which this is
+                           // excluded from same as the station it replaces)
 }
 
 // The ship as a physics body (satisfies FlightBody in physics/flightModel.ts). Absolute coords.

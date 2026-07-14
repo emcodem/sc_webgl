@@ -11,7 +11,7 @@ import { fbm } from './noise';
 // terrain + surface mottling. `amp` is metres of relief; kept small for walkable bodies so the
 // visual surface stays close to the collision sphere (see characterController).
 function texturizeSphere(
-  geo: THREE.SphereGeometry,
+  geo: THREE.BufferGeometry,
   radius: number,
   opts: { amp: number; freq: number; base: THREE.Color; darken: number }
 ): void {
@@ -144,49 +144,18 @@ function createSunMesh(body: CelestialBody): THREE.Object3D {
   return group;
 }
 
-// A procedural space station: a spin-axis hub, a ring habitat held off by spokes, and a scatter of
-// small bright hull lights (bloom picks these up, same trick as the ship's engine glow) so it
-// still reads as a station rather than a shapeless speck at the distances it's placed at. `radius`
-// is the ring's radius, not a walkable surface.
-function createStationMesh(body: CelestialBody): THREE.Object3D {
-  const group = new THREE.Group();
-  group.name = body.name;
-  const r = body.radius;
-
-  const hullColor = new THREE.Color(body.color);
-  const hull = new THREE.MeshStandardMaterial({ color: hullColor, roughness: 0.5, metalness: 0.85 });
-  const dark = new THREE.MeshStandardMaterial({
-    color: hullColor.clone().multiplyScalar(0.4), roughness: 0.6, metalness: 0.8
-  });
-  const lightMat = new THREE.MeshBasicMaterial({ color: 0xd7f0ff });
-
-  const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.12, r * 0.12, r * 1.1, 16), hull);
-  group.add(hub);
-
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, r * 0.09, 12, 48), dark);
-  ring.rotation.x = Math.PI / 2;
-  group.add(ring);
-
-  const spokeCount = 6;
-  for (let i = 0; i < spokeCount; i++) {
-    const pivot = new THREE.Group();
-    pivot.rotation.y = (i / spokeCount) * Math.PI * 2;
-    const spoke = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.025, r * 0.025, r * 0.85, 8), hull);
-    spoke.rotation.x = Math.PI / 2;
-    spoke.position.z = r * 0.42;
-    pivot.add(spoke);
-    group.add(pivot);
-  }
-
-  const lightCount = 24;
-  for (let i = 0; i < lightCount; i++) {
-    const a = (i / lightCount) * Math.PI * 2;
-    const light = new THREE.Mesh(new THREE.SphereGeometry(r * 0.02, 6, 6), lightMat);
-    light.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
-    group.add(light);
-  }
-
-  return group;
+// Placeholder for the meteorite body (see world/celestial.ts's METEORITE) shown until the real
+// glTF scan (render/celestialModels.ts) finishes loading and swaps in — same
+// placeholder-then-swap split as createShipMesh's role for AI drones before the "Arrow" model
+// resolves. A lumpy, noise-displaced icosahedron reads as an irregular rock at a glance rather
+// than the smooth sphere a plain SphereGeometry would.
+function createMeteoritePlaceholderMesh(body: CelestialBody): THREE.Object3D {
+  const geo = new THREE.IcosahedronGeometry(body.radius, 2);
+  texturizeSphere(geo, body.radius, { amp: body.radius * 0.25, freq: 2.5, base: new THREE.Color(body.color), darken: 0.5 });
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = body.name;
+  return mesh;
 }
 
 export function createBodyMesh(body: CelestialBody): THREE.Object3D {
@@ -197,7 +166,7 @@ export function createBodyMesh(body: CelestialBody): THREE.Object3D {
   const geo = new THREE.SphereGeometry(body.radius, segments, segments);
 
   if (body.emissive) return createSunMesh(body);
-  if (body.station) return createStationMesh(body);
+  if (body.meteorite) return createMeteoritePlaceholderMesh(body);
 
   // rocky/planetary body: displaced + mottled, lit standard material
   const walkable = body.walkable;
@@ -223,8 +192,8 @@ export function createBodyMesh(body: CelestialBody): THREE.Object3D {
 // ship from an AI opponent's, so a dogfight reads at a glance.
 export function createShipMesh(accentColor = 0xff7a45): THREE.Object3D {
   const group = new THREE.Group();
-  const hull = new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.45, metalness: 0.75 });
-  const accent = new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.5, metalness: 0.6 });
+  const hull = new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.55, metalness: 0.4 });
+  const accent = new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.55, metalness: 0.35 });
 
   const body = new THREE.Mesh(new THREE.BoxGeometry(3, 2.2, 11), hull);
   body.position.z = -1;
@@ -256,15 +225,135 @@ export function createShipMesh(accentColor = 0xff7a45): THREE.Object3D {
   return group;
 }
 
-// A weapon-round tracer: a short bright bar along local +Z (matches setObjectBasis's forward
-// convention, so orienting it toward its velocity direction needs no extra rotation). Plain
-// MeshBasicMaterial at a near-white tint — same trick as the ship's engine glow — reads as HDR
-// enough for the bloom pass to pick it up without a custom shader.
-export function createProjectileMesh(color: number): THREE.Mesh {
-  return new THREE.Mesh(
-    new THREE.BoxGeometry(0.18, 0.18, 4),
-    new THREE.MeshBasicMaterial({ color })
-  );
+// A radial "hot core" texture for the bolt's head glow, matching the streak shader's own
+// core-white -> mid-orange -> outer-red gradient (see LASER_FRAGMENT_SHADER) rather than a flat
+// single-tone dot — a tight bright pinpoint bleeding out into color, same shape family as the
+// sun's corona billboards above, so a dead-ahead shot (where the head sprite carries the whole
+// look — see the projectile loop's doc comment in renderer.ts) still reads as a hot energy spark
+// rather than a uniform flat-colored ball.
+let dotTexture: THREE.CanvasTexture | null = null;
+function getDotTexture(): THREE.CanvasTexture {
+  if (dotTexture) return dotTexture;
+  dotTexture = makeRadialTexture([
+    [0.0, 'rgba(255,250,235,1)'],
+    [0.16, 'rgba(255,225,170,0.95)'],
+    [0.4, 'rgba(255,120,40,0.75)'],
+    [0.7, 'rgba(200,20,10,0.35)'],
+    [1.0, 'rgba(160,0,0,0)']
+  ]);
+  return dotTexture;
+}
+
+// Laser-bolt streak shader: a volumetric-looking energy streak rather than a flat colored quad —
+// a narrow white-hot core (only near the head; it tapers away toward the tail, per a real energy
+// weapon's motion blur) inside a saturated orange mid-glow inside a soft red outer halo, with an
+// exponential transverse falloff (pow(1-dist,3)) and a longitudinal fade from a blunt bright head
+// to a fully transparent tail. `vUv.x` is the transverse (width) axis, `vUv.y` the longitudinal
+// (length) axis with 0 = tail, 1 = head (see createProjectileMesh's geometry setup below).
+// #include <logdepthbuf_*> chunks are required here — the renderer is constructed with
+// logarithmicDepthBuffer: true (see renderer.ts; needed to show a 20m ship and an 8,000,000m sun
+// in the same frame), and three.js's built-in materials get that handling injected automatically,
+// but a raw THREE.ShaderMaterial does not. Without it this mesh depth-tested as if the buffer were
+// linear and simply never passed, rendering nothing despite otherwise-correct geometry/material
+// state (confirmed by dumping the live scene graph — position, quaternion, and vertex data all
+// checked out fine while the mesh stayed invisible).
+const LASER_VERTEX_SHADER = `
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    #include <logdepthbuf_vertex>
+  }
+`;
+const LASER_FRAGMENT_SHADER = `
+  #include <common>
+  #include <logdepthbuf_pars_fragment>
+  varying vec2 vUv;
+  uniform vec3 uTint;
+  void main() {
+    float centerDist = abs(vUv.x - 0.5) * 2.0; // 0 at the beam's center axis -> 1 at its edge
+    float v = vUv.y;                            // 0 at the tail -> 1 at the head
+
+    vec3 coreColor = vec3(1.0, 0.95, 0.8);
+    vec3 midColor = vec3(1.0, 0.25, 0.0) * uTint;
+    vec3 outerColor = vec3(0.8, 0.0, 0.0) * uTint;
+
+    // smoothstep's edges must ascend (edge0 < edge1) — GLSL leaves edge0 >= edge1 undefined, which
+    // silently rendered as nothing at all under this project's swiftshader/ANGLE test target — so
+    // an inverted falloff is built as 1.0 - smoothstep(low, high, x) rather than swapping the edges.
+    float coreBand = (1.0 - smoothstep(0.0, 0.16, centerDist)) * smoothstep(0.1, 0.7, v);
+    float midBand = 1.0 - smoothstep(0.05, 0.6, centerDist);
+
+    vec3 color = mix(outerColor, midColor, midBand);
+    color = mix(color, coreColor, coreBand);
+
+    float transverseFalloff = pow(max(0.0, 1.0 - centerDist), 3.0);
+    float longitudinalFalloff = smoothstep(0.0, 0.3, v); // fades in from the tail
+    float alpha = transverseFalloff * longitudinalFalloff;
+
+    // pushed past 1.0 so the core clears UnrealBloomPass's luminance threshold
+    gl_FragColor = vec4(color * (1.0 + coreBand * 1.8), alpha);
+    #include <logdepthbuf_fragment>
+  }
+`;
+
+// Additive blending via EXPLICIT blend factors (SRC_ALPHA, ONE) rather than THREE.AdditiveBlending
+// (which defaults to (ONE, ONE) and would add full-strength color even where alpha has faded to
+// near-0) — this is what makes the exponential transverse/longitudinal falloff above actually show
+// up as a soft feathered glow instead of a hard-edged additive quad.
+function createLaserStreakMaterial(tint: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTint: { value: new THREE.Color(tint) } },
+    vertexShader: LASER_VERTEX_SHADER,
+    fragmentShader: LASER_FRAGMENT_SHADER,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.SrcAlphaFactor,
+    blendDst: THREE.OneFactor,
+    blendEquation: THREE.AddEquation,
+    side: THREE.DoubleSide
+  });
+}
+
+// The streak's fixed local length before per-frame scaling — see render/renderer.ts's
+// per-projectile loop, which rebuilds this mesh's orientation and scale.y every frame as a
+// screen-space "stretched billboard" rather than a fixed 3D-oriented quad.
+export const PROJECTILE_STREAK_LENGTH = 9;
+
+// A weapon-round tracer: a camera-facing sprite at the head (a blunt, always-visible glow) plus a
+// separate streak quad carrying the gradient shader above. The streak is NOT oriented like a
+// normal 3D object — a plane whose length runs along the actual 3D travel direction goes edge-on
+// and vanishes whenever that direction is close to the camera's own view direction, which is
+// exactly what happens for the single most common case in this game: the player's own fire,
+// travelling almost straight away from the camera that's aiming it. Real tracers/lasers in every
+// engine solve this the same way — a "stretched billboard": the streak always fully faces the
+// camera (like the sprite), and its apparent LENGTH/rotation come from projecting the 3D tail
+// offset onto the camera's own (right, up) plane, so it correctly shows a full streak when viewed
+// from the side and collapses toward the head sprite's small glow when viewed dead-on (which is
+// also physically correct — something moving directly away from you doesn't reveal its length).
+// Local geometry: width along local X, head at local Y=0 (unscaled), tail at local Y=-1 (scaled by
+// mesh.scale.y each frame) — a plain, un-rotated PlaneGeometry already has this shape.
+export function createProjectileMesh(color: number): THREE.Group {
+  const group = new THREE.Group();
+
+  const headSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: getDotTexture(),
+    color: new THREE.Color(1, 0.95, 0.8).multiplyScalar(2.6),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+  }));
+  headSprite.scale.setScalar(1.1);
+  group.add(headSprite);
+
+  const streakGeo = new THREE.PlaneGeometry(0.7, 1);
+  streakGeo.translate(0, -0.5, 0); // head (v=1, bright) at local y=0, tail (v=0) at local y=-1
+  const streak = new THREE.Mesh(streakGeo, createLaserStreakMaterial(color));
+  group.add(streak);
+
+  return group;
 }
 
 // PIP Trainer's ESP-style marker — a small bright glow sphere, same "plain MeshBasicMaterial at a
@@ -322,4 +411,60 @@ export function createStarfield(count = 5000, radius = 1e7): THREE.Points {
       }`
   });
   return new THREE.Points(geo, mat);
+}
+
+// SC-style ambient dust — ported from the original project's render/render.ts::drawSpaceDust: a
+// small field of world-fixed motes wrapped tightly around the ship, invisible at a standstill and
+// stretching into snow-like streaks as speed rises. This is the primary moment-to-moment visual
+// cue for how hard the ship is accelerating/braking — with celestial bodies millions of metres away
+// (see world/celestial.ts) there's essentially no other parallax reference at flight speeds, so
+// without this the ship's actual (unchanged) acceleration/deceleration reads as sluggish or absent.
+//
+// `bases` are arbitrary random seeds, not real world coordinates — render/renderer.ts's per-frame
+// update wraps each one against the ship's current absolute position into a bounded offset and
+// renders that directly as the camera-relative position (this scene is always rendered camera-
+// relative — see the floating-origin note in renderer.ts — and while piloting the camera sits
+// exactly at the ship's position, so the wrapped offset from the ship IS the render position,
+// with no separate eye-subtraction step needed).
+export interface SpaceDust {
+  mesh: THREE.LineSegments;
+  bases: { x: number; y: number; z: number }[];
+  field: number;
+}
+
+export function createSpaceDust(count = 70, field = 130): SpaceDust {
+  const bases: { x: number; y: number; z: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    bases.push({
+      x: (Math.random() - 0.5) * field * 2,
+      y: (Math.random() - 0.5) * field * 2,
+      z: (Math.random() - 0.5) * field * 2
+    });
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const positions = new THREE.BufferAttribute(new Float32Array(count * 2 * 3), 3);
+  const alphas = new THREE.BufferAttribute(new Float32Array(count * 2), 1);
+  positions.setUsage(THREE.DynamicDrawUsage);
+  alphas.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', positions);
+  geo.setAttribute('aAlpha', alphas);
+
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `
+      attribute float aAlpha; varying float vAlpha;
+      void main() {
+        vAlpha = aAlpha;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      varying float vAlpha;
+      void main() { gl_FragColor = vec4(0.78, 0.88, 1.0, vAlpha); }`
+  });
+
+  const mesh = new THREE.LineSegments(geo, mat);
+  mesh.frustumCulled = false; // positions are rewritten every frame around the camera; a static
+                               // bounding sphere would risk incorrect culling
+  return { mesh, bases, field };
 }

@@ -4,6 +4,10 @@ Orientation file for the WebGL rebuild of "Vector". The original 2D-canvas proje
 `C:\dev\starcitizen_flightsim` (referred to below as "the original"); this project reuses its
 hard-won flight tuning but is a ground-up universe-scale architecture.
 
+**Original project sync point:** as of 2026-07-14, the original is at commit `2277c1b08ea32f38080dbeb1b056902af95d56f8`
+("Soften vJoy-in-Chrome warning wording"). Work continues on the original in parallel with this
+rebuild; changes made there after this commit still need to be ported over here.
+
 ## What this is
 
 A **three.js / WebGL** rebuild of Vector, architected from the start to grow into a whole universe:

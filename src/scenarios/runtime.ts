@@ -154,10 +154,10 @@ export function updateScenario(world: World, dt: number): void {
         enemy.fireCooldown -= dt;
         if (decision.wantsToFire && enemy.fireCooldown <= 0) {
           // re-check aim post-rotation — see canFireWithinTolerance's doc comment for why.
-          const { forward } = computeAxes(enemy.quat);
+          const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           if (canFireWithinTolerance(forward, decision.aimDir, dist, CHASER_TUNING.fireRange, CHASER_TUNING.fireLateralTolerance)) {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, 'enemy', world.projectiles);
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
             enemy.fireCooldown = 1 / WEAPON.fireRate;
           }
         }
@@ -175,10 +175,10 @@ export function updateScenario(world: World, dt: number): void {
         enemy.fireCooldown -= dt;
         if (decision.wantsToFire && enemy.fireCooldown <= 0) {
           // re-check aim post-rotation — see canFire's doc comment for why that ordering matters.
-          const { forward } = computeAxes(enemy.quat);
+          const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           if (canFire(forward, decision.aimDir, dist, enemy.ai.tuning)) {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, 'enemy', world.projectiles);
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
             enemy.fireCooldown = 1 / WEAPON.fireRate;
           }
         }
@@ -198,13 +198,13 @@ export function updateScenario(world: World, dt: number): void {
         const targetQuat = lookAtQuat(toPlayer);
         enemy.quat = rotateTowards(enemy.quat, targetQuat, (enemy.turnRateRadPerSec ?? 0) * dt);
 
-        const { forward } = computeAxes(enemy.quat);
+        const { forward, right, up } = computeAxes(enemy.quat);
         const aimDot = (toPlayer.x * forward.x + toPlayer.y * forward.y + toPlayer.z * forward.z) / dist;
         const aimAngle = Math.acos(Math.min(1, Math.max(-1, aimDot)));
 
         enemy.fireCooldown -= dt;
         if (aimAngle <= AIM_FIRE_CONE_RAD && enemy.fireCooldown <= 0) {
-          spawnProjectileFrom(enemy.pos, enemy.vel, forward, 'enemy', world.projectiles);
+          spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
           enemy.fireCooldown = 1 / WEAPON.fireRate;
         }
         break;
@@ -220,10 +220,10 @@ export function updateScenario(world: World, dt: number): void {
         enemy.fireCooldown -= dt;
         if (decision.wantsToFire && enemy.fireCooldown <= 0) {
           // re-check aim post-rotation — see canFireWithinTolerance's doc comment for why.
-          const { forward } = computeAxes(enemy.quat);
+          const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           if (canFireWithinTolerance(forward, decision.aimDir, dist, EVASIVE_TUNING.fireRange, EVASIVE_TUNING.fireLateralTolerance)) {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, 'enemy', world.projectiles);
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
             enemy.fireCooldown = 1 / WEAPON.fireRate;
           }
         }

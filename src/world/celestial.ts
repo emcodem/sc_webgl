@@ -1,23 +1,24 @@
 import type { CelestialBody } from '../core/world';
 
 // ---------- The starter star system ----------
-// A distant sun as backdrop, plus a space station within easy reach of spawn for free flight.
+// A distant sun as backdrop, plus a nearby rock within easy reach of spawn for free flight.
 // All positions absolute, metres. This is data — the render layer turns each body into a mesh.
 // Adding a real explorable universe later is just more entries here (and, eventually, streaming
 // them in/out rather than a static list).
 
-// A space station where Crusader used to be — placed within 20 km of SPAWN so it's reachable in
-// free flight without a long transit. Not walkable this milestone (you can't fly to it, let alone
-// dock, yet). Rendered as a procedural ring-and-hub structure, not a sphere — see
-// render/meshes.ts createStationMesh.
-export const STATION: CelestialBody = {
-  name: 'Baijini Point',
-  pos: { x: 0, y: 3_000, z: 15_000 },
-  radius: 2_000,
+// A scanned meteorite sample, rendered at asteroid scale — a nearby landmark to fly around in
+// free flight. Well within 1km of SPAWN so it's immediately reachable without a transit. Not
+// walkable this milestone (no interior/surface collision for an irregular mesh yet — same
+// restriction the space station this replaces had). Rendered from a real glTF scan, not a
+// sphere — see render/meshes.ts's meteorite branch and render/celestialModels.ts.
+export const METEORITE: CelestialBody = {
+  name: 'MIL 15307',
+  pos: { x: -400, y: 100, z: 500 }, // distance from SPAWN (0,0,0) ~= 648m, comfortably inside 1km
+  radius: 30, // half of the ~60m target size render/celestialModels.ts scales the model to
   gravity: 0,
   walkable: false,
-  color: 0x9aa4ad,
-  station: true
+  color: 0x9a8f82,
+  meteorite: true
 };
 
 // The sun — backdrop AND the scene's single directional light source (the render layer aims a
@@ -32,7 +33,7 @@ export const SUN: CelestialBody = {
   emissive: true
 };
 
-export const BODIES: CelestialBody[] = [SUN, STATION];
+export const BODIES: CelestialBody[] = [SUN, METEORITE];
 
 // Where the ship (and thus the player) starts: nose forward (+Z), at rest.
 export const SPAWN = {
