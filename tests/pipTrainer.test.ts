@@ -13,7 +13,7 @@ const ZERO = { x: 0, y: 0, z: 0 };
 function makePlayer(pos = ZERO, quat = IDENTITY): ShipBody {
   return {
     type: TYPE, pos, vel: ZERO, quat, angVel: { pitch: 0, yaw: 0, roll: 0 },
-    throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false,
+    throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), hitFlash: 0, fireCooldown: 0,
     respawnTimer: 0
   };

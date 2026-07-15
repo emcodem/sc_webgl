@@ -24,9 +24,13 @@ describe('Gladius tuning invariants', () => {
     }
   });
 
-  it('boostLinearThrust == boostSpeed * boostLinearDrag * mass per direction', () => {
-    expect(g.boostLinearThrust.main).toBeCloseTo(g.boostSpeedForward * g.boostLinearDrag * g.mass, 1);
-    expect(g.boostLinearThrust.retro).toBeCloseTo(g.boostSpeedBack * g.boostLinearDrag * g.mass, 1);
+  // Boost is governor-limited (like forward), re-measured 2026-07-15: thrust EXCEEDS the
+  // drag-limited settle value, so the natural asymptote (thrust/drag/mass) sits above the cap and
+  // the speed>speedCap governor is what stops it — NOT the old drag-limited equality. See
+  // physics/shipTypes.ts's Boosted-forward-thrust note.
+  it('boost is governor-limited: boostLinearThrust exceeds boostSpeed * boostLinearDrag * mass', () => {
+    expect(g.boostLinearThrust.main).toBeGreaterThan(g.boostSpeedForward * g.boostLinearDrag * g.mass);
+    expect(g.boostLinearThrust.retro).toBeGreaterThan(g.boostSpeedBack * g.boostLinearDrag * g.mass);
   });
 
   it('verticalDown thrust is exactly half verticalUp', () => {
@@ -59,5 +63,17 @@ describe('flight model behaviour', () => {
     }
     const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
     expect(speed).toBeCloseTo(g.scmSpeed, 0);
+  });
+
+  it('full boost + forward throttle governs at boostSpeedForward', () => {
+    const g = SHIP_TYPES[0];
+    const body = freshBody(g);
+    body.boosting = true;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 1, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false }, dt);
+    }
+    const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
+    expect(speed).toBeCloseTo(g.boostSpeedForward, 0);
   });
 });

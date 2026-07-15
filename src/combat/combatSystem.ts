@@ -79,9 +79,10 @@ export function stepCombat(world: World, dt: number): void {
                               // are driven by scenarios/runtime.ts::updateScenario, not stepCombat
 
     const decision = think(enemy, enemy.ai, ship, dt);
-    const boost = resolveBoost(enemy.type, enemy.boostMeter, decision.boostRequested, dt);
+    const boost = resolveBoost(enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, decision.boostRequested, dt);
     enemy.boostMeter = boost.boostMeter;
     enemy.boosting = boost.boosting;
+    enemy.boostCooldownTimer = boost.cooldownTimer;
     integrateFlight(enemy, decision.inputs, dt);
 
     enemy.fireCooldown -= dt;

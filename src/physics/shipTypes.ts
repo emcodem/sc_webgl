@@ -6,8 +6,10 @@ import type { ShipType } from '../core/types';
 // without re-measuring against it. Derived from real SCM data: 226 m/s SCM speed, 68/52/200 deg/s
 // pitch/yaw/roll, 520/268 m/s forward/back boost speed, 82/62/240 deg/s boosted pitch/yaw/roll,
 // 48,552 kg real mass, later refined against frame-counted real-game acceleration traces for
-// main/retro/strafe/vertical thrust and scmSpeedBack (see below). The boost meter's
-// capacity/recharge rate (no real data available for those) is still estimated.
+// main/retro/strafe/vertical thrust and scmSpeedBack (see below). The boost meter now uses the
+// parent project's measured two-rate ("red zone") model — capacity 100, separate drain/recharge
+// rates above vs. below boostRedZonePct, a reactivation floor, and a recharge delay (see
+// flightModel.ts::resolveBoost).
 //
 // angularThrust/boostAngularThrust are each set to their corresponding maxAngVel * angularDrag,
 // per axis (angularDrag is itself per-axis — see the real-measurement note below; boost reuses the
@@ -130,19 +132,31 @@ import type { ShipType } from '../core/types';
 //     in flightModel.ts rather than hard-coding 40, so forward braking caps at 42 (~5% above the
 //     measured 40 over the >40 m/s stretch) while the tail — the part that was actually wrong — is
 //     reproduced exactly. See flightModel.ts's brake block.
-//   - Boosted forward thrust: standing-start with boost held the whole time, frame-by-frame to
-//     402 m/s (0->98->200->305->402 over 17/13/12/15 frames) then coarser splits to 512 by 4.68s
-//     total. The first ~0.2s undershoots the rest of the curve — traced to the user's own throttle
-//     axis taking ~5 frames to reach 100% input, not an in-game spool delay (irrelevant here since
-//     keyboard input is instant). Fitting the clean remainder against boostSpeedForward=520 gives
-//     tau_boost ~= 1.0-1.2s => boostLinearDrag = 1/tau ~= 0.909 — notably *less* damped than plain
-//     thrust (5.18), confirming boost trades agility for top speed rather than just adding thrust.
+//   - Boosted forward thrust (RE-MEASURED 2026-07-15, supersedes the earlier fit): standing-start
+//     with boost held, dense 40ms trace climbing to ~519 m/s — 0, 5, 10, 20, 29, 40, 50, 62, 74, 86,
+//     100, 113, 128, ... 208 (@1.2s), 293 (@1.6s), 412 (@2.32s), then a long creep to ~519 by ~5.5s.
+//     The first ~0.24s undershoots the rest — the user's own analog throttle taking ~6 frames to
+//     reach 100% input, NOT an in-game spool (irrelevant here; keyboard boost is instant, so it's
+//     not modeled). Grid-search fitting dv/dt = thrust/mass - drag*v against the SAME hard governor
+//     clamp forward uses lands on thrust ~= 420 (A ~= 280 m/s^2), boostLinearDrag ~= 0.38, governor
+//     cap ~= boostSpeedForward — reproducing the whole climb to within ~10 m/s RMS. This is
+//     GOVERNOR-limited like forward, NOT drag-limited: the natural drag asymptote (thrust/drag/mass
+//     ~= 737) sits well above the 520 cap, so the flight-computer governor is what stops it. The
+//     earlier drag-limited fit (thrust 709, drag 0.909, chosen so the asymptote == cap) was ~2x too
+//     aggressive across the entire 0-450 m/s climb against this denser trace. Reverse boost was NOT
+//     re-traced; boostLinearThrust.retro is scaled by the same factor main dropped (~x0.592) pending
+//     its own measurement. The unboosted forward and space-brake traces from the same session
+//     matched the existing thrust=201/scmSpeed=226 and brakeGain=1.04/sat~=40 fits within ~1 m/s, so
+//     those are unchanged.
 //
 // Summary of the invariants that MUST hold (see the original project's CLAUDE.md) — guarded by
 // tests/shipTuning.test.ts:
 //   - angularThrust == maxAngVel * angularDrag  (per axis) — steady-state target, not a clamp.
 //   - boostAngularThrust == boostMaxAngVel * angularDrag  (per axis).
-//   - boostLinearThrust == boostSpeedForward/Back * boostLinearDrag * mass.
+//   - boost is GOVERNOR-limited (like forward), not drag-limited: boostLinearThrust EXCEEDS
+//     boostSpeed * boostLinearDrag * mass, so the speed>speedCap governor is what caps boost. The
+//     old "boostLinearThrust == boostSpeed*drag*mass" equality no longer holds (re-measured
+//     2026-07-15 — see the Boosted-forward-thrust note above).
 //   - linearDrag is essentially negligible; the flight-computer governor (the speed>speedCap block
 //     in flightModel.ts) is what stops the ship exactly at scmSpeed — NOT drag. Do not raise
 //     linearDrag to make it "settle"; that has been tried twice and contradicts the measured data.
@@ -160,7 +174,7 @@ export const SHIP_TYPES: ShipType[] = [
     retroSpoolDelay: 0.024,
     verticalSpoolDelay: 0.066,
     linearDrag: 0.001,
-    boostLinearDrag: 0.909,
+    boostLinearDrag: 0.38,
     coastDecel: 40,
     brakeGain: 1.04,
     angularDrag: { pitch: 10.2740, yaw: 15.4639, roll: 5.3571 },
@@ -169,11 +183,17 @@ export const SHIP_TYPES: ShipType[] = [
     scmSpeedBack: 225,
     boostSpeedForward: 520,
     boostSpeedBack: 268,
-    boostCapacity: 5,
-    boostRechargeRate: 0.4,
+    boostCapacity: 100,
+    boostRedZonePct: 25,
+    boostReactivatePct: 26,
+    boostDrainRate: 7.5,
+    boostDrainRateRedZone: 13.0208,
+    boostRechargeRate: 2.8846,
+    boostRechargeRateRedZone: 62.5,
+    boostRechargeDelaySec: 0.3,
     boostMaxAngVel: { pitch: 1.431, yaw: 1.082, roll: 4.189 },
     boostAngularThrust: { pitch: 14.7021, yaw: 16.7319, roll: 22.4409 },
-    boostLinearThrust: { main: 709.02, retro: 365.42 },
+    boostLinearThrust: { main: 420, retro: 216.5 },
     hullRadius: 10
   }
 ];

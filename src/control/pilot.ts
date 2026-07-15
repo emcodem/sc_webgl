@@ -27,9 +27,10 @@ export function stepPilot(world: World, dt: number): void {
 
   // boost meter bookkeeping (drains held, recharges idle)
   const boostRequested = Keybinds.isActive('boost') || Joystick.isButtonPressed('boost') || MouseButtons.isPressed('boost');
-  const boost = resolveBoost(ship.type, ship.boostMeter, boostRequested, dt);
+  const boost = resolveBoost(ship.type, ship.boostMeter, ship.boosting, ship.boostCooldownTimer, boostRequested, dt);
   ship.boostMeter = boost.boostMeter;
   ship.boosting = boost.boosting;
+  ship.boostCooldownTimer = boost.cooldownTimer;
 
   const mouse = MouseLook.consume();
 

@@ -145,7 +145,13 @@ export interface ShipType {
   boostSpeedForward: number;
   boostSpeedBack: number;
   boostCapacity: number;
-  boostRechargeRate: number;
+  boostRechargeRate: number;         // %/s recharged above the red zone
+  boostRedZonePct: number;           // meter %; drain/recharge switch to their red-zone rates below this
+  boostReactivatePct: number;        // meter % a fresh burn must climb back to before it can (re)start
+  boostDrainRate: number;            // %/s drained while boosting above the red zone
+  boostDrainRateRedZone: number;     // %/s drained while boosting at/below the red zone
+  boostRechargeRateRedZone: number;  // %/s recharged below the red zone (faster than boostRechargeRate)
+  boostRechargeDelaySec: number;     // s after boost ends before recharge begins
   boostMaxAngVel: AngularState;
   boostAngularThrust: AngularState;
   boostLinearThrust: { main: number; retro: number };

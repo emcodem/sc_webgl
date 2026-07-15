@@ -41,6 +41,7 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
     angVel: { pitch: 0, yaw: 0, roll: 0 },
     boostMeter: spawn.type.boostCapacity,
     boosting: false,
+    boostCooldownTimer: 0,
     throttleSpoolTime: 0,
     verticalSpoolTime: 0,
     health: createHealth(config.hitsToKillEnemy),
@@ -67,6 +68,7 @@ export function startScenario(world: World, config: ScenarioConfig): void {
   ship.spaceBrakeOn = false;
   ship.boosting = false;
   ship.boostMeter = ship.type.boostCapacity;
+  ship.boostCooldownTimer = 0;
   ship.throttleSpoolTime = 0;
   ship.verticalSpoolTime = 0;
   ship.hitFlash = 0;
@@ -146,9 +148,10 @@ export function updateScenario(world: World, dt: number): void {
 
       case 'chaser': {
         const decision = chaserThink(enemy, player);
-        const boost = resolveBoost(enemy.type, enemy.boostMeter, decision.boostRequested, dt);
+        const boost = resolveBoost(enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, decision.boostRequested, dt);
         enemy.boostMeter = boost.boostMeter;
         enemy.boosting = boost.boosting;
+        enemy.boostCooldownTimer = boost.cooldownTimer;
         integrateFlight(enemy, decision.inputs, dt);
 
         enemy.fireCooldown -= dt;
@@ -167,9 +170,10 @@ export function updateScenario(world: World, dt: number): void {
       case 'fighter': {
         if (!enemy.ai) break;
         const decision = think(enemy, enemy.ai, player, dt);
-        const boost = resolveBoost(enemy.type, enemy.boostMeter, decision.boostRequested, dt);
+        const boost = resolveBoost(enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, decision.boostRequested, dt);
         enemy.boostMeter = boost.boostMeter;
         enemy.boosting = boost.boosting;
+        enemy.boostCooldownTimer = boost.cooldownTimer;
         integrateFlight(enemy, decision.inputs, dt);
 
         enemy.fireCooldown -= dt;
@@ -212,9 +216,10 @@ export function updateScenario(world: World, dt: number): void {
       case 'evasive': {
         if (!enemy.evasive) break;
         const decision = evasiveThink(enemy, enemy.evasive, player, dt, runtime.config.evasiveReturnFire === true);
-        const boost = resolveBoost(enemy.type, enemy.boostMeter, decision.boostRequested, dt);
+        const boost = resolveBoost(enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, decision.boostRequested, dt);
         enemy.boostMeter = boost.boostMeter;
         enemy.boosting = boost.boosting;
+        enemy.boostCooldownTimer = boost.cooldownTimer;
         integrateFlight(enemy, decision.inputs, dt);
 
         enemy.fireCooldown -= dt;

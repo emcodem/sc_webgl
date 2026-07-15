@@ -12,14 +12,14 @@ const ZERO = { x: 0, y: 0, z: 0 };
 function makeEnemy(pos = { x: 0, y: 0, z: EVASIVE_TUNING.standoffDistance }, vel = ZERO): EnemyShip {
   return {
     type: TYPE, pos, vel, quat: IDENTITY, angVel: { pitch: 0, yaw: 0, roll: 0 },
-    boostMeter: TYPE.boostCapacity, boosting: false, throttleSpoolTime: 0, verticalSpoolTime: 0,
+    boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0, throttleSpoolTime: 0, verticalSpoolTime: 0,
     health: createHealth(10), behavior: 'evasive', fireCooldown: 0, respawnTimer: 0
   };
 }
 function makePlayer(vel = ZERO): ShipBody {
   return {
     type: TYPE, pos: ZERO, vel, quat: IDENTITY, angVel: { pitch: 0, yaw: 0, roll: 0 },
-    throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false,
+    throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), hitFlash: 0, fireCooldown: 0,
     respawnTimer: 0
   };

@@ -49,6 +49,7 @@ export interface ShipBody {
   spaceBrakeOn: boolean;
   boostMeter: number;
   boosting: boolean;
+  boostCooldownTimer: number; // s until boost recharge resumes after a burn (see resolveBoost)
   throttleSpoolTime: number;
   verticalSpoolTime: number;
   health: Health;
@@ -77,6 +78,7 @@ export interface EnemyShip {
   angVel: { pitch: number; yaw: number; roll: number };
   boostMeter: number;
   boosting: boolean;
+  boostCooldownTimer: number; // s until boost recharge resumes after a burn (see resolveBoost)
   throttleSpoolTime: number;
   verticalSpoolTime: number;
   health: Health;
