@@ -128,18 +128,22 @@ function createSunMesh(body: CelestialBody): THREE.Object3D {
     return sp;
   };
 
-  // inner corona: tight, bright, warm
-  group.add(corona(5, 0xffffff, [
-    [0.0, 'rgba(255,246,225,0.95)'],
-    [0.22, 'rgba(255,205,120,0.55)'],
-    [0.55, 'rgba(255,140,45,0.15)'],
-    [1.0, 'rgba(255,120,30,0.0)']
+  // inner corona: tight, bright, warm — a long, gentle tail to zero so there is no visible edge
+  group.add(corona(3, 0xffffff, [
+    [0.0, 'rgba(255,246,225,0.9)'],
+    [0.12, 'rgba(255,224,160,0.5)'],
+    [0.3, 'rgba(255,180,90,0.18)'],
+    [0.55, 'rgba(255,150,60,0.05)'],
+    [0.8, 'rgba(255,140,50,0.01)'],
+    [1.0, 'rgba(255,140,50,0.0)']
   ]));
-  // outer haze: broad, faint
-  group.add(corona(11, 0xffffff, [
-    [0.0, 'rgba(255,210,150,0.3)'],
-    [0.4, 'rgba(255,150,70,0.1)'],
-    [1.0, 'rgba(255,120,40,0.0)']
+  // outer haze: broad, very faint — asymptotic falloff, fully transparent well before the sprite edge
+  group.add(corona(6, 0xffffff, [
+    [0.0, 'rgba(255,214,160,0.16)'],
+    [0.25, 'rgba(255,170,90,0.06)'],
+    [0.5, 'rgba(255,150,60,0.015)'],
+    [0.75, 'rgba(255,150,60,0.003)'],
+    [1.0, 'rgba(255,150,60,0.0)']
   ]));
 
   return group;
