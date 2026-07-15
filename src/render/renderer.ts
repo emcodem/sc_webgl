@@ -11,8 +11,8 @@ import { normalize } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
-  createBodyMesh, createPipMarkerMesh, createProjectileMesh, createShipMesh, createSpaceDust, createStarfield,
-  PROJECTILE_RADIUS, type SpaceDust
+  createBodyMesh, createExplosionMesh, createImpactMesh, createPipMarkerMesh, createProjectileMesh,
+  createShipMesh, createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
 } from './meshes';
 import { setCameraBasis, setObjectBasis } from './camera';
 import { cloneArrow, loadArrowTemplate } from './shipModels';
@@ -45,7 +45,8 @@ export class Renderer {
   private gateMeshes: THREE.Mesh[] = [];
   private currentGatePath: FlightGate[] | null = null;
   private rangeBubbleMesh: THREE.Mesh | null = null;
-  private effectPool: THREE.Mesh[] = [];
+  private explosionPool: THREE.Group[] = [];
+  private impactPool: THREE.Mesh[] = [];
   private pipMarkerMesh: THREE.Mesh | null = null;
   private starfield: THREE.Points;
   private spaceDust: SpaceDust;
@@ -296,29 +297,27 @@ export class Renderer {
       this.rangeBubbleMesh.visible = false;
     }
 
-    // combat bursts — a pooled additive sphere per live world.effects entry (see combat/effects.ts),
-    // sized/tinted/faded by kind. Explosions are a big orange fireball that grows and fades over its
-    // life; impacts are a small hot-white spark that pops and fades fast. t goes 1 -> 0 as the
-    // effect expires.
-    const effects = world.effects;
-    effects.forEach((fx, i) => {
-      const mesh = this.effectMesh(i);
-      mesh.visible = true;
-      mesh.position.set(fx.pos.x - eye.x, fx.pos.y - eye.y, fx.pos.z - eye.z);
+    // combat bursts (see combat/effects.ts) — pooled per kind, positioned camera-relative. t goes
+    // 1 -> 0 over the effect's life; prog = 1 - t is 0 -> 1. Explosions are a 4-layer group (see
+    // createExplosionMesh + animateExplosion); impacts are a single small hot spark.
+    let expIdx = 0, impIdx = 0;
+    for (const fx of world.effects) {
       const t = Math.max(0, fx.timer / fx.maxTimer);
-      const mat = mesh.material as THREE.MeshBasicMaterial;
       if (fx.kind === 'explosion') {
-        mesh.scale.setScalar(1 + (1 - t) * 3); // base r=3 -> grows to ~12m
-        mat.color.setHex(0xffaa55);
+        const g = this.explosionMesh(expIdx++);
+        g.visible = true;
+        g.position.set(fx.pos.x - eye.x, fx.pos.y - eye.y, fx.pos.z - eye.z);
+        this.animateExplosion(g, t);
       } else {
-        mesh.scale.setScalar(0.17 + (1 - t) * 0.5); // small spark, ~0.5m -> ~2m
-        mat.color.setHex(0xfff2c0);
+        const m = this.impactMesh(impIdx++);
+        m.visible = true;
+        m.position.set(fx.pos.x - eye.x, fx.pos.y - eye.y, fx.pos.z - eye.z);
+        m.scale.setScalar(0.5 + (1 - t) * 1.8); // ~0.5m -> ~2.3m
+        (m.material as THREE.MeshBasicMaterial).opacity = t;
       }
-      mat.opacity = t;
-    });
-    for (let i = effects.length; i < this.effectPool.length; i++) {
-      this.effectPool[i].visible = false;
     }
+    for (let i = expIdx; i < this.explosionPool.length; i++) this.explosionPool[i].visible = false;
+    for (let i = impIdx; i < this.impactPool.length; i++) this.impactPool[i].visible = false;
 
     // PIP Trainer marker — a small bright glow sphere at the pip's live position, only while a
     // PIP Trainer session is active. Scales up briefly on a scored rep (scoreFlash), same visual
@@ -404,19 +403,44 @@ export class Renderer {
     return mesh;
   }
 
-  // Lazily grows the combat-effect pool to match however many bursts are active, same pooling idiom
-  // as projectileMesh — a bright, additive sphere whose color/scale/opacity are set per frame by the
-  // effect's kind and remaining life (see the render loop). Base radius 3; the loop scales from there.
-  private effectMesh(i: number): THREE.Mesh {
-    if (i >= this.effectPool.length) {
-      const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(3, 12, 12),
-        new THREE.MeshBasicMaterial({ color: 0xffaa55, transparent: true, opacity: 1, blending: THREE.AdditiveBlending })
-      );
-      this.scene.add(mesh);
-      this.effectPool.push(mesh);
+  // Lazily-grown pools for the two burst kinds (same pooling idiom as projectileMesh).
+  private explosionMesh(i: number): THREE.Group {
+    if (i >= this.explosionPool.length) {
+      const g = createExplosionMesh();
+      this.scene.add(g);
+      this.explosionPool.push(g);
     }
-    return this.effectPool[i];
+    return this.explosionPool[i];
+  }
+
+  private impactMesh(i: number): THREE.Mesh {
+    if (i >= this.impactPool.length) {
+      const m = createImpactMesh();
+      this.scene.add(m);
+      this.impactPool.push(m);
+    }
+    return this.impactPool[i];
+  }
+
+  // Drives the 4-layer explosion group (see createExplosionMesh) from remaining life t (1 -> 0).
+  // Each layer has its own growth rate and fade so the burst reads as: an instant white flash, an
+  // orange fireball swelling and dimming, a shockwave shell racing out ahead, and debris sparks
+  // scattering. Radii are metres (an enemy hull is ~10 m across).
+  private animateExplosion(g: THREE.Group, t: number): void {
+    const prog = 1 - t;
+    const [core, fire, wave, debris] = g.children as [THREE.Mesh, THREE.Mesh, THREE.Mesh, THREE.Points];
+
+    core.scale.setScalar(2 + prog * 4);
+    (core.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - prog * 2.4); // brief flash
+
+    fire.scale.setScalar(4 + prog * 9);
+    (fire.material as THREE.MeshBasicMaterial).opacity = t * t; // swell then dim
+
+    wave.scale.setScalar(4 + prog * 24); // outruns the fireball
+    (wave.material as THREE.MeshBasicMaterial).opacity = t * 0.5;
+
+    debris.scale.setScalar(3 + prog * 20); // shards fly outward
+    (debris.material as THREE.PointsMaterial).opacity = t;
   }
 
   private createPipMarker(): THREE.Mesh {

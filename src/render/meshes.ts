@@ -247,6 +247,54 @@ export function createProjectileMesh(color: number): THREE.Mesh {
   return new THREE.Mesh(geo, mat);
 }
 
+// Layered enemy-death explosion (see combat/effects.ts, animated in render/renderer.ts). Four
+// additive layers on one Group, driven per frame by the burst's remaining life: a white-hot core
+// flash, the orange fireball, an expanding wireframe shockwave shell, and a cloud of debris sparks
+// flung radially outward. Base geometry is unit-scale (radius 1); the renderer scales each layer.
+// Children are ordered [core, fireball, shockwave, debris] — the renderer indexes them directly.
+export function createExplosionMesh(): THREE.Group {
+  const g = new THREE.Group();
+  const additive = (color: number) => new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false
+  });
+
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), additive(0xfff4d6))); // 0: white-hot core
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), additive(0xff7a2a))); // 1: orange fireball
+  const wave = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 20), additive(0xffd090));
+  (wave.material as THREE.MeshBasicMaterial).wireframe = true;
+  g.add(wave);                                                                     // 2: shockwave shell
+
+  // 3: debris — a Points cloud on evenly-spread unit directions (fibonacci sphere, deterministic so
+  // no per-frame RNG); the renderer scales the whole cloud outward and fades it.
+  const N = 28;
+  const dirs = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i / (N - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const phi = i * 2.399963229; // golden angle
+    dirs[i * 3] = Math.cos(phi) * r;
+    dirs[i * 3 + 1] = y;
+    dirs[i * 3 + 2] = Math.sin(phi) * r;
+  }
+  const debrisGeo = new THREE.BufferGeometry();
+  debrisGeo.setAttribute('position', new THREE.BufferAttribute(dirs, 3));
+  g.add(new THREE.Points(debrisGeo, new THREE.PointsMaterial({
+    color: 0xffb060, size: 3, sizeAttenuation: false, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  })));
+
+  return g;
+}
+
+// Laser-hit spark (see combat/effects.ts) — a single small hot additive sphere, sized/faded by the
+// renderer. Deliberately minimal vs the explosion: impacts are frequent and quick.
+export function createImpactMesh(): THREE.Mesh {
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(1, 10, 10),
+    new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+}
+
 // PIP Trainer's ESP-style marker — a small bright glow sphere, same "plain MeshBasicMaterial at a
 // near-white/bright tint reads as HDR for the bloom pass" trick as the ship's engine glow and the
 // projectile tracer above. See combat/pipTrainer.ts and render/renderer.ts's per-frame use.
