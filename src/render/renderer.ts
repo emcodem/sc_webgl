@@ -79,6 +79,9 @@ export class Renderer {
   private fillLight: THREE.DirectionalLight;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
+  // `uTime` uniforms of any animated body material (the sun's photosphere + corona) — advanced from
+  // the shared clock each frame in render() so their shaders churn in real time.
+  private timeUniforms: { value: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement, world: World) {
     this.renderer = new THREE.WebGLRenderer({
@@ -109,6 +112,7 @@ export class Renderer {
     for (const body of world.bodies) {
       const mesh = createBodyMesh(body);
       this.bodyMeshes.set(body.name, mesh);
+      this.collectTimeUniforms(mesh);
       this.scene.add(mesh);
     }
 
@@ -188,6 +192,12 @@ export class Renderer {
     window.addEventListener('resize', () => this.resize());
   }
 
+  // Gather the `uTime` uniforms a body mesh exposes (see createSunMesh) so render() can drive them.
+  private collectTimeUniforms(mesh: THREE.Object3D): void {
+    const tu = mesh.userData.timeUniforms as { value: number }[] | undefined;
+    if (tu) this.timeUniforms.push(...tu);
+  }
+
   resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
@@ -219,6 +229,9 @@ export class Renderer {
   }
 
   render(world: World): void {
+    const t = this.clock.getElapsedTime();
+    for (const u of this.timeUniforms) u.value = t;
+
     const view = this.cameraView(world);
     const eye = view.eye;
 

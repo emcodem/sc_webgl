@@ -69,83 +69,97 @@ function atmosphereShell(radius: number, color: number, power: number, opacity: 
   return new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 48), mat);
 }
 
-// Canvas-generated radial gradient, used for the sun's corona billboards (asset-free).
-function makeRadialTexture(stops: [number, string][]): THREE.CanvasTexture {
-  const size = 256;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = size;
-  const ctx = cv.getContext('2d')!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  for (const [off, color] of stops) g.addColorStop(off, color);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+// Shared GLSL: hash-based 3D value noise + fBm + domain-warped turbulence, the GPU cousin of
+// render/noise.ts. Used to boil the sun's photosphere and ripple its corona in real time. Sampled on
+// the unit sphere (so it tiles seamlessly over the surface) and scrolled by a time uniform.
+const SUN_NOISE_GLSL = `
+  float hash13(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.yzx + 33.33);
+    return fract((p.x + p.y) * p.z);
+  }
+  float vnoise(vec3 x) {
+    vec3 i = floor(x), f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash13(i + vec3(0,0,0)), hash13(i + vec3(1,0,0)), f.x),
+                   mix(hash13(i + vec3(0,1,0)), hash13(i + vec3(1,1,0)), f.x), f.y),
+               mix(mix(hash13(i + vec3(0,0,1)), hash13(i + vec3(1,0,1)), f.x),
+                   mix(hash13(i + vec3(0,1,1)), hash13(i + vec3(1,1,1)), f.x), f.y), f.z);
+  }
+  float fbm(vec3 p) {
+    float s = 0.0, a = 0.5;
+    for (int i = 0; i < 5; i++) { s += a * vnoise(p); p *= 2.02; a *= 0.5; }
+    return s;
+  }
+`;
 
-// The sun: a limb-brightened core whose shader outputs HDR values (>1) so the bloom pass turns it
-// into a radiant glow with filmic highlight rolloff, wrapped in two camera-facing corona billboards
-// (hot white -> yellow -> orange -> transparent) for the extended glow and outer haze.
+// The sun. Best-practice recipe for a convincing star with no textures:
+//   1. an animated photosphere — domain-warped fBm noise boils across the sphere, mapped through a
+//      blackbody temperature ramp (dark convection lanes -> bright granule cells) so the surface
+//      churns instead of sitting flat;
+//   2. physical limb darkening (the disk dims and reddens toward its edge) plus a thin hot
+//      chromosphere rim, which is what actually makes it read as a glowing sphere rather than a
+//      flat disk;
+//   3. HDR output (colours pushed >1) so the bloom pass blooms the bright granules into real glare;
+//   4. a soft additive corona rendered as a camera-facing shader billboard — a smooth exponential
+//      radial falloff (no hard sprite edge) with a slow low-frequency ripple, sized just over the
+//      disk so it hugs the limb.
+// Materials that animate expose their `uTime` uniform via group.userData.timeUniforms; the renderer
+// advances them each frame.
 function createSunMesh(body: CelestialBody): THREE.Object3D {
   const group = new THREE.Group();
   group.name = body.name;
+  const timeUniforms: { value: number }[] = [];
 
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(body.radius, 64, 64),
-    new THREE.ShaderMaterial({
-      toneMapped: true, // let ACES roll off the HDR core
-      vertexShader: `
-        varying vec3 vN; varying vec3 vViewDir;
-        void main() {
-          vN = normalize(mat3(modelMatrix) * normal);
-          vec4 wp = modelMatrix * vec4(position, 1.0);
-          vViewDir = normalize(cameraPosition - wp.xyz);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }`,
-      fragmentShader: `
-        varying vec3 vN; varying vec3 vViewDir;
-        void main() {
-          float mu = max(dot(normalize(vN), normalize(vViewDir)), 0.0); // 1 center -> 0 limb
-          // white-hot centre easing to a warm orange limb, with a bright rim halo
-          vec3 col = mix(vec3(1.0, 0.78, 0.42), vec3(1.0, 0.96, 0.88), mu);
-          float intensity = 1.6 + pow(1.0 - mu, 3.0) * 3.0;
-          gl_FragColor = vec4(col * intensity, 1.0);
-        }`
-    })
-  );
-  group.add(core);
+  // --- photosphere ---
+  const coreMat = new THREE.ShaderMaterial({
+    toneMapped: true, // let ACES roll off the HDR core
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      varying vec3 vN; varying vec3 vViewDir; varying vec3 vObj;
+      void main() {
+        vObj = normalize(position);
+        vN = normalize(mat3(modelMatrix) * normal);
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vViewDir = normalize(cameraPosition - wp.xyz);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform float uTime;
+      varying vec3 vN; varying vec3 vViewDir; varying vec3 vObj;
+      ${SUN_NOISE_GLSL}
+      void main() {
+        vec3 p = vObj * 3.5;
+        float t = uTime * 0.06;
+        // domain warp two slow flows into a third sample -> churning plasma, not a static crust
+        float w1 = fbm(p * 1.3 + vec3(0.0, t, 0.0));
+        float w2 = fbm(p * 2.7 - vec3(t * 1.3, 0.0, t));
+        float n = fbm(p + vec3(w1, w2, w1 - w2) * 1.6 + vec3(0.0, 0.0, t * 0.5));
+        n = clamp(n * 1.15, 0.0, 1.0);
 
-  const corona = (scale: number, tint: number, stops: [number, string][]) => {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: makeRadialTexture(stops),
-      color: tint,
-      blending: THREE.AdditiveBlending,
-      transparent: true,
-      depthWrite: false
-    }));
-    sp.scale.set(body.radius * scale, body.radius * scale, 1);
-    return sp;
-  };
+        // blackbody-ish ramp: cool dark downflow lanes -> orange granules -> hot yellow-white cells
+        vec3 cCool = vec3(0.70, 0.16, 0.02);
+        vec3 cMid  = vec3(1.00, 0.48, 0.10);
+        vec3 cHot  = vec3(1.00, 0.85, 0.52);
+        vec3 col = mix(cCool, cMid, smoothstep(0.30, 0.58, n));
+        col = mix(col, cHot, smoothstep(0.58, 0.92, n));
 
-  // inner corona: tight, bright, warm — a long, gentle tail to zero so there is no visible edge
-  group.add(corona(3, 0xffffff, [
-    [0.0, 'rgba(255,246,225,0.9)'],
-    [0.12, 'rgba(255,224,160,0.5)'],
-    [0.3, 'rgba(255,180,90,0.18)'],
-    [0.55, 'rgba(255,150,60,0.05)'],
-    [0.8, 'rgba(255,140,50,0.01)'],
-    [1.0, 'rgba(255,140,50,0.0)']
-  ]));
-  // outer haze: broad, very faint — asymptotic falloff, fully transparent well before the sprite edge
-  group.add(corona(6, 0xffffff, [
-    [0.0, 'rgba(255,214,160,0.16)'],
-    [0.25, 'rgba(255,170,90,0.06)'],
-    [0.5, 'rgba(255,150,60,0.015)'],
-    [0.75, 'rgba(255,150,60,0.003)'],
-    [1.0, 'rgba(255,150,60,0.0)']
-  ]));
+        float mu = max(dot(normalize(vN), normalize(vViewDir)), 0.0); // 1 centre -> 0 limb
+        float limb = 0.40 + 0.60 * pow(mu, 0.55);                     // physical limb darkening
+        // keep the base disk near ~1 so granule structure stays legible; only the hottest cells
+        // push past the bloom threshold and glare, rather than the whole disk saturating to white
+        float bright = (0.55 + n * 0.85) * limb;
+        vec3 rim = vec3(1.0, 0.33, 0.10) * pow(1.0 - mu, 4.0) * 0.91;  // thin hot chromosphere rim
+        gl_FragColor = vec4(col * bright * 1.76 + rim, 1.0);           // ~30% brighter -> more bloom
+      }`
+  });
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(body.radius, 96, 96), coreMat));
+  timeUniforms.push(coreMat.uniforms.uTime);
 
+  // No corona/haze billboard: a star has no atmosphere, so the extended glow it produced read as
+  // one. The disk's own HDR output (hot granules + chromosphere rim, all >1) is left for the bloom
+  // pass to bloom into a tight natural glare — that is the sun's only halo.
+  group.userData.timeUniforms = timeUniforms;
   return group;
 }
 
