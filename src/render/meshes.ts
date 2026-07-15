@@ -247,39 +247,53 @@ export function createProjectileMesh(color: number): THREE.Mesh {
   return new THREE.Mesh(geo, mat);
 }
 
-// Layered enemy-death explosion (see combat/effects.ts, animated in render/renderer.ts). Four
-// additive layers on one Group, driven per frame by the burst's remaining life: a white-hot core
-// flash, the orange fireball, an expanding wireframe shockwave shell, and a cloud of debris sparks
-// flung radially outward. Base geometry is unit-scale (radius 1); the renderer scales each layer.
-// Children are ordered [core, fireball, shockwave, debris] — the renderer indexes them directly.
+// Enemy-death explosion — an outward SPRAY (not a solid ball): a brief white-hot central flash,
+// then radial spark streaks and debris points flung outward from the center, easing out so it
+// bursts fast then drifts. See combat/effects.ts and render/renderer.ts::animateExplosion. Streaks
+// and debris share one set of evenly-spread directions (fibonacci sphere, deterministic — no
+// per-frame RNG). Children are ordered [flash, streaks, debris] — the renderer indexes them.
 export function createExplosionMesh(): THREE.Group {
   const g = new THREE.Group();
-  const additive = (color: number) => new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false
-  });
 
-  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 12, 12), additive(0xfff4d6))); // 0: white-hot core
-  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), additive(0xff7a2a))); // 1: orange fireball
-  const wave = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 20), additive(0xffd090));
-  (wave.material as THREE.MeshBasicMaterial).wireframe = true;
-  g.add(wave);                                                                     // 2: shockwave shell
+  // 0: brief central flash (small; the renderer fades it out in the first third of the burst)
+  g.add(new THREE.Mesh(
+    new THREE.SphereGeometry(1, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xfff4d6, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
+  ));
 
-  // 3: debris — a Points cloud on evenly-spread unit directions (fibonacci sphere, deterministic so
-  // no per-frame RNG); the renderer scales the whole cloud outward and fades it.
-  const N = 28;
-  const dirs = new Float32Array(N * 3);
+  const N = 60;
+  const dir: number[][] = [];
   for (let i = 0; i < N; i++) {
     const y = 1 - (i / (N - 1)) * 2;
     const r = Math.sqrt(Math.max(0, 1 - y * y));
     const phi = i * 2.399963229; // golden angle
-    dirs[i * 3] = Math.cos(phi) * r;
-    dirs[i * 3 + 1] = y;
-    dirs[i * 3 + 2] = Math.sin(phi) * r;
+    dir.push([Math.cos(phi) * r, y, Math.sin(phi) * r]);
   }
-  const debrisGeo = new THREE.BufferGeometry();
-  debrisGeo.setAttribute('position', new THREE.BufferAttribute(dirs, 3));
-  g.add(new THREE.Points(debrisGeo, new THREE.PointsMaterial({
-    color: 0xffb060, size: 3, sizeAttenuation: false, transparent: true, opacity: 1,
+
+  // 1: spark streaks — a short radial line per direction, dim at the inner (tail) end and bright at
+  // the outer (leading) end via vertex colors, so the whole thing reads as a spiky outward splash.
+  const IN = 1.0, OUT = 2.6;
+  const segPos = new Float32Array(N * 6);
+  const segCol = new Float32Array(N * 6);
+  for (let i = 0; i < N; i++) {
+    const [x, y, z] = dir[i];
+    segPos.set([x * IN, y * IN, z * IN, x * OUT, y * OUT, z * OUT], i * 6);
+    segCol.set([1.0, 0.30, 0.06, 1.0, 0.92, 0.6], i * 6); // inner dim-orange -> outer bright
+  }
+  const segGeo = new THREE.BufferGeometry();
+  segGeo.setAttribute('position', new THREE.BufferAttribute(segPos, 3));
+  segGeo.setAttribute('color', new THREE.BufferAttribute(segCol, 3));
+  g.add(new THREE.LineSegments(segGeo, new THREE.LineBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false
+  })));
+
+  // 2: debris — a bright point per direction, flung out past the streak tips
+  const ptPos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) ptPos.set(dir[i], i * 3);
+  const ptGeo = new THREE.BufferGeometry();
+  ptGeo.setAttribute('position', new THREE.BufferAttribute(ptPos, 3));
+  g.add(new THREE.Points(ptGeo, new THREE.PointsMaterial({
+    color: 0xffd080, size: 2.5, sizeAttenuation: false, transparent: true, opacity: 1,
     blending: THREE.AdditiveBlending, depthWrite: false
   })));
 

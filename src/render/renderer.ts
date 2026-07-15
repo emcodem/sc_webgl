@@ -422,25 +422,23 @@ export class Renderer {
     return this.impactPool[i];
   }
 
-  // Drives the 4-layer explosion group (see createExplosionMesh) from remaining life t (1 -> 0).
-  // Each layer has its own growth rate and fade so the burst reads as: an instant white flash, an
-  // orange fireball swelling and dimming, a shockwave shell racing out ahead, and debris sparks
-  // scattering. Radii are metres (an enemy hull is ~10 m across).
+  // Drives the spray-style explosion group (see createExplosionMesh) from remaining life t (1 -> 0).
+  // A brief central flash, then spark streaks and debris burst outward on an ease-out curve (fast
+  // out, then drift) and fade — reads as a splash, not a growing ball. Scales are metres from the
+  // burst centre (an enemy hull is ~10 m across).
   private animateExplosion(g: THREE.Group, t: number): void {
     const prog = 1 - t;
-    const [core, fire, wave, debris] = g.children as [THREE.Mesh, THREE.Mesh, THREE.Mesh, THREE.Points];
+    const ease = 1 - (1 - prog) * (1 - prog); // ease-out: quick initial expansion
+    const [flash, streaks, debris] = g.children as [THREE.Mesh, THREE.LineSegments, THREE.Points];
 
-    core.scale.setScalar(2 + prog * 4);
-    (core.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - prog * 2.4); // brief flash
+    flash.scale.setScalar(2 + prog * 5);
+    (flash.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - prog * 3.2); // gone by ~1/3 life
 
-    fire.scale.setScalar(4 + prog * 9);
-    (fire.material as THREE.MeshBasicMaterial).opacity = t * t; // swell then dim
+    streaks.scale.setScalar(1 + ease * 9); // streak tips reach ~24 m
+    (streaks.material as THREE.LineBasicMaterial).opacity = t;
 
-    wave.scale.setScalar(4 + prog * 24); // outruns the fireball
-    (wave.material as THREE.MeshBasicMaterial).opacity = t * 0.5;
-
-    debris.scale.setScalar(3 + prog * 20); // shards fly outward
-    (debris.material as THREE.PointsMaterial).opacity = t;
+    debris.scale.setScalar(1 + ease * 15); // sparks fly out past the streaks
+    (debris.material as THREE.PointsMaterial).opacity = t * t;
   }
 
   private createPipMarker(): THREE.Mesh {
