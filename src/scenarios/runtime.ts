@@ -1,7 +1,8 @@
 import type { World, EnemyShip } from '../core/world';
 import type { EnemySpawnConfig, ScenarioConfig, ScenarioRuntime } from './types';
 import { createHealth } from '../combat/health';
-import { resolveHits } from '../combat/hitDetection';
+import { resolveHits, resolveObjectHits } from '../combat/hitDetection';
+import { spawnExplosion, spawnImpact, updateEffects } from '../combat/effects';
 import { firePlayerWeaponIfRequested } from '../combat/combatSystem';
 import { canFire, canFireWithinTolerance, spawnFighterAI, think } from '../combat/enemyAI';
 import { CHASER_TUNING, chaserThink, cruiseThink } from '../combat/ai/simpleAI';
@@ -27,10 +28,6 @@ import { SPAWN } from '../world/celestial';
 // Enemy only opens fire once its nose is roughly on target (~3 degrees) — gives the turret a
 // visible "tracking, not yet locked" phase instead of hosing the player from any angle.
 const AIM_FIRE_CONE_RAD = 0.05;
-
-// Kept short so it doesn't linger through an orbiter/drifter's respawn — see render/renderer.ts's
-// explosion-burst visual, which reads this same constant to fade the burst out in sync.
-export const ENEMY_EXPLOSION_DURATION = 0.6;
 
 function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): EnemyShip {
   return {
@@ -112,13 +109,13 @@ export function startScenario(world: World, config: ScenarioConfig): void {
 
   world.enemies = enemies;
   world.projectiles = [];
+  world.effects = []; // clear any lingering free-flight bursts so they don't carry into the drill
   world.scenario = {
     config,
     outcome: 'active',
     elapsedSec: 0,
     gateIndex: 0,
     stats: { shotsFired: 0, hitsLanded: 0, kills: 0, hitsTaken: 0 },
-    explosions: [],
     bubbleTimeSec: 0
   };
 }
@@ -289,10 +286,12 @@ export function updateScenario(world: World, dt: number): void {
     () => { runtime.stats.hitsLanded++; },
     (enemy) => {
       runtime.stats.kills++;
-      runtime.explosions.push({ pos: { x: enemy.pos.x, y: enemy.pos.y, z: enemy.pos.z }, timer: ENEMY_EXPLOSION_DURATION });
+      spawnExplosion(world.effects, enemy.pos);
     },
-    () => { runtime.stats.hitsTaken++; }
+    () => { runtime.stats.hitsTaken++; },
+    (pos) => spawnImpact(world.effects, pos)
   );
+  resolveObjectHits(world.projectiles, world.bodies, (pos) => spawnImpact(world.effects, pos));
   updateProjectiles(world.projectiles, dt);
 
   if (runtime.config.rangeBubbleRadius !== undefined) {
@@ -304,10 +303,7 @@ export function updateScenario(world: World, dt: number): void {
     if (insideBubble) runtime.bubbleTimeSec += dt;
   }
 
-  for (let i = runtime.explosions.length - 1; i >= 0; i--) {
-    runtime.explosions[i].timer -= dt;
-    if (runtime.explosions[i].timer <= 0) runtime.explosions.splice(i, 1);
-  }
+  updateEffects(world.effects, dt);
 
   if (player.health.points <= 0) {
     runtime.outcome = 'lost';

@@ -52,12 +52,6 @@ export interface ScenarioConfig {
   evasiveReturnFire?: boolean;
 }
 
-// A brief visual burst at an enemy's position when it's destroyed.
-export interface EnemyExplosion {
-  pos: Vec3;
-  timer: number; // seconds remaining, counts down to 0
-}
-
 // Unlike the original project's ScenarioRuntime, this does NOT carry its own enemies[] —
 // world.enemies IS the active scenario's enemy list (see scenarios/runtime.ts::startScenario).
 export interface ScenarioRuntime {
@@ -67,7 +61,6 @@ export interface ScenarioRuntime {
   elapsedSec: number;
   gateIndex: number; // index of the next uncleared gate in config.gatePath — 'gates' scenarios only
   stats: { shotsFired: number; hitsLanded: number; kills: number; hitsTaken: number };
-  explosions: EnemyExplosion[];
   // Total seconds the player has spent within any live enemy's rangeBubbleRadius (Merge Drill).
   bubbleTimeSec: number;
 }

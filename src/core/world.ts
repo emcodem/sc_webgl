@@ -66,6 +66,16 @@ export interface Projectile {
   owner: 'player' | 'enemy';
 }
 
+// A transient combat visual effect — see combat/effects.ts. 'explosion' = an enemy-ship death
+// burst, 'impact' = a small spark where a laser round struck a ship or object. Rendered from
+// world.effects each frame; the renderer sizes/fades it by timer/maxTimer.
+export interface VisualEffect {
+  kind: 'explosion' | 'impact';
+  pos: Vec3;
+  timer: number;    // seconds remaining, counts down to 0
+  maxTimer: number; // starting timer, so the renderer can normalise the fade
+}
+
 // An AI-flown opponent. Structurally a superset of FlightBody (physics/flightModel.ts) so the same
 // Newtonian integrator drives it — see combat/enemyAI.ts and combat/ai/*. Deliberately not a full
 // ShipBody: no player-console concepts like throttle/decoupled/spaceBrakeOn, since input never
@@ -124,6 +134,7 @@ export interface World {
   player: Player;
   enemies: EnemyShip[];
   projectiles: Projectile[];
+  effects: VisualEffect[]; // transient combat bursts (explosions + laser impacts) — see combat/effects.ts
   hitMarkerTimer: number; // >0 briefly after the player's own shot lands — drives the HUD hit marker
   // Non-null while a training scenario (see scenarios/runtime.ts) is running — main.ts steps
   // scenarios/runtime.ts::updateScenario instead of combat/combatSystem.ts::stepCombat while set.

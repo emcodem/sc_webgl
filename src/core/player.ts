@@ -63,7 +63,7 @@ export function makeWorld(): World {
     groundBody: null
   };
   const enemies = [makeEnemyShip(SHIP_TYPES[0], ENEMY_SPAWN.pos, ENEMY_SPAWN.quat)];
-  return { bodies: BODIES, player, enemies, projectiles: [], hitMarkerTimer: 0, scenario: null, pipTrainer: null };
+  return { bodies: BODIES, player, enemies, projectiles: [], effects: [], hitMarkerTimer: 0, scenario: null, pipTrainer: null };
 }
 
 // Restores `world` to a fresh start (F1 / restart button — see ui/buttonBar.ts) by overwriting its
@@ -75,6 +75,7 @@ export function resetWorld(world: World): void {
   world.player = fresh.player;
   world.enemies = fresh.enemies;
   world.projectiles = fresh.projectiles;
+  world.effects = fresh.effects;
   world.hitMarkerTimer = 0;
   world.scenario = null; // always fully exits any in-progress scenario
   world.pipTrainer = null; // ...and any in-progress PIP Trainer session

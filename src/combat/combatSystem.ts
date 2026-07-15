@@ -9,7 +9,8 @@ import * as MouseButtons from '../input/mouseButtons';
 import * as MouseLook from '../input/mouseLook';
 import { canFire, think } from './enemyAI';
 import { createHealth } from './health';
-import { resolveHits } from './hitDetection';
+import { resolveHits, resolveObjectHits } from './hitDetection';
+import { spawnExplosion, spawnImpact, updateEffects } from './effects';
 import { spawnProjectileFrom, updateProjectiles, WEAPON } from './weapons';
 
 // ============================================================================================
@@ -103,8 +104,12 @@ export function stepCombat(world: World, dt: number): void {
     ship,
     world.enemies,
     () => { world.hitMarkerTimer = 0.15; },
-    (enemy) => { enemy.respawnTimer = RESPAWN_DELAY; }
+    (enemy) => { enemy.respawnTimer = RESPAWN_DELAY; spawnExplosion(world.effects, enemy.pos); },
+    undefined,
+    (pos) => spawnImpact(world.effects, pos)
   );
+  resolveObjectHits(world.projectiles, world.bodies, (pos) => spawnImpact(world.effects, pos));
+  updateEffects(world.effects, dt);
 
   world.hitMarkerTimer = Math.max(0, world.hitMarkerTimer - dt);
 }

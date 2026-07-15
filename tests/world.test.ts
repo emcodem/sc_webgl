@@ -24,7 +24,7 @@ describe('resetWorld', () => {
     world.hitMarkerTimer = 5;
     world.scenario = {
       config: {} as never, outcome: 'won', elapsedSec: 10, gateIndex: 0,
-      stats: { shotsFired: 1, hitsLanded: 1, kills: 1, hitsTaken: 1 }, explosions: [], bubbleTimeSec: 0
+      stats: { shotsFired: 1, hitsLanded: 1, kills: 1, hitsTaken: 1 }, bubbleTimeSec: 0
     };
     world.pipTrainer = {} as never;
 
