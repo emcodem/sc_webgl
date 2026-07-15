@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { CelestialBody } from '../core/world';
+import { loadBrightStars } from '../world/brightStars';
 import { fbm } from './noise';
 
 // ---------- Mesh factories ----------
@@ -319,48 +320,41 @@ export function createPipMarkerMesh(color = 0x9fe6ff): THREE.Mesh {
   );
 }
 
-// Starfield: a fixed, camera-anchored celestial sphere of soft round glowing points with varied
-// size and brightness (a custom shader — PointsMaterial can't vary per-point). Additive so they
+// Starfield: a fixed, camera-anchored celestial sphere built from the real Yale Bright Star
+// Catalog (see world/brightStars.ts) — true positions, per-star brightness from visual magnitude,
+// and per-star colour from the catalogue's blackbody temperature. Rendered as soft round glowing
+// points via a custom shader (PointsMaterial can't vary size/colour per point). Additive so they
 // glow on black and feed the bloom pass.
-export function createStarfield(count = 5000, radius = 1e7): THREE.Points {
-  const positions = new Float32Array(count * 3);
-  const sizes = new Float32Array(count);
-  const bright = new Float32Array(count);
-  for (let i = 0; i < count; i++) {
-    const u = Math.random() * 2 - 1;
-    const theta = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(1 - u * u);
-    positions[i * 3] = radius * r * Math.cos(theta);
-    positions[i * 3 + 1] = radius * u;
-    positions[i * 3 + 2] = radius * r * Math.sin(theta);
-    // most stars small/faint, a few large/bright
-    const t = Math.random();
-    sizes[i] = 1.2 + t * t * 4.5;
-    bright[i] = 0.35 + Math.random() * 0.65;
-  }
+export function createStarfield(radius = 1e7): THREE.Points {
+  const stars = loadBrightStars(radius);
+
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-  geo.setAttribute('aBright', new THREE.BufferAttribute(bright, 1));
+  geo.setAttribute('position', new THREE.BufferAttribute(stars.positions, 3));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(stars.sizes, 1));
+  geo.setAttribute('aBright', new THREE.BufferAttribute(stars.bright, 1));
+  geo.setAttribute('aColor', new THREE.BufferAttribute(stars.colors, 3));
 
   const mat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     uniforms: { uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) } },
     vertexShader: `
-      attribute float aSize; attribute float aBright;
-      uniform float uPixelRatio; varying float vBright;
+      attribute float aSize; attribute float aBright; attribute vec3 aColor;
+      uniform float uPixelRatio; varying float vBright; varying vec3 vColor;
       void main() {
         vBright = aBright;
+        vColor = aColor;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = aSize * uPixelRatio;
       }`,
     fragmentShader: `
-      varying float vBright;
+      varying float vBright; varying vec3 vColor;
       void main() {
         float d = distance(gl_PointCoord, vec2(0.5));
         if (d > 0.5) discard;
         float a = smoothstep(0.5, 0.0, d);
-        gl_FragColor = vec4(vec3(0.82, 0.9, 0.98) * vBright, a);
+        // mix the star's true colour toward white at the core so bright stars keep a hot centre
+        vec3 c = mix(vColor, vec3(1.0), (1.0 - a) * 0.5);
+        gl_FragColor = vec4(c * vBright, a);
       }`
   });
   return new THREE.Points(geo, mat);
