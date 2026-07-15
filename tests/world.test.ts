@@ -20,7 +20,7 @@ describe('resetWorld', () => {
     world.player.ship.health.points = 0;
     world.player.mode = 'onfoot';
     world.enemies.push({ ...world.enemies[0] });
-    world.projectiles.push({ pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, age: 0, owner: 'player' });
+    world.projectiles.push({ pos: { x: 0, y: 0, z: 0 }, prevPos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, age: 0, owner: 'player' });
     world.hitMarkerTimer = 5;
     world.scenario = {
       config: {} as never, outcome: 'won', elapsedSec: 10, gateIndex: 0,

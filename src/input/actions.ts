@@ -3,8 +3,8 @@
 // (keybinds.ts) and the joystick/gamepad layer (joystickMap.ts) target, so a physical control
 // (key, stick axis, pad button, mouse button) always binds to the same sim-level concept
 // regardless of device. Ported 1:1 from the original project's types.ts + input/controlsModule.ts
-// default bindings, including its exact default key layout (see AskUserQuestion in this session —
-// switching sc_webgl's own defaults to match was a deliberate choice, not an oversight).
+// default bindings, including its exact default key layout — switching sc_webgl's own defaults to
+// match the original was a deliberate choice, not an oversight.
 //
 // ActionName = discrete/digital intents (a key or a button either is or isn't pressed).
 // AxisConcept = continuous intents a joystick axis can drive directly (a key pair can also drive

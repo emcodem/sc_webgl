@@ -1,6 +1,6 @@
 import type { CelestialBody, Player } from '../core/world';
 import {
-  add, clone, cross, dot, length, normalize, projectOntoPlane,
+  add, cross, dot, length, normalize, projectOntoPlane,
   rotateAboutAxis, scale, sub, clamp
 } from '../math/vec';
 import type { Vec3 } from '../core/types';
@@ -49,6 +49,21 @@ export function localUp(player: Player): Vec3 {
   return normalize(sub(player.charPos, player.groundBody.pos));
 }
 
+// Re-tangentialize a heading against `up`, degenerate-safe: if the heading is (near-)parallel to
+// `up` the projection collapses to ~0, so fall back to an arbitrary in-plane axis rather than
+// returning a zero vector. Shared by footFrame and updateCharacter's yaw write-back so neither can
+// leave player.heading zeroed (a bare normalize of a ~0 vector yields {0,0,0}, which would kill yaw
+// control for the rest of the session).
+function tangentHeading(heading: Vec3, up: Vec3): Vec3 {
+  let t = projectOntoPlane(heading, up);
+  if (length(t) < 1e-5) {
+    // heading became parallel to up (looked straight along the pole) — pick any tangent
+    t = projectOntoPlane({ x: 1, y: 0, z: 0 }, up);
+    if (length(t) < 1e-5) t = projectOntoPlane({ x: 0, y: 0, z: 1 }, up);
+  }
+  return normalize(t);
+}
+
 // Re-tangentialize the stored heading against the current up, apply mouse yaw, and return an
 // orthonormal { forward (tangent), right (tangent), up } frame plus the pitch-adjusted camera
 // forward. The heading is stored on the player so yaw persists as you walk around the curve.
@@ -57,13 +72,7 @@ export function footFrame(
   up: Vec3
 ): { forward: Vec3; right: Vec3; up: Vec3; camForward: Vec3 } {
   // keep heading tangent to the surface as `up` changes underfoot
-  let heading = projectOntoPlane(player.heading, up);
-  if (length(heading) < 1e-5) {
-    // heading became parallel to up (looked straight along the pole) — pick any tangent
-    heading = projectOntoPlane({ x: 1, y: 0, z: 0 }, up);
-    if (length(heading) < 1e-5) heading = projectOntoPlane({ x: 0, y: 0, z: 1 }, up);
-  }
-  heading = normalize(heading);
+  const heading = tangentHeading(player.heading, up);
   const right = normalize(cross(heading, up));
   // camera forward tilts out of the tangent plane by pitch (+ looks toward up)
   const camForward = normalize(
@@ -83,7 +92,7 @@ export function updateCharacter(
   const up = localUp(player);
 
   // --- look: yaw rotates the tangent heading about up; pitch is a clamped scalar ---
-  player.heading = normalize(projectOntoPlane(player.heading, up));
+  player.heading = tangentHeading(player.heading, up);
   if (input.lookYawDelta !== 0) {
     player.heading = normalize(rotateAboutAxis(player.heading, up, input.lookYawDelta));
   }
@@ -146,5 +155,5 @@ const EYE_HEIGHT = 1.7;
 export function footEye(player: Player): { pos: Vec3; forward: Vec3; up: Vec3 } {
   const up = localUp(player);
   const frame = footFrame(player, up);
-  return { pos: add(clone(player.charPos), scale(up, EYE_HEIGHT)), forward: frame.camForward, up };
+  return { pos: add(player.charPos, scale(up, EYE_HEIGHT)), forward: frame.camForward, up };
 }

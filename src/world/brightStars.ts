@@ -27,8 +27,8 @@ export interface BrightStars {
 const DEG2RAD = Math.PI / 180;
 
 // Visual-magnitude → visual-weight mapping. Brighter stars have *smaller* magnitudes; the catalogue
-// spans ~-1.5 (Sirius) to ~8. We normalise to 0 (faintest) .. 1 (brightest) then bias so only the
-// genuinely bright stars grow large — matching how a real sky reads as mostly faint pinpricks.
+// spans ~-1.5 (Sirius) to ~8 (the naked-eye limit) — these are the defaults; loadBrightStars accepts
+// overrides (see render/starDebugPanel.ts, a temporary tuning UI).
 const MAG_BRIGHTEST = -1.5;
 const MAG_FAINTEST = 8.0;
 
@@ -38,7 +38,12 @@ function clamp01(x: number): number {
 
 // Blackbody colour-temperature (Kelvin) → linear-ish RGB, Tanner Helland's well-known approximation.
 // Cool stars (~2300K) come out orange-red, the Sun (~5800K) near-white, hot O/B stars (>10000K)
-// blue-white — the familiar stellar palette.
+// blue-white — the familiar stellar palette. The raw approximation is realistically desaturated
+// (most stars cluster close to white), which reads as bland at render scale; SATURATION_BOOST
+// pushes each channel away from the grey midpoint (NASA's "Eyes on the Solar System" does the same
+// artistic amplification so constellations show visible colour instead of uniform white pinpricks).
+const SATURATION_BOOST = 2.2;
+
 function kelvinToRgb(kelvin: number, out: Float32Array, o: number): void {
   const t = kelvin / 100;
   let r: number, g: number, b: number;
@@ -52,33 +57,55 @@ function kelvinToRgb(kelvin: number, out: Float32Array, o: number): void {
   if (t >= 66) b = 255;
   else if (t <= 19) b = 0;
   else b = 138.5177312231 * Math.log(t - 10) - 305.0447927307;
-  out[o] = clamp01(r / 255);
-  out[o + 1] = clamp01(g / 255);
-  out[o + 2] = clamp01(b / 255);
+
+  let rn = clamp01(r / 255);
+  let gn = clamp01(g / 255);
+  let bn = clamp01(b / 255);
+
+  const luma = 0.3 * rn + 0.59 * gn + 0.11 * bn;
+  rn = clamp01(luma + (rn - luma) * SATURATION_BOOST);
+  gn = clamp01(luma + (gn - luma) * SATURATION_BOOST);
+  bn = clamp01(luma + (bn - luma) * SATURATION_BOOST);
+
+  out[o] = rn;
+  out[o + 1] = gn;
+  out[o + 2] = bn;
 }
 
-export function loadBrightStars(radius: number): BrightStars {
+export function loadBrightStars(
+  radius: number,
+  magBrightest: number = MAG_BRIGHTEST,
+  magFaintest: number = MAG_FAINTEST
+): BrightStars {
   const { ra, dec, mag, k } = BRIGHT_STARS;
-  const count = ra.length;
+
+  const kept: number[] = [];
+  for (let i = 0; i < ra.length; i++) {
+    if (mag[i] / MAG_SCALE <= magFaintest) kept.push(i);
+  }
+
+  const count = kept.length;
   const positions = new Float32Array(count * 3);
   const sizes = new Float32Array(count);
   const bright = new Float32Array(count);
   const colors = new Float32Array(count * 3);
 
-  for (let i = 0; i < count; i++) {
+  for (let j = 0; j < count; j++) {
+    const i = kept[j];
     const raRad = (ra[i] / RA_SCALE) * DEG2RAD;
     const decRad = (dec[i] / DEC_SCALE) * DEG2RAD;
     const cosDec = Math.cos(decRad);
 
-    const p = i * 3;
+    const p = j * 3;
     positions[p] = radius * cosDec * Math.cos(raRad);
     positions[p + 1] = radius * Math.sin(decRad);
     positions[p + 2] = radius * cosDec * Math.sin(raRad);
 
     const m = mag[i] / MAG_SCALE;
-    const w = clamp01((MAG_FAINTEST - m) / (MAG_FAINTEST - MAG_BRIGHTEST));
-    sizes[i] = 1.0 + 6.0 * w * w;      // faint ~1px, Sirius ~7px
-    bright[i] = 0.28 + 0.72 * Math.pow(w, 1.2);
+    const w = clamp01((magFaintest - m) / (magFaintest - magBrightest));
+    sizes[j] = 2.5 + 14.0 * Math.pow(w, 1.5);  // faintest ~2.5px, Sirius ~16.5px — a wide spread so
+                                                // brightness differences actually read as size too
+    bright[j] = 0.35 + 0.65 * Math.pow(w, 1.1);
 
     kelvinToRgb(k[i], colors, p);
   }

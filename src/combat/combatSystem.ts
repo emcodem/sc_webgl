@@ -11,7 +11,8 @@ import { canFire, think } from './enemyAI';
 import { createHealth } from './health';
 import { resolveHits, resolveObjectHits } from './hitDetection';
 import { spawnExplosion, spawnImpact, updateEffects } from './effects';
-import { spawnProjectileFrom, updateProjectiles, WEAPON } from './weapons';
+import { spawnProjectileFrom, updateProjectiles, WEAPON, FIRE_COOLDOWN_SEC } from './weapons';
+import { findActivePip } from './pipTargeting';
 
 // ============================================================================================
 // Per-frame combat orchestration: player weapon fire, enemy AI + flight + weapon fire, projectile
@@ -38,8 +39,15 @@ export function firePlayerWeaponIfRequested(world: World, dt: number): boolean {
     (mouseReady && MouseButtons.isPressed('primaryFire'));
   if (player.mode !== 'pilot' || !firing || ship.fireCooldown > 0) return false;
   const axes = computeAxes(ship.quat);
-  spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles);
-  ship.fireCooldown = 1 / WEAPON.fireRate;
+  // Converge the offset guns at the soft-locked target's range (the PIP's firing solution) so rounds
+  // meet right at the pip; with no lock, spawnProjectileFrom falls back to its default harmonization.
+  const cam = { pos: ship.pos, axes };
+  const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
+  const convergeDist = pip
+    ? length(sub(pip.lead, ship.pos))
+    : WEAPON.convergeDist;
+  spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles, convergeDist);
+  ship.fireCooldown = FIRE_COOLDOWN_SEC;
   return true;
 }
 
@@ -91,8 +99,8 @@ export function stepCombat(world: World, dt: number): void {
       const axes = computeAxes(enemy.quat);
       const dist = length(sub(ship.pos, enemy.pos));
       if (canFire(axes.forward, decision.aimDir, dist, enemy.ai.tuning)) {
-        spawnProjectileFrom(enemy.pos, enemy.vel, axes.forward, axes.right, axes.up, 'enemy', world.projectiles);
-        enemy.fireCooldown = 1 / WEAPON.fireRate;
+        spawnProjectileFrom(enemy.pos, enemy.vel, axes.forward, axes.right, axes.up, 'enemy', world.projectiles, dist);
+        enemy.fireCooldown = FIRE_COOLDOWN_SEC;
       }
     }
   }
@@ -106,9 +114,9 @@ export function stepCombat(world: World, dt: number): void {
     () => { world.hitMarkerTimer = 0.15; },
     (enemy) => { enemy.respawnTimer = RESPAWN_DELAY; spawnExplosion(world.effects, enemy.pos); },
     undefined,
-    (pos) => spawnImpact(world.effects, pos)
+    (pos, normal) => spawnImpact(world.effects, pos, normal)
   );
-  resolveObjectHits(world.projectiles, world.bodies, (pos) => spawnImpact(world.effects, pos));
+  resolveObjectHits(world.projectiles, world.bodies, (pos, normal) => spawnImpact(world.effects, pos, normal));
   updateEffects(world.effects, dt);
 
   world.hitMarkerTimer = Math.max(0, world.hitMarkerTimer - dt);

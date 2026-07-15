@@ -10,7 +10,7 @@ import {
   ORBITER_TUNING, DRIFTER_TUNING, driftThink, orbiterThink, spawnDriftState, spawnOrbitState
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
-import { spawnProjectileFrom, updateProjectiles, WEAPON } from '../combat/weapons';
+import { spawnProjectileFrom, updateProjectiles, FIRE_COOLDOWN_SEC } from '../combat/weapons';
 import { computeAxes, lookAtQuat, rotateTowards } from '../math/quaternion';
 import { integrateFlight, resolveBoost } from '../physics/flightModel';
 import { evaluateGateCrossing } from './gatePath';
@@ -157,8 +157,8 @@ export function updateScenario(world: World, dt: number): void {
           const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           if (canFireWithinTolerance(forward, decision.aimDir, dist, CHASER_TUNING.fireRange, CHASER_TUNING.fireLateralTolerance)) {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
-            enemy.fireCooldown = 1 / WEAPON.fireRate;
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist);
+            enemy.fireCooldown = FIRE_COOLDOWN_SEC;
           }
         }
         break;
@@ -179,8 +179,8 @@ export function updateScenario(world: World, dt: number): void {
           const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           if (canFire(forward, decision.aimDir, dist, enemy.ai.tuning)) {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
-            enemy.fireCooldown = 1 / WEAPON.fireRate;
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist);
+            enemy.fireCooldown = FIRE_COOLDOWN_SEC;
           }
         }
         break;
@@ -205,8 +205,8 @@ export function updateScenario(world: World, dt: number): void {
 
         enemy.fireCooldown -= dt;
         if (aimAngle <= AIM_FIRE_CONE_RAD && enemy.fireCooldown <= 0) {
-          spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
-          enemy.fireCooldown = 1 / WEAPON.fireRate;
+          spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist);
+          enemy.fireCooldown = FIRE_COOLDOWN_SEC;
         }
         break;
       }
@@ -225,8 +225,8 @@ export function updateScenario(world: World, dt: number): void {
           const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           if (canFireWithinTolerance(forward, decision.aimDir, dist, EVASIVE_TUNING.fireRange, EVASIVE_TUNING.fireLateralTolerance)) {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles);
-            enemy.fireCooldown = 1 / WEAPON.fireRate;
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist);
+            enemy.fireCooldown = FIRE_COOLDOWN_SEC;
           }
         }
         break;
@@ -279,6 +279,11 @@ export function updateScenario(world: World, dt: number): void {
     }
   }
 
+  // advance rounds first, THEN resolve hits against this frame's travel segment — same order as
+  // combat/combatSystem.ts::stepCombat, so free-flight and scenarios resolve identical shots
+  // identically (and so the swept hit test sees the freshly-updated prevPos→pos path)
+  updateProjectiles(world.projectiles, dt);
+
   resolveHits(
     world.projectiles,
     player,
@@ -289,10 +294,9 @@ export function updateScenario(world: World, dt: number): void {
       spawnExplosion(world.effects, enemy.pos);
     },
     () => { runtime.stats.hitsTaken++; },
-    (pos) => spawnImpact(world.effects, pos)
+    (pos, normal) => spawnImpact(world.effects, pos, normal)
   );
-  resolveObjectHits(world.projectiles, world.bodies, (pos) => spawnImpact(world.effects, pos));
-  updateProjectiles(world.projectiles, dt);
+  resolveObjectHits(world.projectiles, world.bodies, (pos, normal) => spawnImpact(world.effects, pos, normal));
 
   if (runtime.config.rangeBubbleRadius !== undefined) {
     const bubbleRadius = runtime.config.rangeBubbleRadius;

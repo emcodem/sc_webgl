@@ -4,6 +4,8 @@ import { add, clone, length, normalize, projectOntoPlane, scale, sub } from '../
 import { nearestWalkable } from '../physics/characterController';
 import * as Keybinds from '../input/keybinds';
 import * as Joystick from '../input/joystickMap';
+import * as Input from '../input/input';
+import * as MouseLook from '../input/mouseLook';
 
 // ============================================================================================
 // The seamless ship <-> on-foot transition. Pressing F toggles between piloting and walking; C
@@ -80,6 +82,9 @@ function exitShip(world: World): void {
     p.onGround = false;
   }
   p.lookPitch = 0;
+  // start on-foot look from a clean slate — drain the pointer-lock delta backlog that piled up
+  // unconsumed while piloting (foot look reads these; flight aim uses MouseLook instead)
+  Input.resetMouseDeltas();
 
   p.mode = 'onfoot';
   statusMessage = 'On foot — F near the ship to board';
@@ -92,6 +97,9 @@ function enterShip(world: World): void {
     statusMessage = `Too far from ship to board (${dist.toFixed(0)}m)`;
     return;
   }
+  // recenter the flight virtual-stick so the deflection held while walking around doesn't yank the
+  // ship the instant you climb back in
+  MouseLook.recenter();
   p.mode = 'pilot';
   statusMessage = 'Piloting — F to disembark';
 }

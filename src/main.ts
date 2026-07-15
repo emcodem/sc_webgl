@@ -14,6 +14,7 @@ import { checkScenarioResult, checkPipTrainerResult } from './ui/scenarioMenu';
 import { updateHUD } from './hud/hud';
 import { initUI, isPaused } from './ui';
 import * as Gamepad from './input/gamepad';
+import { initStarDebugPanel } from './render/starDebugPanel'; // TEMPORARY — see that file's header
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -28,6 +29,7 @@ const world = makeWorld();
 initInput(canvas);
 const renderer = new Renderer(canvas, world);
 initUI(world); // restores the last-active control preset, if any — see ui/controlsPanel/presetsUI.ts
+initStarDebugPanel(renderer); // TEMPORARY — remove along with render/starDebugPanel.ts when done tuning
 
 // Expose live state for headless/browser verification (see the original project's verify skill).
 (window as unknown as { __world: typeof world }).__world = world;
@@ -51,12 +53,14 @@ function loop(now: number): void {
 
     // sim fully freezes (but keeps rendering) while a menu/panel overlay is open
     if (!isPaused()) {
-      handleEdgeActions(world);
       // controls freeze while the ship is destroyed and waiting to respawn, or once a scenario's
-      // outcome has left 'active' (won/lost) — the result screen takes over from there
+      // outcome has left 'active' (won/lost) — the result screen takes over from there. The F/C
+      // edge actions (enter/exit, decouple) are gated too: firing them mid-respawn would park and
+      // disembark a ship that stepCombat is about to teleport back to spawn.
       const controlsLive = world.player.ship.respawnTimer <= 0
         && (!world.scenario || world.scenario.outcome === 'active');
       if (controlsLive) {
+        handleEdgeActions(world);
         if (world.player.mode === 'pilot') stepPilot(world, dt);
         else stepFoot(world, dt);
       }

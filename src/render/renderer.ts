@@ -3,7 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import type { World, CelestialBody, EnemyShip } from '../core/world';
+import type { World, CelestialBody, EnemyShip, VisualEffect } from '../core/world';
 import type { Vec3 } from '../core/types';
 import type { FlightGate } from '../scenarios/types';
 import { computeAxes } from '../math/quaternion';
@@ -11,9 +11,10 @@ import { normalize } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
-  createBodyMesh, createExplosionMesh, createImpactMesh, createPipMarkerMesh, createProjectileMesh,
+  createBodyMesh, createExplosionMesh, createPipMarkerMesh, createProjectileMesh,
   createShipMesh, createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
 } from './meshes';
+import { ImpactEffects } from './impactEffects';
 import { setCameraBasis, setObjectBasis } from './camera';
 import { cloneArrow, loadArrowTemplate } from './shipModels';
 import { loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
@@ -21,6 +22,22 @@ import { loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
 // Player and enemy tracers share one look — a saturated laser red — so a dogfight's incoming vs.
 // outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
 const LASER_COLOR = 0xff2a2a;
+
+// Release the GPU-side geometry + material(s) of an object and its whole subtree. three.js does
+// NOT free these on scene.remove(), so any mesh torn down at runtime (enemy/gate rebuilds on every
+// scenario switch, async model swaps) must be routed through here or its buffers leak unbounded.
+// Meshes tagged `userData.sharedGeom` (cloneArrow instances) share their geometry with a cached
+// template across every clone — only their per-instance materials get disposed, never the geometry.
+function disposeObject3D(obj: THREE.Object3D): void {
+  const keepGeometry = obj.userData.sharedGeom === true;
+  obj.traverse((node) => {
+    const mesh = node as Partial<THREE.Mesh>;
+    if (!keepGeometry) mesh.geometry?.dispose();
+    const mat = mesh.material;
+    if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+    else mat?.dispose();
+  });
+}
 
 // ============================================================================================
 // three.js render layer. This is the ONLY module that knows about the GPU, and the only place the
@@ -46,7 +63,13 @@ export class Renderer {
   private currentGatePath: FlightGate[] | null = null;
   private rangeBubbleMesh: THREE.Mesh | null = null;
   private explosionPool: THREE.Group[] = [];
-  private impactPool: THREE.Mesh[] = [];
+  // (laser impacts are handled by the GPU hot-metal system below, not a pooled mesh)
+  // Hot-metal laser-hit sparks/flash/glow (see render/impactEffects.ts). Render-only: driven from
+  // world.effects 'impact' triggers, each consumed exactly once via emittedImpacts. clock feeds the
+  // GPU spark shader's monotonic time (render() gets no dt).
+  private impacts!: ImpactEffects;
+  private clock = new THREE.Clock();
+  private emittedImpacts = new WeakSet<VisualEffect>();
   private pipMarkerMesh: THREE.Mesh | null = null;
   private starfield: THREE.Points;
   private spaceDust: SpaceDust;
@@ -96,7 +119,7 @@ export class Renderer {
     if (meteoriteBody) {
       loadMeteoriteTemplate().then((model) => {
         const old = this.bodyMeshes.get(meteoriteBody.name);
-        if (old) this.scene.remove(old);
+        if (old) { this.scene.remove(old); disposeObject3D(old); }
         this.bodyMeshes.set(meteoriteBody.name, model);
         this.scene.add(model);
       });
@@ -159,6 +182,8 @@ export class Renderer {
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
+    this.impacts = new ImpactEffects(this.scene);
+
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -170,6 +195,16 @@ export class Renderer {
     this.bloom.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  // Rebuilds the starfield with a different magnitude range, disposing the old geometry/material —
+  // used only by render/starDebugPanel.ts's temporary tuning sliders for instant redraw-on-drag.
+  setStarfieldRange(magBrightest: number, magFaintest: number): void {
+    this.scene.remove(this.starfield);
+    this.starfield.geometry.dispose();
+    (this.starfield.material as THREE.Material).dispose();
+    this.starfield = createStarfield(1e7, magBrightest, magFaintest);
+    this.scene.add(this.starfield);
   }
 
   // Absolute world position + orientation basis of the camera this frame, per control mode.
@@ -297,27 +332,27 @@ export class Renderer {
       this.rangeBubbleMesh.visible = false;
     }
 
-    // combat bursts (see combat/effects.ts) — pooled per kind, positioned camera-relative. t goes
-    // 1 -> 0 over the effect's life; prog = 1 - t is 0 -> 1. Explosions are a 4-layer group (see
-    // createExplosionMesh + animateExplosion); impacts are a single small hot spark.
-    let expIdx = 0, impIdx = 0;
+    // combat bursts (see combat/effects.ts) — positioned camera-relative. Explosions are a pooled
+    // 4-layer group animated from t (1 -> 0 over the effect's life; see createExplosionMesh +
+    // animateExplosion). Impacts are one-shot triggers into the GPU hot-metal system: each 'impact'
+    // effect is a fire-once trigger (consumed via emittedImpacts), and impactEffects then owns the
+    // spark/flash/glow's full life — so its own lifetime is independent of the short-lived effect.
+    const now = this.clock.getElapsedTime();
+    let expIdx = 0;
     for (const fx of world.effects) {
-      const t = Math.max(0, fx.timer / fx.maxTimer);
       if (fx.kind === 'explosion') {
+        const t = Math.max(0, fx.timer / fx.maxTimer);
         const g = this.explosionMesh(expIdx++);
         g.visible = true;
         g.position.set(fx.pos.x - eye.x, fx.pos.y - eye.y, fx.pos.z - eye.z);
         this.animateExplosion(g, t);
-      } else {
-        const m = this.impactMesh(impIdx++);
-        m.visible = true;
-        m.position.set(fx.pos.x - eye.x, fx.pos.y - eye.y, fx.pos.z - eye.z);
-        m.scale.setScalar(0.5 + (1 - t) * 1.8); // ~0.5m -> ~2.3m
-        (m.material as THREE.MeshBasicMaterial).opacity = t;
+      } else if (!this.emittedImpacts.has(fx)) {
+        this.emittedImpacts.add(fx);
+        this.impacts.trigger(fx.pos, fx.normal, now);
       }
     }
     for (let i = expIdx; i < this.explosionPool.length; i++) this.explosionPool[i].visible = false;
-    for (let i = impIdx; i < this.impactPool.length; i++) this.impactPool[i].visible = false;
+    this.impacts.update(now, eye);
 
     // PIP Trainer marker — a small bright glow sphere at the pip's live position, only while a
     // PIP Trainer session is active. Scales up briefly on a scored rep (scoreFlash), same visual
@@ -365,10 +400,12 @@ export class Renderer {
   // for a brand-new array (scenario start/switch, restart) — see the render() call site — and once
   // more when the "Arrow" drone model (shipModels.ts) finishes loading, to swap the placeholder for it.
   private rebuildEnemyMeshes(enemies: EnemyShip[]): void {
-    for (const mesh of this.enemyMeshes.values()) this.scene.remove(mesh);
+    for (const mesh of this.enemyMeshes.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     this.enemyMeshes.clear();
     for (const enemy of enemies) {
       const mesh = this.arrowTemplate ? cloneArrow(this.arrowTemplate) : createShipMesh();
+      // cloneArrow instances share the template geometry — mark so teardown disposes only materials
+      if (this.arrowTemplate) mesh.userData.sharedGeom = true;
       this.scene.add(mesh);
       this.enemyMeshes.set(enemy, mesh);
     }
@@ -378,7 +415,7 @@ export class Renderer {
   // One ring mesh per gate in a 'gates' scenario's course, torn down and rebuilt whenever the
   // gatePath reference changes (a scenario starting/switching, or ending — null clears them).
   private rebuildGateMeshes(gatePath: FlightGate[] | null): void {
-    for (const mesh of this.gateMeshes) this.scene.remove(mesh);
+    for (const mesh of this.gateMeshes) { this.scene.remove(mesh); disposeObject3D(mesh); }
     this.gateMeshes = [];
     if (gatePath) {
       for (const gate of gatePath) {
@@ -411,15 +448,6 @@ export class Renderer {
       this.explosionPool.push(g);
     }
     return this.explosionPool[i];
-  }
-
-  private impactMesh(i: number): THREE.Mesh {
-    if (i >= this.impactPool.length) {
-      const m = createImpactMesh();
-      this.scene.add(m);
-      this.impactPool.push(m);
-    }
-    return this.impactPool[i];
   }
 
   // Drives the spray-style explosion group (see createExplosionMesh) from remaining life t (1 -> 0).

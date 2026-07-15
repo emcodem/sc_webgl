@@ -33,8 +33,8 @@ export function justPressed(action: ActionName): boolean {
   );
 }
 
-// -1..1 from a bound key pair, same shape as input/input.ts's axis() but by ActionName — additive
-// with mouse/joystick contributions to the same axis concept (see control/pilot.ts).
+// -1..1 from a bound key pair, keyed by ActionName rather than raw key code — additive with
+// mouse/joystick contributions to the same axis concept (see control/pilot.ts).
 export function digitalAxis(negAction: ActionName, posAction: ActionName): number {
   return (isActive(posAction) ? 1 : 0) - (isActive(negAction) ? 1 : 0);
 }

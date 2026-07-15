@@ -61,6 +61,15 @@ export function consumeMouse(): { dx: number; dy: number } {
   return out;
 }
 
+// Discard any accumulated pointer-lock movement. Only foot mode calls consumeMouse(), so the
+// deltas pile up unconsumed through an entire pilot session; without this, the first on-foot frame
+// after disembarking would apply the whole backlog at once as one violent look snap. Call on any
+// switch into a mode that reads these relative deltas.
+export function resetMouseDeltas(): void {
+  mouseDX = 0;
+  mouseDY = 0;
+}
+
 export function isCaptured(): boolean {
   return captured;
 }
@@ -68,9 +77,4 @@ export function isCaptured(): boolean {
 // Called at the very end of each frame to clear edge-triggered state.
 export function endFrame(): void {
   justPressedSet.clear();
-}
-
-// -1..1 axis from a negative/positive key pair (held).
-export function axis(negCode: string, posCode: string): number {
-  return (held.has(posCode) ? 1 : 0) - (held.has(negCode) ? 1 : 0);
 }

@@ -61,6 +61,8 @@ export interface ShipBody {
 // A traveling weapon round — see combat/weapons.ts. `owner` tags which side it damages on hit.
 export interface Projectile {
   pos: Vec3;
+  prevPos: Vec3; // position at the start of the current frame — hit detection sweeps pos↔prevPos so
+                 // a fast round (up to ~70 m/frame) can't tunnel through a ~10 m hull between frames
   vel: Vec3;
   age: number;
   owner: 'player' | 'enemy';
@@ -72,6 +74,8 @@ export interface Projectile {
 export interface VisualEffect {
   kind: 'explosion' | 'impact';
   pos: Vec3;
+  normal?: Vec3;    // 'impact' only — outward surface normal at the hit, so the renderer can spray
+                     // sparks back off the struck surface. Absent → renderer sprays omnidirectionally.
   timer: number;    // seconds remaining, counts down to 0
   maxTimer: number; // starting timer, so the renderer can normalise the fade
 }

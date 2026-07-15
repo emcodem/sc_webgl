@@ -7,8 +7,18 @@ export const WEAPON = {
   fireRate: 15,        // rounds per second while the trigger is held (1.5x the original 10)
   lifetime: 2.5,       // seconds before a round despawns
   muzzleForward: 8,    // spawn offset ahead of the ship so tracers don't clip through the hull
-  damage: 1
+  damage: 1,
+  // Weapon convergence ("harmonization"): the offset guns are toed-in so their bore lines cross at
+  // a point on the boresight this far ahead when no target range is known. With a soft-locked
+  // target (a PIP), callers pass the target's range instead so rounds converge right at the pip.
+  convergeDist: 800,   // metres — default harmonization range
+  minConvergeDist: 150 // clamp: closer than this the toe-in angle gets silly (and would invert below muzzleForward)
 };
+
+// Seconds between shots — what fireCooldown is reset to after every round leaves the barrel. Derived
+// from fireRate so the two can't drift; shared by the player and every AI shooter (combatSystem +
+// scenarios/runtime) rather than each re-deriving `1 / WEAPON.fireRate` inline.
+export const FIRE_COOLDOWN_SEC = 1 / WEAPON.fireRate;
 
 // Three visually distinct hardpoints, cycled through in order on every shot: left wing, right
 // wing, nose (underslung, centered). Each entry is an absolute (right, down) offset in metres,
@@ -36,6 +46,12 @@ let muzzleIndex = 0;
 // carry pos/vel and a (forward, right, up) basis from computeAxes. The round leaves from whichever
 // hardpoint is next in MUZZLE_MOUNTS's cycle, so consecutive shots visibly rotate between the two
 // wing guns and the nose gun rather than all leaving from one spot.
+//
+// Convergence: rather than firing parallel to the nose, each barrel aims from its own muzzle toward
+// a single convergence point sitting `convergeDist` metres straight ahead on the boresight, so the
+// left/right/nose tracers cross there. Pass the current target's range as `convergeDist` to make
+// them meet right at the PIP; omit it to fall back to WEAPON.convergeDist. The point stays on the
+// boresight (forward axis), so shots still go where the crosshair points — the guns just toe-in.
 export function spawnProjectileFrom(
   pos: Vec3,
   vel: Vec3,
@@ -43,18 +59,33 @@ export function spawnProjectileFrom(
   right: Vec3,
   up: Vec3,
   owner: Projectile['owner'],
-  out: Projectile[]
+  out: Projectile[],
+  convergeDist: number = WEAPON.convergeDist
 ): void {
   const mount = MUZZLE_MOUNTS[muzzleIndex];
-  const muzzleX = right.x * mount.right - up.x * mount.down + forward.x * WEAPON.muzzleForward;
-  const muzzleY = right.y * mount.right - up.y * mount.down + forward.y * WEAPON.muzzleForward;
-  const muzzleZ = right.z * mount.right - up.z * mount.down + forward.z * WEAPON.muzzleForward;
+  const muzzleX = pos.x + right.x * mount.right - up.x * mount.down + forward.x * WEAPON.muzzleForward;
+  const muzzleY = pos.y + right.y * mount.right - up.y * mount.down + forward.y * WEAPON.muzzleForward;
+  const muzzleZ = pos.z + right.z * mount.right - up.z * mount.down + forward.z * WEAPON.muzzleForward;
+
+  // Convergence point on the boresight, ahead of the ship center. Clamped so the toe-in angle stays
+  // sane and can never fall behind the muzzle (which would fire the round backwards).
+  const cd = Math.max(convergeDist, WEAPON.minConvergeDist);
+  const convX = pos.x + forward.x * cd;
+  const convY = pos.y + forward.y * cd;
+  const convZ = pos.z + forward.z * cd;
+
+  // Fire direction = from this muzzle toward the convergence point, renormalised to muzzleSpeed.
+  let dirX = convX - muzzleX, dirY = convY - muzzleY, dirZ = convZ - muzzleZ;
+  const invLen = 1 / (Math.hypot(dirX, dirY, dirZ) || 1);
+  dirX *= invLen; dirY *= invLen; dirZ *= invLen;
+
   out.push({
-    pos: { x: pos.x + muzzleX, y: pos.y + muzzleY, z: pos.z + muzzleZ },
+    pos: { x: muzzleX, y: muzzleY, z: muzzleZ },
+    prevPos: { x: muzzleX, y: muzzleY, z: muzzleZ }, // no travel yet — a spawn-frame hit sweeps a point
     vel: {
-      x: vel.x + forward.x * WEAPON.muzzleSpeed,
-      y: vel.y + forward.y * WEAPON.muzzleSpeed,
-      z: vel.z + forward.z * WEAPON.muzzleSpeed
+      x: vel.x + dirX * WEAPON.muzzleSpeed,
+      y: vel.y + dirY * WEAPON.muzzleSpeed,
+      z: vel.z + dirZ * WEAPON.muzzleSpeed
     },
     age: 0,
     owner
@@ -66,6 +97,9 @@ export function spawnProjectileFrom(
 export function updateProjectiles(projectiles: Projectile[], dt: number): void {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const pr = projectiles[i];
+    pr.prevPos.x = pr.pos.x;
+    pr.prevPos.y = pr.pos.y;
+    pr.prevPos.z = pr.pos.z;
     pr.pos.x += pr.vel.x * dt;
     pr.pos.y += pr.vel.y * dt;
     pr.pos.z += pr.vel.z * dt;

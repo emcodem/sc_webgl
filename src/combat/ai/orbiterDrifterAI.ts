@@ -266,7 +266,15 @@ function startDriftTurn(enemy: EnemyShip, drift: NonNullable<EnemyShip['drift']>
   };
   drift.turn = turn;
   // the incidental cosmetic roll (advanceBarrelRoll) is superseded by the turn's own continuous
-  // roll below — clear it so the two don't stack once the turn finishes.
+  // roll below — clear it so the two don't stack once the turn finishes. rollOffsetPrev is the
+  // corkscrew displacement currently baked into enemy.pos (applied incrementally tick-to-tick), so
+  // unwind it first — otherwise interrupting a mid-roll turn strands the drone up to
+  // BARREL_ROLL_RADIUS off its true flight path for good.
+  if (drift.rollOffsetPrev) {
+    enemy.pos.x -= drift.rollOffsetPrev.x;
+    enemy.pos.y -= drift.rollOffsetPrev.y;
+    enemy.pos.z -= drift.rollOffsetPrev.z;
+  }
   drift.rollTimer = 0;
   drift.rollOffsetPrev = undefined;
 }

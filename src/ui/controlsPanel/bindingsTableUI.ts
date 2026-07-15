@@ -1,4 +1,4 @@
-import type { ActionName, AxisConcept, GamepadSnapshot } from '../../input/actions';
+import { AXIS_LABELS, type ActionName, type AxisConcept, type GamepadSnapshot } from '../../input/actions';
 import * as Keybinds from '../../input/keybinds';
 import * as Gamepad from '../../input/gamepad';
 import * as Joystick from '../../input/joystickMap';
@@ -31,10 +31,7 @@ const STICK_KEY_FOR_CONCEPT: Record<AxisConcept, keyof ReturnType<typeof Joystic
   pitch: 'pitch', yaw: 'yaw', roll: 'roll',
   strafeLateral: 'lateral', strafeVertical: 'vertical', strafeLongitudinal: 'longitudinal'
 };
-const CONCEPT_LABELS: Record<AxisConcept, string> = {
-  pitch: 'Pitch', yaw: 'Yaw', roll: 'Roll',
-  strafeLongitudinal: 'Strafe Forward/Back', strafeLateral: 'Strafe Left/Right', strafeVertical: 'Strafe Up/Down'
-};
+// axis-concept display names come from actions.ts (AXIS_LABELS) — the single source of truth
 
 // =====================================================================
 // Joystick axis rebind capture. A single physical axis drives BOTH directions of a concept (e.g.
@@ -60,7 +57,7 @@ function completeAxisRebind(concept: AxisConcept, pad: GamepadSnapshot, axisInde
   const niceName = pad.id.split('(')[0].trim();
   const ref = { vid: pad.vid, pid: pad.pid, axisCount: pad.axesValues.length, buttonCount: pad.buttonsPressed.length };
   Joystick.bindAxis(concept, { ...ref, axisIndex, label: `${niceName} axis[${axisIndex}]`, manual: true });
-  rebindStatus.textContent = `Bound "${niceName}" axis [${axisIndex}] to ${CONCEPT_LABELS[concept] || concept}.`;
+  rebindStatus.textContent = `Bound "${niceName}" axis [${axisIndex}] to ${AXIS_LABELS[concept] || concept}.`;
   cancelAxisRebind();
   renderBindings();
 }
@@ -96,7 +93,7 @@ function startAxisRebind(concept: AxisConcept): void {
   pendingAxisRebindConcept = concept;
   Gamepad.poll();
   axisRebindBaseline = Gamepad.getSnapshot().map(p => ({ index: p.index, axes: p.axesValues.slice() }));
-  rebindStatus.textContent = `Move the joystick axis for "${CONCEPT_LABELS[concept] || concept}"… (Esc to cancel)`;
+  rebindStatus.textContent = `Move the joystick axis for "${AXIS_LABELS[concept] || concept}"… (Esc to cancel)`;
   renderBindings();
   axisRebindRAF = requestAnimationFrame(pollAxisRebind);
 }
@@ -407,7 +404,7 @@ export function renderBindings(): void {
     btn.addEventListener('click', () => {
       const concept = btn.getAttribute('data-concept') as AxisConcept;
       Joystick.unbindAxis(concept);
-      rebindStatus.textContent = `Unbound joystick axis for "${CONCEPT_LABELS[concept] || concept}".`;
+      rebindStatus.textContent = `Unbound joystick axis for "${AXIS_LABELS[concept] || concept}".`;
       renderBindings();
     });
   });

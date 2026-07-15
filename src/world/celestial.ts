@@ -14,7 +14,7 @@ import type { CelestialBody } from '../core/world';
 export const METEORITE: CelestialBody = {
   name: 'MIL 15307',
   pos: { x: -400, y: 100, z: 500 }, // distance from SPAWN (0,0,0) ~= 648m, comfortably inside 1km
-  radius: 30, // half of the ~60m target size render/celestialModels.ts scales the model to
+  radius: 30, // collision radius; render/celestialModels.ts derives its model target size (2×) from this
   gravity: 0,
   walkable: false,
   color: 0x9a8f82,

@@ -231,10 +231,11 @@ function updatePipTrainerHUD(world: World): void {
   }
 }
 
-// Predicted-impact-point reticle: reuses the exact same findActivePip call as the ESP damping in
-// control/pilot.ts, so the drawn diamond always matches what's actually steering the crosshair
-// assist. Ported from the original project's render/render.ts::drawPip, moved from a 2D canvas
-// draw call to a positioned DOM element since this HUD is DOM, not canvas.
+// Predicted-impact-point reticle: independently recomputes findActivePip with the same inputs the
+// ESP damping in control/pilot.ts uses, so the drawn diamond always matches what's actually steering
+// the crosshair assist (the call is cheap — O(enemies) — so it isn't worth threading a shared result
+// across modules). Ported from the original project's render/render.ts::drawPip, moved from a 2D
+// canvas draw call to a positioned DOM element since this HUD is DOM, not canvas.
 function updatePipMarker(world: World): void {
   const ship = world.player.ship;
   if (world.player.mode !== 'pilot' || ship.respawnTimer > 0) {

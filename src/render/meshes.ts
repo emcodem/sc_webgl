@@ -160,14 +160,16 @@ function createMeteoritePlaceholderMesh(body: CelestialBody): THREE.Object3D {
 }
 
 export function createBodyMesh(body: CelestialBody): THREE.Object3D {
+  // these two branches build their own mesh — return before allocating the sphere geometry + group
+  // below (the sun's is a 128^2 sphere), which they'd otherwise discard unused
+  if (body.emissive) return createSunMesh(body);
+  if (body.meteorite) return createMeteoritePlaceholderMesh(body);
+
   const group = new THREE.Group();
   group.name = body.name;
 
   const segments = body.radius > 100_000 ? 128 : 96;
   const geo = new THREE.SphereGeometry(body.radius, segments, segments);
-
-  if (body.emissive) return createSunMesh(body);
-  if (body.meteorite) return createMeteoritePlaceholderMesh(body);
 
   // rocky/planetary body: displaced + mottled, lit standard material
   const walkable = body.walkable;
@@ -301,14 +303,7 @@ export function createExplosionMesh(): THREE.Group {
   return g;
 }
 
-// Laser-hit spark (see combat/effects.ts) — a single small hot additive sphere, sized/faded by the
-// renderer. Deliberately minimal vs the explosion: impacts are frequent and quick.
-export function createImpactMesh(): THREE.Mesh {
-  return new THREE.Mesh(
-    new THREE.SphereGeometry(1, 10, 10),
-    new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
-  );
-}
+// (Laser-hit sparks are now the GPU "hot metal" system in render/impactEffects.ts, not a mesh.)
 
 // PIP Trainer's ESP-style marker — a small bright glow sphere, same "plain MeshBasicMaterial at a
 // near-white/bright tint reads as HDR for the bloom pass" trick as the ship's engine glow and the
@@ -325,8 +320,8 @@ export function createPipMarkerMesh(color = 0x9fe6ff): THREE.Mesh {
 // and per-star colour from the catalogue's blackbody temperature. Rendered as soft round glowing
 // points via a custom shader (PointsMaterial can't vary size/colour per point). Additive so they
 // glow on black and feed the bloom pass.
-export function createStarfield(radius = 1e7): THREE.Points {
-  const stars = loadBrightStars(radius);
+export function createStarfield(radius = 1e7, magBrightest?: number, magFaintest?: number): THREE.Points {
+  const stars = loadBrightStars(radius, magBrightest, magFaintest);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(stars.positions, 3));
@@ -351,10 +346,11 @@ export function createStarfield(radius = 1e7): THREE.Points {
       void main() {
         float d = distance(gl_PointCoord, vec2(0.5));
         if (d > 0.5) discard;
-        float a = smoothstep(0.5, 0.0, d);
-        // mix the star's true colour toward white at the core so bright stars keep a hot centre
-        vec3 c = mix(vColor, vec3(1.0), (1.0 - a) * 0.5);
-        gl_FragColor = vec4(c * vBright, a);
+        // no whitening toward the centre — keep the true hue across the whole disc (this is what
+        // NASA's Eyes on the Solar System star shader does: only alpha falls off toward the edge,
+        // colour never desaturates toward white; a punchy core comes from brightness/bloom, not tint)
+        float a = pow(clamp(1.0 - 2.0 * d, 0.0, 1.0), 2.2);
+        gl_FragColor = vec4(vColor * vBright, a);
       }`
   });
   return new THREE.Points(geo, mat);

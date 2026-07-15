@@ -25,10 +25,10 @@ function makeEnemy(pos = { x: 0, y: 0, z: 0 }, overrides: Partial<EnemyShip> = {
 }
 
 function enemyProjectile(pos = { x: 0, y: 0, z: 0 }): Projectile {
-  return { pos, vel: { x: 0, y: 0, z: 0 }, age: 0, owner: 'enemy' };
+  return { pos, prevPos: { ...pos }, vel: { x: 0, y: 0, z: 0 }, age: 0, owner: 'enemy' };
 }
 function playerProjectile(pos = { x: 0, y: 0, z: 0 }): Projectile {
-  return { pos, vel: { x: 0, y: 0, z: 0 }, age: 0, owner: 'player' };
+  return { pos, prevPos: { ...pos }, vel: { x: 0, y: 0, z: 0 }, age: 0, owner: 'player' };
 }
 
 describe('resolveHits', () => {
@@ -89,5 +89,17 @@ describe('resolveHits', () => {
     resolveHits(projectiles, makeShip(), [enemy]);
     expect(enemy.health.points).toBe(10);
     expect(projectiles).toHaveLength(1);
+  });
+
+  it('registers a hit on a fast round whose path crosses the hull between frames (no tunneling)', () => {
+    const enemy = makeEnemy({ x: 0, y: 0, z: 0 }); // hull radius ~10m
+    // The round starts 60m short and ends 60m past the enemy — it never occupies the hull at either
+    // frame boundary, so a point-in-sphere test would miss. The swept segment passes through center.
+    const projectiles: Projectile[] = [
+      { pos: { x: 60, y: 0, z: 0 }, prevPos: { x: -60, y: 0, z: 0 }, vel: { x: 2400, y: 0, z: 0 }, age: 0, owner: 'player' }
+    ];
+    resolveHits(projectiles, makeShip({ x: 5000, y: 0, z: 0 }), [enemy]);
+    expect(enemy.health.points).toBe(9);
+    expect(projectiles).toHaveLength(0);
   });
 });

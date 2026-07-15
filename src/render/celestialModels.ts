@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { METEORITE } from '../world/celestial';
 
 // ============================================================================================
 // Real glTF celestial-body models, loading in alongside the procedural primitives in meshes.ts —
@@ -17,7 +18,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 // ============================================================================================
 
 const METEORITE_MODEL_URL = '/models/meteorite.glb';
-const METEORITE_TARGET_SIZE = 60; // metres, largest dimension — an explorable asteroid-scale rock
+// Largest dimension (diameter) the scanned model is scaled to. Derived from the world-data collision
+// radius so the visual can't silently drift from what gravity/collision use — see world/celestial.ts.
+const METEORITE_TARGET_SIZE = METEORITE.radius * 2; // metres — an explorable asteroid-scale rock
 
 let meteoritePromise: Promise<THREE.Object3D> | null = null;
 

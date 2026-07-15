@@ -11,6 +11,9 @@ export interface ActivePip {
   enemy: EnemyShip;
   screenX: number;
   screenY: number;
+  // world-space firing solution (where to aim to hit the target) — its distance from the shooter is
+  // the range weapon convergence harmonizes to, so rounds from the offset guns meet right at the PIP.
+  lead: Vec3;
   // true if firing right now, with the shooter's actual current facing and both craft holding
   // their current velocity, would land within the target's hull radius — drives the ESP
   // damping gate and (if a PIP reticle is ever drawn) its hit/no-hit color.
@@ -46,7 +49,7 @@ export function findActivePip(
         enemy.pos, enemy.vel, enemy.type.hullRadius,
         WEAPON.muzzleSpeed, WEAPON.lifetime
       );
-      best = { enemy, screenX: p.x, screenY: p.y, wouldHit };
+      best = { enemy, screenX: p.x, screenY: p.y, lead, wouldHit };
     }
   }
 
