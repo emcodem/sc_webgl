@@ -163,7 +163,7 @@ const sparkFragmentShader = /* glsl */`
     // Per-particle brightness variance so a burst doesn't look uniform.
     float flicker = 0.8 + 0.2 * fract(sin(vSeed * 12.9898) * 43758.5453);
 
-    vec3 color = lutColor.rgb * sprite.rgb * flicker * 1.9; // overdrive so the hot core reads + blooms
+    vec3 color = lutColor.rgb * sprite.rgb * flicker * 1.1; // slight overdrive so the hot core reads, but sparks stay crisp points rather than blooming into blobs
     float alpha = lutColor.a * sprite.a;
 
     gl_FragColor = vec4(color, alpha);
@@ -257,7 +257,7 @@ export class ImpactEffects {
 
     for (let i = 0; i < MAX_BURSTS; i++) this.bursts.push(this.buildBurst());
     for (let i = 0; i < MAX_FLASHES; i++) this.flashes.push(this.buildBillboard(this.flashTex, 0.09));
-    for (let i = 0; i < MAX_GLOWS; i++) this.glows.push(this.buildBillboard(this.glowTex, 0.6));
+    for (let i = 0; i < MAX_GLOWS; i++) this.glows.push(this.buildBillboard(this.glowTex, 0.25));
   }
 
   private buildBurst(): Burst {
@@ -374,8 +374,8 @@ export class ImpactEffects {
     burst.active = true;
     burst.points.visible = true;
 
-    this.spawnFlash(origin, now, 1.0 * scale);
-    this.spawnGlow(origin, n, now, 0.8 * scale);
+    this.spawnFlash(origin, now, 0.4 * scale);
+    this.spawnGlow(origin, n, now, 0.3 * scale);
   }
 
   private spawnFlash(origin: Vec3, now: number, maxScale: number): void {
@@ -419,10 +419,11 @@ export class ImpactEffects {
       const t = (now - f.birth) / f.duration;
       if (t < 0 || t > 1) { f.active = false; f.sprite.visible = false; continue; }
       f.sprite.position.set(f.origin.x - eye.x, f.origin.y - eye.y, f.origin.z - eye.z);
-      // Fast punch-in, fast fade — reads as an instant flash, not a glow.
+      // Fast punch-in, fast fade — reads as an instant flash, not a glow. Opacity is held below 1 so
+      // the additive flash tints the hit point rather than blowing it (and the bloom pass) to solid white.
       const s = f.maxScale * (0.3 + 0.7 * Math.min(t * 4, 1));
       f.sprite.scale.setScalar(s);
-      f.sprite.material.opacity = 1.0 - t;
+      f.sprite.material.opacity = 0.55 * (1.0 - t);
     }
 
     for (const g of this.glows) {
@@ -434,7 +435,9 @@ export class ImpactEffects {
       const growT = Math.min(t / 0.15, 1);
       const s = g.maxScale * (0.4 + 0.6 * growT) * (1.0 - 0.3 * t);
       g.sprite.scale.setScalar(s);
-      g.sprite.material.opacity = (1.0 - t) * (1.0 - t); // ease-out fade
+      // Kept faint (peaks ~0.3) so the molten spot reads as a translucent heat-smudge you can see
+      // through to the sparks/scene behind, not an opaque white blob.
+      g.sprite.material.opacity = 0.3 * (1.0 - t) * (1.0 - t); // ease-out fade
       // White-hot -> deep red as it cools.
       const gc = 1.0 - 0.85 * t;
       const bc = 1.0 - Math.min(t * 1.5, 1);
