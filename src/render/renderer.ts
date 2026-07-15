@@ -8,12 +8,12 @@ import type { Vec3 } from '../core/types';
 import type { FlightGate } from '../scenarios/types';
 import { ENEMY_EXPLOSION_DURATION } from '../scenarios/runtime';
 import { computeAxes } from '../math/quaternion';
-import { add, cross, dot, normalize, scale as vecScale } from '../math/vec';
+import { normalize } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
   createBodyMesh, createPipMarkerMesh, createProjectileMesh, createShipMesh, createSpaceDust, createStarfield,
-  PROJECTILE_STREAK_LENGTH, type SpaceDust
+  PROJECTILE_RADIUS, type SpaceDust
 } from './meshes';
 import { setCameraBasis, setObjectBasis } from './camera';
 import { cloneArrow, loadArrowTemplate } from './shipModels';
@@ -230,54 +230,35 @@ export class Renderer {
       setObjectBasis(mesh, axes.forward, axes.up);
     });
 
-    // weapon-round tracers — a pooled mesh per live projectile. The streak (mesh.children[1] — see
-    // createProjectileMesh) is a screen-space "stretched billboard": it always fully faces the
-    // camera, and its apparent length/rotation come from projecting the 3D tail offset onto the
-    // camera's own (right, up) plane rather than from any 3D orientation of the quad itself. A
-    // plane oriented along the true 3D travel direction goes edge-on and vanishes whenever that
-    // direction is close to the camera's own view direction — which is exactly the player's own
-    // fire, travelling almost straight away from the camera that's aiming it, so a naive "orient
-    // toward the camera" billboard still went invisible for the single most common case in this
-    // game. camRight/camUp are the same for every projectile this frame, computed once from the
-    // camera's own basis (matches render/camera.ts::setCameraBasis's construction exactly).
-    const camRight = normalize(cross(view.forward, view.up));
-    const camUp = normalize(cross(camRight, view.forward));
+    // weapon-round tracers — a pooled straight red line per live projectile (see
+    // createProjectileMesh), oriented in true 3D so its local +Z runs down the round's velocity
+    // vector. The mesh's head sits at the round's position and the line trails PROJECTILE_LENGTH
+    // metres behind it along -velocity. `refUp` is any axis not parallel to the travel direction
+    // (the line is radially symmetric, so its roll is irrelevant) — setObjectBasis re-orthonormalises
+    // it into a valid basis.
+    //
+    // The cross-section (local X/Y) is widened with distance so a far round doesn't shrink to a
+    // sub-pixel, invisible sliver — a fixed-world-radius cylinder at 3km subtends far under one
+    // pixel. `thickRate` is the world radius per metre of distance that keeps the line at least
+    // MIN_TRACER_PX pixels wide, derived from the live vertical FOV and framebuffer height; near
+    // rounds keep the base PROJECTILE_RADIUS (its true "double" thickness), distant ones grow to
+    // hold that floor, so player fire stays legible out past 3km. Length (local Z) is left at its
+    // true world value.
+    const fovV = (this.camera.fov * Math.PI) / 180;
+    const px = this.renderer.domElement.height || 720;
+    const MIN_TRACER_PX = 2;
+    const thickRate = (MIN_TRACER_PX * fovV) / (2 * px); // world radius per metre of distance
     world.projectiles.forEach((p, i) => {
       const mesh = this.projectileMesh(i);
       mesh.visible = true;
-      mesh.position.set(p.pos.x - eye.x, p.pos.y - eye.y, p.pos.z - eye.z);
-
+      const rx = p.pos.x - eye.x, ry = p.pos.y - eye.y, rz = p.pos.z - eye.z;
+      mesh.position.set(rx, ry, rz);
       const dir = normalize(p.vel);
-      const tailOffset = vecScale(dir, -PROJECTILE_STREAK_LENGTH);
-      const dx = dot(tailOffset, camRight), dy = dot(tailOffset, camUp);
-      // On-screen beam length = the 3D tail offset projected onto the camera plane. While piloting,
-      // the ship's own forward axis IS the camera's forward axis, so the player's own fire
-      // (dir ~= view.forward) projects to ~0 here — that's the single most common case, not a rare
-      // edge. There is NO honest 2D direction for a bolt flying straight away from you, so rather
-      // than invent one (an earlier version floored the length and fell back to camUp, which drew
-      // every boresighted shot as an upright vertical "candle" 90deg off the true into-screen travel
-      // line) we simply hide the streak below STREAK_MIN and let the head spark alone carry a
-      // dead-ahead shot — which is also what you'd actually see. Above the threshold: a proper long
-      // gradient beam for anything with real screen-space travel (enemy fire, your own shots once
-      // you're off-boresight).
-      const projected = Math.hypot(dx, dy);
-      const STREAK_MIN = 1.5;
-      const streak = mesh.children[1];
-      if (projected > STREAK_MIN) {
-        streak.visible = true;
-        const screenDir = normalize(add(vecScale(camRight, dx), vecScale(camUp, dy)));
-        setObjectBasis(streak, view.forward, screenDir);
-        streak.scale.set(1, projected, 1);
-      } else {
-        streak.visible = false;
-      }
-
-      // Head glow: a small spark that grows modestly as the beam lengthens on screen, so it reads
-      // as the hot tip of a tracer rather than a fixed round ball dominating a short/collapsed beam
-      // (the old fixed 1.1 scale looked like a "tennisball on the tip" for dead-ahead fire). Ranges
-      // ~0.5 dead-on to ~1.0 fully side-on.
-      const headSprite = mesh.children[0];
-      headSprite.scale.setScalar(0.5 + 0.06 * Math.min(projected, PROJECTILE_STREAK_LENGTH));
+      const refUp = Math.abs(dir.y) > 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+      setObjectBasis(mesh, dir, refUp);
+      const dist = Math.hypot(rx, ry, rz);
+      const thickScale = Math.max(1, (dist * thickRate) / PROJECTILE_RADIUS);
+      mesh.scale.set(thickScale, thickScale, 1);
     });
     for (let i = world.projectiles.length; i < this.projectilePool.length; i++) {
       this.projectilePool[i].visible = false;

@@ -225,135 +225,26 @@ export function createShipMesh(accentColor = 0xff7a45): THREE.Object3D {
   return group;
 }
 
-// A radial "hot core" texture for the bolt's head glow, matching the streak shader's own
-// core-white -> mid-orange -> outer-red gradient (see LASER_FRAGMENT_SHADER) rather than a flat
-// single-tone dot — a tight bright pinpoint bleeding out into color, same shape family as the
-// sun's corona billboards above, so a dead-ahead shot (where the head sprite carries the whole
-// look — see the projectile loop's doc comment in renderer.ts) still reads as a hot energy spark
-// rather than a uniform flat-colored ball.
-let dotTexture: THREE.CanvasTexture | null = null;
-function getDotTexture(): THREE.CanvasTexture {
-  if (dotTexture) return dotTexture;
-  dotTexture = makeRadialTexture([
-    [0.0, 'rgba(255,250,235,1)'],
-    [0.16, 'rgba(255,225,170,0.95)'],
-    [0.4, 'rgba(255,120,40,0.75)'],
-    [0.7, 'rgba(200,20,10,0.35)'],
-    [1.0, 'rgba(160,0,0,0)']
-  ]);
-  return dotTexture;
-}
+// A weapon-round tracer: a simple straight red line, PROJECTILE_LENGTH metres long, oriented in
+// true 3D along the round's travel direction (see render/renderer.ts's per-projectile loop). A thin
+// cylinder rather than a THREE.Line so it has real world-space thickness and stays visible at any
+// distance (WebGL ignores LineBasicMaterial.linewidth > 1 on most platforms). The geometry lies
+// along local +Z with the head at the local origin and the tail PROJECTILE_LENGTH behind it, so the
+// renderer just points local +Z down the velocity vector each frame — no billboarding, no shader.
+// The renderer also scales the cross-section up with distance so the line stays visible out to
+// several km rather than shrinking to a sub-pixel (invisible) sliver. A bolt fired straight away
+// from the camera foreshortens to a small dot, which is correct.
+export const PROJECTILE_LENGTH = 6;
+export const PROJECTILE_RADIUS = 0.16; // base half-thickness at close range (widened per-distance)
 
-// Laser-bolt streak shader: a volumetric-looking energy streak rather than a flat colored quad —
-// a narrow white-hot core (only near the head; it tapers away toward the tail, per a real energy
-// weapon's motion blur) inside a saturated orange mid-glow inside a soft red outer halo, with an
-// exponential transverse falloff (pow(1-dist,3)) and a longitudinal fade from a blunt bright head
-// to a fully transparent tail. `vUv.x` is the transverse (width) axis, `vUv.y` the longitudinal
-// (length) axis with 0 = tail, 1 = head (see createProjectileMesh's geometry setup below).
-// #include <logdepthbuf_*> chunks are required here — the renderer is constructed with
-// logarithmicDepthBuffer: true (see renderer.ts; needed to show a 20m ship and an 8,000,000m sun
-// in the same frame), and three.js's built-in materials get that handling injected automatically,
-// but a raw THREE.ShaderMaterial does not. Without it this mesh depth-tested as if the buffer were
-// linear and simply never passed, rendering nothing despite otherwise-correct geometry/material
-// state (confirmed by dumping the live scene graph — position, quaternion, and vertex data all
-// checked out fine while the mesh stayed invisible).
-const LASER_VERTEX_SHADER = `
-  #include <common>
-  #include <logdepthbuf_pars_vertex>
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    #include <logdepthbuf_vertex>
-  }
-`;
-const LASER_FRAGMENT_SHADER = `
-  #include <common>
-  #include <logdepthbuf_pars_fragment>
-  varying vec2 vUv;
-  uniform vec3 uTint;
-  void main() {
-    float centerDist = abs(vUv.x - 0.5) * 2.0; // 0 at the beam's center axis -> 1 at its edge
-    float v = vUv.y;                            // 0 at the tail -> 1 at the head
-
-    vec3 coreColor = vec3(1.0, 0.95, 0.8);
-    vec3 midColor = vec3(1.0, 0.25, 0.0) * uTint;
-    vec3 outerColor = vec3(0.8, 0.0, 0.0) * uTint;
-
-    // smoothstep's edges must ascend (edge0 < edge1) — GLSL leaves edge0 >= edge1 undefined, which
-    // silently rendered as nothing at all under this project's swiftshader/ANGLE test target — so
-    // an inverted falloff is built as 1.0 - smoothstep(low, high, x) rather than swapping the edges.
-    float coreBand = (1.0 - smoothstep(0.0, 0.16, centerDist)) * smoothstep(0.1, 0.7, v);
-    float midBand = 1.0 - smoothstep(0.05, 0.6, centerDist);
-
-    vec3 color = mix(outerColor, midColor, midBand);
-    color = mix(color, coreColor, coreBand);
-
-    float transverseFalloff = pow(max(0.0, 1.0 - centerDist), 3.0);
-    float longitudinalFalloff = smoothstep(0.0, 0.3, v); // fades in from the tail
-    float alpha = transverseFalloff * longitudinalFalloff;
-
-    // pushed past 1.0 so the core clears UnrealBloomPass's luminance threshold
-    gl_FragColor = vec4(color * (1.0 + coreBand * 1.8), alpha);
-    #include <logdepthbuf_fragment>
-  }
-`;
-
-// Additive blending via EXPLICIT blend factors (SRC_ALPHA, ONE) rather than THREE.AdditiveBlending
-// (which defaults to (ONE, ONE) and would add full-strength color even where alpha has faded to
-// near-0) — this is what makes the exponential transverse/longitudinal falloff above actually show
-// up as a soft feathered glow instead of a hard-edged additive quad.
-function createLaserStreakMaterial(tint: number): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: { uTint: { value: new THREE.Color(tint) } },
-    vertexShader: LASER_VERTEX_SHADER,
-    fragmentShader: LASER_FRAGMENT_SHADER,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-    blending: THREE.CustomBlending,
-    blendSrc: THREE.SrcAlphaFactor,
-    blendDst: THREE.OneFactor,
-    blendEquation: THREE.AddEquation,
-    side: THREE.DoubleSide
-  });
-}
-
-// The streak's fixed local length before per-frame scaling — see render/renderer.ts's
-// per-projectile loop, which rebuilds this mesh's orientation and scale.y every frame as a
-// screen-space "stretched billboard" rather than a fixed 3D-oriented quad.
-export const PROJECTILE_STREAK_LENGTH = 9;
-
-// A weapon-round tracer: a camera-facing sprite at the head (a blunt, always-visible glow) plus a
-// separate streak quad carrying the gradient shader above. The streak is NOT oriented like a
-// normal 3D object — a plane whose length runs along the actual 3D travel direction goes edge-on
-// and vanishes whenever that direction is close to the camera's own view direction, which is
-// exactly what happens for the single most common case in this game: the player's own fire,
-// travelling almost straight away from the camera that's aiming it. Real tracers/lasers in every
-// engine solve this the same way — a "stretched billboard": the streak always fully faces the
-// camera (like the sprite), and its apparent LENGTH/rotation come from projecting the 3D tail
-// offset onto the camera's own (right, up) plane, so it correctly shows a full streak when viewed
-// from the side and collapses toward the head sprite's small glow when viewed dead-on (which is
-// also physically correct — something moving directly away from you doesn't reveal its length).
-// Local geometry: width along local X, head at local Y=0 (unscaled), tail at local Y=-1 (scaled by
-// mesh.scale.y each frame) — a plain, un-rotated PlaneGeometry already has this shape.
-export function createProjectileMesh(color: number): THREE.Group {
-  const group = new THREE.Group();
-
-  const headSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: getDotTexture(),
-    color: new THREE.Color(1, 0.95, 0.8).multiplyScalar(2.6),
-    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
-  }));
-  headSprite.scale.setScalar(1.1);
-  group.add(headSprite);
-
-  const streakGeo = new THREE.PlaneGeometry(0.7, 1);
-  streakGeo.translate(0, -0.5, 0); // head (v=1, bright) at local y=0, tail (v=0) at local y=-1
-  const streak = new THREE.Mesh(streakGeo, createLaserStreakMaterial(color));
-  group.add(streak);
-
-  return group;
+export function createProjectileMesh(color: number): THREE.Mesh {
+  const geo = new THREE.CylinderGeometry(PROJECTILE_RADIUS, PROJECTILE_RADIUS, PROJECTILE_LENGTH, 6, 1);
+  geo.rotateX(Math.PI / 2);              // reorient the cylinder's long axis from +Y to +Z
+  geo.translate(0, 0, -PROJECTILE_LENGTH / 2); // head at local origin, tail at local -Z
+  // MeshBasicMaterial (unlit) pushed past 1.0 so the line clears UnrealBloomPass's threshold and
+  // reads as a hot glowing red beam rather than a flat matte bar.
+  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2) });
+  return new THREE.Mesh(geo, mat);
 }
 
 // PIP Trainer's ESP-style marker — a small bright glow sphere, same "plain MeshBasicMaterial at a

@@ -16,19 +16,19 @@ export const WEAPON = {
 // (player and all enemies) — which specific ship's shot advances the cycle doesn't matter, only
 // that consecutive rounds from the same ship visibly rotate through its own three guns.
 //
-// The wing offsets are sized so a shot spawns near the left/right edge of the screen at roughly
-// 20% down from the top — solved from the camera's own 70 deg vertical FOV (see render/renderer.ts)
-// at muzzleForward's 8m spawn depth, assuming a representative 16:9 window: half-height there is
-// 8*tan(35 deg) ~= 5.6m, half-width (x1.778 aspect) ~= 9.96m. right = 90% of that half-width
-// (~9m, close to the edge without clipping); down = -(0.6 * half-height) (~-3.4m — NEGATIVE
-// because spawnProjectileFrom subtracts along `up`, so a negative "down" moves the spawn point
-// *up* screen, toward that 20%-from-top target) rather than the vertical screen-center a `down: 0`
-// wing mount would otherwise sit at. Will drift slightly off-target at window aspects far from
-// 16:9, same as any fixed 3D offset would.
+// The offsets are solved from the camera's own 70 deg vertical FOV (see render/renderer.ts) at
+// muzzleForward's 8m spawn depth, assuming a representative 16:9 window: half-height there is
+// 8*tan(35 deg) ~= 5.6m and half-width (x1.778 aspect) ~= 9.96m, so the screen edges sit at
+// right = +/-9.96 (left/right border), down = +5.6 (bottom border) and down = -5.6 (top). `down`
+// is POSITIVE toward the bottom of the screen (spawnProjectileFrom subtracts along `up`, and up is
+// -Y in this convention). The two wing guns fire from the left/right borders at 20% of screen
+// height up from the bottom (down = 5.6 - 0.2*11.2 = 3.36); the nose gun fires from the
+// bottom-center of the screen (down = +5.6). Will drift slightly off-target at window aspects far
+// from 16:9, same as any fixed 3D offset would.
 const MUZZLE_MOUNTS: { right: number; down: number }[] = [
-  { right: -9, down: -3.4 }, // left wing
-  { right: 9, down: -3.4 },  // right wing
-  { right: 0, down: 1.1 }    // nose, underslung
+  { right: -9.96, down: 3.36 }, // left wing — left border, 20% up from bottom
+  { right: 9.96, down: 3.36 },  // right wing — right border, 20% up from bottom
+  { right: 0, down: 5.6 }       // nose — bottom-center of screen
 ];
 let muzzleIndex = 0;
 

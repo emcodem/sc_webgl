@@ -16,11 +16,13 @@ describe('spawnProjectileFrom', () => {
     spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out);
     spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out);
     expect(out).toHaveLength(4);
-    // mounts are (right:-9,down:-3.4), (right:9,down:-3.4), (right:0,down:1.1) then wraps
-    expect(out[0].pos.x).toBeCloseTo(-9, 6);
-    expect(out[1].pos.x).toBeCloseTo(9, 6);
+    // mounts are (right:-9.96,down:3.36), (right:9.96,down:3.36), (right:0,down:5.6) then wraps.
+    // pos offsets along -up, so a positive `down` yields a negative pos.y here (UP = +Y).
+    expect(out[0].pos.x).toBeCloseTo(-9.96, 6);
+    expect(out[0].pos.y).toBeCloseTo(-3.36, 6); // left wing, 20% up from bottom
+    expect(out[1].pos.x).toBeCloseTo(9.96, 6);
     expect(out[2].pos.x).toBeCloseTo(0, 6);
-    expect(out[2].pos.y).toBeCloseTo(-1.1, 6); // nose mount, offset along -up
+    expect(out[2].pos.y).toBeCloseTo(-5.6, 6); // nose mount, bottom-center
     expect(out[3].pos.x).toBeCloseTo(out[0].pos.x, 6); // cycle wrapped back to the first mount
   });
 
