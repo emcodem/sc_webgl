@@ -11,7 +11,10 @@ import type { VisualEffect } from '../core/world';
 // renderer turns each into an additive burst whose size/opacity track timer/maxTimer. Replaces the
 // old scenario-only ScenarioRuntime.explosions.
 
-export const EXPLOSION_DURATION = 0.6; // enemy-ship destruction burst
+// Like IMPACT_DURATION below, this is just how long the one-shot TRIGGER lingers in world.effects —
+// the actual death fireball's visual life (~2s of cooling sparks + fireball) is owned by the GPU
+// hot-metal system in render/impactEffects.ts (ImpactEffects.explode), consumed exactly once.
+export const EXPLOSION_DURATION = 0.2; // enemy-ship destruction burst (trigger only)
 export const IMPACT_DURATION = 0.16;   // small laser-hit spark, quick
 
 export function spawnExplosion(effects: VisualEffect[], pos: Vec3): void {

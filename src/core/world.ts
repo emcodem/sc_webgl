@@ -35,6 +35,10 @@ export interface CelestialBody {
                            // not a walkable surface (not walkable at all currently — see
                            // physics/characterController.ts's nearestWalkable, which this is
                            // excluded from same as the station it replaces)
+  europa?: boolean;       // true for the distant backdrop planet — render layer loads a real glTF
+                           // model (see render/celestialModels.ts) instead of building a sphere;
+                           // same "radius is overall bounding size, not walkable" convention as
+                           // `meteorite` above
 }
 
 // The ship as a physics body (satisfies FlightBody in physics/flightModel.ts). Absolute coords.
@@ -107,6 +111,9 @@ export interface EnemyShip {
                          // free-flight sandbox fighter (core/player.ts) and scenario enemies whose
                          // behavior has no in-place respawn ever use this — orbiter/drifter respawn
                          // in place via their own orbit.respawnTimer/drift.respawnTimer instead.
+  spawnPos: Vec3;  // where this ship (re)spawns — free-flight sandbox enemies each get their own
+  spawnQuat: Quat; // spot (core/player.ts) rather than sharing a single point, since several can
+                   // now be placed around the player's start; see combat/combatSystem.ts respawn.
 }
 
 export type ControlMode = 'pilot' | 'onfoot';

@@ -11,17 +11,22 @@ import { normalize } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
-  createBodyMesh, createExplosionMesh, createPipMarkerMesh, createProjectileMesh,
+  createBodyMesh, createPipMarkerMesh, createProjectileMesh,
   createShipMesh, createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
 } from './meshes';
 import { ImpactEffects } from './impactEffects';
 import { setCameraBasis, setObjectBasis } from './camera';
 import { cloneArrow, loadArrowTemplate } from './shipModels';
-import { loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
+import { loadEuropaTemplate, loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
 
 // Player and enemy tracers share one look — a saturated laser red — so a dogfight's incoming vs.
 // outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
 const LASER_COLOR = 0xff2a2a;
+
+// PIP Trainer marker colors — amber at rest, shading to green as the hold timer fills, matching
+// the original 2D project's drawPipTrainerMarker palette.
+const PIP_MARKER_AMBER = new THREE.Color(0xffe696);
+const PIP_MARKER_GREEN = new THREE.Color(0x7dffa0);
 
 // Release the GPU-side geometry + material(s) of an object and its whole subtree. three.js does
 // NOT free these on scene.remove(), so any mesh torn down at runtime (enemy/gate rebuilds on every
@@ -62,8 +67,7 @@ export class Renderer {
   private gateMeshes: THREE.Mesh[] = [];
   private currentGatePath: FlightGate[] | null = null;
   private rangeBubbleMesh: THREE.Mesh | null = null;
-  private explosionPool: THREE.Group[] = [];
-  // (laser impacts are handled by the GPU hot-metal system below, not a pooled mesh)
+  // (both explosions and laser impacts are handled by the GPU hot-metal system below, not a mesh)
   // Hot-metal laser-hit sparks/flash/glow (see render/impactEffects.ts). Render-only: driven from
   // world.effects 'impact' triggers, each consumed exactly once via emittedImpacts. clock feeds the
   // GPU spark shader's monotonic time (render() gets no dt).
@@ -139,6 +143,18 @@ export class Renderer {
       });
     }
 
+    // real Europa scan (see render/celestialModels.ts) loads in async — same placeholder-then-swap
+    // split as the meteorite above.
+    const europaBody = world.bodies.find((b) => b.europa);
+    if (europaBody) {
+      loadEuropaTemplate().then((model) => {
+        const old = this.bodyMeshes.get(europaBody.name);
+        if (old) { this.scene.remove(old); disposeObject3D(old); }
+        this.bodyMeshes.set(europaBody.name, model);
+        this.scene.add(model);
+      });
+    }
+
     // ship — hidden while piloting (no cockpit yet; the camera sits at the ship origin), shown when
     // the player is on foot so the parked ship is visible.
     this.shipMesh = createShipMesh();
@@ -205,16 +221,6 @@ export class Renderer {
     this.bloom.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-  }
-
-  // Rebuilds the starfield with a different magnitude range, disposing the old geometry/material —
-  // used only by render/starDebugPanel.ts's temporary tuning sliders for instant redraw-on-drag.
-  setStarfieldRange(magBrightest: number, magFaintest: number): void {
-    this.scene.remove(this.starfield);
-    this.starfield.geometry.dispose();
-    (this.starfield.material as THREE.Material).dispose();
-    this.starfield = createStarfield(1e7, magBrightest, magFaintest);
-    this.scene.add(this.starfield);
   }
 
   // Absolute world position + orientation basis of the camera this frame, per control mode.
@@ -345,36 +351,32 @@ export class Renderer {
       this.rangeBubbleMesh.visible = false;
     }
 
-    // combat bursts (see combat/effects.ts) — positioned camera-relative. Explosions are a pooled
-    // 4-layer group animated from t (1 -> 0 over the effect's life; see createExplosionMesh +
-    // animateExplosion). Impacts are one-shot triggers into the GPU hot-metal system: each 'impact'
-    // effect is a fire-once trigger (consumed via emittedImpacts), and impactEffects then owns the
-    // spark/flash/glow's full life — so its own lifetime is independent of the short-lived effect.
+    // combat bursts (see combat/effects.ts) — both kinds are one-shot TRIGGERS into the GPU hot-metal
+    // system (render/impactEffects.ts), consumed exactly once via emittedImpacts. 'impact' fires a
+    // small laser-hit spark spray; 'explosion' fires the big ship-death fireball. In both cases
+    // impactEffects then owns the burst's full visual life, independent of the short-lived sim effect.
     const now = this.clock.getElapsedTime();
-    let expIdx = 0;
     for (const fx of world.effects) {
-      if (fx.kind === 'explosion') {
-        const t = Math.max(0, fx.timer / fx.maxTimer);
-        const g = this.explosionMesh(expIdx++);
-        g.visible = true;
-        g.position.set(fx.pos.x - eye.x, fx.pos.y - eye.y, fx.pos.z - eye.z);
-        this.animateExplosion(g, t);
-      } else if (!this.emittedImpacts.has(fx)) {
-        this.emittedImpacts.add(fx);
-        this.impacts.trigger(fx.pos, fx.normal, now);
-      }
+      if (this.emittedImpacts.has(fx)) continue;
+      this.emittedImpacts.add(fx);
+      if (fx.kind === 'explosion') this.impacts.explode(fx.pos, now);
+      else this.impacts.trigger(fx.pos, fx.normal, now);
     }
-    for (let i = expIdx; i < this.explosionPool.length; i++) this.explosionPool[i].visible = false;
     this.impacts.update(now, eye);
 
-    // PIP Trainer marker — a small bright glow sphere at the pip's live position, only while a
-    // PIP Trainer session is active. Scales up briefly on a scored rep (scoreFlash), same visual
-    // language as the explosion bursts' fade-out above.
+    // PIP Trainer marker — a billboarded diamond "PIP" reticle at the pip's live position, only
+    // while a PIP Trainer session is active. Amber by default, shading toward the original's
+    // "on target" green as the hold timer fills, and scaling up briefly on a scored rep
+    // (scoreFlash), same visual language as the explosion bursts' fade-out above.
     if (world.pipTrainer) {
       const pip = world.pipTrainer;
       const mesh = this.pipMarkerMesh ?? this.createPipMarker();
       mesh.visible = true;
       mesh.position.set(pip.pos.x - eye.x, pip.pos.y - eye.y, pip.pos.z - eye.z);
+      mesh.lookAt(0, 0, 0); // billboard: camera is always pinned at the GL origin
+      const holdFrac = pip.opts.holdDurationSec > 0
+        ? Math.min(1, Math.max(0, pip.holdTimer / pip.opts.holdDurationSec)) : 0;
+      (mesh.material as THREE.MeshBasicMaterial).color.set(PIP_MARKER_AMBER).lerp(PIP_MARKER_GREEN, holdFrac);
       const flash = pip.scoreFlash > 0 ? 1 + (pip.scoreFlash / 0.25) * 2 : 1;
       mesh.scale.setScalar(flash);
     } else if (this.pipMarkerMesh) {
@@ -451,35 +453,6 @@ export class Renderer {
     this.scene.add(mesh);
     this.rangeBubbleMesh = mesh;
     return mesh;
-  }
-
-  // Lazily-grown pools for the two burst kinds (same pooling idiom as projectileMesh).
-  private explosionMesh(i: number): THREE.Group {
-    if (i >= this.explosionPool.length) {
-      const g = createExplosionMesh();
-      this.scene.add(g);
-      this.explosionPool.push(g);
-    }
-    return this.explosionPool[i];
-  }
-
-  // Drives the spray-style explosion group (see createExplosionMesh) from remaining life t (1 -> 0).
-  // A brief central flash, then spark streaks and debris burst outward on an ease-out curve (fast
-  // out, then drift) and fade — reads as a splash, not a growing ball. Scales are metres from the
-  // burst centre (an enemy hull is ~10 m across).
-  private animateExplosion(g: THREE.Group, t: number): void {
-    const prog = 1 - t;
-    const ease = 1 - (1 - prog) * (1 - prog); // ease-out: quick initial expansion
-    const [flash, streaks, debris] = g.children as [THREE.Mesh, THREE.LineSegments, THREE.Points];
-
-    flash.scale.setScalar(2 + prog * 5);
-    (flash.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - prog * 3.2); // gone by ~1/3 life
-
-    streaks.scale.setScalar(1 + ease * 9); // streak tips reach ~24 m
-    (streaks.material as THREE.LineBasicMaterial).opacity = t;
-
-    debris.scale.setScalar(1 + ease * 15); // sparks fly out past the streaks
-    (debris.material as THREE.PointsMaterial).opacity = t * t;
   }
 
   private createPipMarker(): THREE.Mesh {

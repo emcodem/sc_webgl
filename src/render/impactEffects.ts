@@ -26,10 +26,12 @@ import type { Vec3 } from '../core/types';
 // which three.js patches for log depth automatically.
 // ============================================================================================
 
-const MAX_BURSTS = 24;          // concurrent spark bursts (ring-buffer reused when exceeded)
+const MAX_BURSTS = 32;          // concurrent spark bursts (ring-buffer reused when exceeded). A ship
+                                // death fires several at once, so this is a bit larger than for impacts.
 const PARTICLES_PER_BURST = 48; // capacity of each burst's buffer
 const MAX_FLASHES = 12;
 const MAX_GLOWS = 24;
+const MAX_FIREBALLS = 12;       // concurrent death-fireball billboards (2-3 per ship explosion)
 
 // -------------------------------------------------------------------------------------------------
 // Runtime-built textures (no external assets) — a soft round spark sprite, a molten-glow sprite, and
@@ -61,6 +63,26 @@ function createGlowSpriteTexture(size = 128): THREE.CanvasTexture {
   grad.addColorStop(0.3, 'rgba(255,200,120,0.85)');
   grad.addColorStop(0.65, 'rgba(255,90,20,0.35)');
   grad.addColorStop(1.0, 'rgba(255,40,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// Death-fireball sprite: a hot white core bleeding out through yellow/orange to a soft transparent
+// edge. Softer and rounder than the impact glow so a big one reads as a volumetric ball of flame
+// rather than a flat disc. Colour over life is animated on the sprite material (white->orange->red).
+function createFireballSpriteTexture(size = 256): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0.0, 'rgba(255,255,255,1.0)');
+  grad.addColorStop(0.18, 'rgba(255,240,190,0.95)');
+  grad.addColorStop(0.42, 'rgba(255,170,70,0.65)');
+  grad.addColorStop(0.72, 'rgba(220,70,20,0.28)');
+  grad.addColorStop(1.0, 'rgba(120,20,0,0.0)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   const tex = new THREE.CanvasTexture(canvas);
@@ -212,9 +234,11 @@ export class ImpactEffects {
   private bursts: Burst[] = [];
   private flashes: Billboard[] = [];
   private glows: Billboard[] = [];
+  private fireballs: Billboard[] = [];
   private burstCursor = 0;
   private flashCursor = 0;
   private glowCursor = 0;
+  private fireballCursor = 0;
 
   // Deterministic pseudo-random so the module never touches Math.random at import/construct time and
   // stays reproducible; seeded per-call by an integer that ticks on every trigger.
@@ -231,6 +255,7 @@ export class ImpactEffects {
   private sparkTex: THREE.CanvasTexture;
   private flashTex: THREE.CanvasTexture;
   private glowTex: THREE.CanvasTexture;
+  private fireballTex: THREE.CanvasTexture;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -238,6 +263,7 @@ export class ImpactEffects {
     this.sparkTex = createSparkSpriteTexture();
     this.flashTex = createSparkSpriteTexture(64);
     this.glowTex = createGlowSpriteTexture(128);
+    this.fireballTex = createFireballSpriteTexture(256);
 
     this.material = new THREE.ShaderMaterial({
       uniforms: {
@@ -258,6 +284,7 @@ export class ImpactEffects {
     for (let i = 0; i < MAX_BURSTS; i++) this.bursts.push(this.buildBurst());
     for (let i = 0; i < MAX_FLASHES; i++) this.flashes.push(this.buildBillboard(this.flashTex, 0.09));
     for (let i = 0; i < MAX_GLOWS; i++) this.glows.push(this.buildBillboard(this.glowTex, 0.25));
+    for (let i = 0; i < MAX_FIREBALLS; i++) this.fireballs.push(this.buildBillboard(this.fireballTex, 1.6));
   }
 
   private buildBurst(): Burst {
@@ -306,18 +333,45 @@ export class ImpactEffects {
   // surface). `now` is the shared render clock (seconds). Owns the burst's whole visual life from here.
   trigger(origin: Vec3, normal: Vec3 | undefined, now: number, opts: ImpactOptions = {}): void {
     this.rngState = (this.rngState + 0x6d2b79f5) >>> 0; // advance so successive bursts differ
-
+    const frame = this.computeFrame(normal);
+    this.fillBurst(origin, frame, now, opts);
     const scale = opts.scale ?? 1.0;
-    const count = Math.min(opts.count ?? 36, PARTICLES_PER_BURST);
-    const speedMin = (opts.speedMin ?? 6.0) * scale;
-    const speedMax = (opts.speedMax ?? 26.0) * scale;
-    const spreadAngle = opts.spreadAngle ?? Math.PI * 0.42; // ~76deg hammer-strike spray
-    const lifeMin = opts.lifeMin ?? 0.22;
-    const lifeMax = opts.lifeMax ?? 0.75;
-    const sizeMin = (opts.sizeMin ?? 3.0) * scale;
-    const sizeMax = (opts.sizeMax ?? 7.0) * scale;
+    this.spawnFlash(origin, now, 0.4 * scale);
+    this.spawnGlow(origin, frame.n, now, 0.3 * scale);
+  }
 
-    // Orthonormal frame around the normal (fall back to +Y outward if no normal supplied).
+  // Enemy-ship death — a big, long-lived version of the same hot-metal look: a hard white flash, a
+  // swelling cooling FIREBALL (2 overlapping billboards for volume), and a full-sphere spray of
+  // cooling sparks fired as several overlapping bursts so it reads as chaotic shrapnel, not one tidy
+  // shell. Like trigger(), owns the whole ~2s visual life from here; the sim just drops the trigger.
+  explode(origin: Vec3, now: number, scale = 1.0): void {
+    // Full 4π spark spray. No surface normal — sparks fly every direction; fire several overlapping
+    // bursts (each capped at PARTICLES_PER_BURST) for both particle count and shape variety. High
+    // speed spread + long life range means a few fast sparks streak far while most cool close in.
+    const sparkOpts: ImpactOptions = {
+      count: PARTICLES_PER_BURST,
+      scale,
+      speedMin: 10, speedMax: 78,
+      spreadAngle: Math.PI, // whole sphere
+      lifeMin: 0.55, lifeMax: 2.0,
+      sizeMin: 3.5, sizeMax: 8.0,
+    };
+    for (let i = 0; i < 3; i++) {
+      this.rngState = (this.rngState + 0x6d2b79f5) >>> 0;
+      this.fillBurst(origin, this.computeFrame(undefined), now, sparkOpts);
+    }
+
+    // Hard, brief white flash at the instant of detonation (bigger + slightly longer than an impact).
+    this.spawnFlash(origin, now, 7.0 * scale, 0.16);
+    // Fireball body: a large slow ball plus a hotter inner one, both expanding and cooling. The two
+    // durations/scales staggered so the core burns out first and the outer smoke-glow lingers.
+    this.spawnFireball(origin, now, 14.0 * scale, 1.7);
+    this.spawnFireball(origin, now, 8.0 * scale, 1.1);
+  }
+
+  // Orthonormal frame around a surface normal (fall back to +Y outward if none supplied). The spray
+  // cone is built in this frame; for a full-sphere spread (explosions) the axis is irrelevant.
+  private computeFrame(normal?: Vec3): { n: Vec3; t: Vec3; b: Vec3 } {
     const nx = normal?.x ?? 0, ny = normal?.y ?? 1, nz = normal?.z ?? 0;
     const nlen = Math.hypot(nx, ny, nz) || 1;
     const n = { x: nx / nlen, y: ny / nlen, z: nz / nlen };
@@ -330,9 +384,22 @@ export class ImpactEffects {
     const tlen = Math.hypot(tx, ty, tz) || 1;
     tx /= tlen; ty /= tlen; tz /= tlen;
     // bitangent = n x t
-    const bx = n.y * tz - n.z * ty;
-    const by = n.z * tx - n.x * tz;
-    const bz = n.x * ty - n.y * tx;
+    const b = { x: n.y * tz - n.z * ty, y: n.z * tx - n.x * tz, z: n.x * ty - n.y * tx };
+    return { n, t: { x: tx, y: ty, z: tz }, b };
+  }
+
+  // Fill the next ring-buffer spark burst from `opts`, born at `origin` and sprayed into `frame`.
+  private fillBurst(origin: Vec3, frame: { n: Vec3; t: Vec3; b: Vec3 }, now: number, opts: ImpactOptions): void {
+    const scale = opts.scale ?? 1.0;
+    const count = Math.min(opts.count ?? 36, PARTICLES_PER_BURST);
+    const speedMin = (opts.speedMin ?? 6.0) * scale;
+    const speedMax = (opts.speedMax ?? 26.0) * scale;
+    const spreadAngle = opts.spreadAngle ?? Math.PI * 0.42; // ~76deg hammer-strike spray
+    const lifeMin = opts.lifeMin ?? 0.22;
+    const lifeMax = opts.lifeMax ?? 0.75;
+    const sizeMin = (opts.sizeMin ?? 3.0) * scale;
+    const sizeMax = (opts.sizeMax ?? 7.0) * scale;
+    const { n, t, b } = frame;
 
     const burst = this.bursts[this.burstCursor];
     this.burstCursor = (this.burstCursor + 1) % this.bursts.length;
@@ -345,9 +412,9 @@ export class ImpactEffects {
       const phi = this.rand() * spreadAngle;
       const cp = Math.cos(phi), sp = Math.sin(phi);
       const ct = Math.cos(theta), st = Math.sin(theta);
-      const dx = n.x * cp + tx * sp * ct + bx * sp * st;
-      const dy = n.y * cp + ty * sp * ct + by * sp * st;
-      const dz = n.z * cp + tz * sp * ct + bz * sp * st;
+      const dx = n.x * cp + t.x * sp * ct + b.x * sp * st;
+      const dy = n.y * cp + t.y * sp * ct + b.y * sp * st;
+      const dz = n.z * cp + t.z * sp * ct + b.z * sp * st;
 
       const speed = speedMin + (speedMax - speedMin) * this.rand();
       burst.velocities[i * 3 + 0] = dx * speed;
@@ -373,19 +440,31 @@ export class ImpactEffects {
     burst.maxLife = maxLife;
     burst.active = true;
     burst.points.visible = true;
-
-    this.spawnFlash(origin, now, 0.4 * scale);
-    this.spawnGlow(origin, n, now, 0.3 * scale);
   }
 
-  private spawnFlash(origin: Vec3, now: number, maxScale: number): void {
+  private spawnFlash(origin: Vec3, now: number, maxScale: number, duration?: number): void {
     const f = this.flashes[this.flashCursor];
     this.flashCursor = (this.flashCursor + 1) % this.flashes.length;
     f.origin = { x: origin.x, y: origin.y, z: origin.z };
     f.birth = now;
     f.maxScale = maxScale;
+    if (duration !== undefined) f.duration = duration; // explosions punch a bigger, slightly longer flash
     f.active = true;
     f.sprite.visible = true;
+  }
+
+  // A cooling death-fireball billboard (see explode + the fireballs update loop). `duration` lets a
+  // single explosion stack a short hot core over a longer smoky outer ball.
+  private spawnFireball(origin: Vec3, now: number, maxScale: number, duration: number): void {
+    const fb = this.fireballs[this.fireballCursor];
+    this.fireballCursor = (this.fireballCursor + 1) % this.fireballs.length;
+    fb.origin = { x: origin.x, y: origin.y, z: origin.z };
+    fb.birth = now;
+    fb.maxScale = maxScale;
+    fb.duration = duration;
+    fb.sprite.material.color.setRGB(1, 1, 1);
+    fb.active = true;
+    fb.sprite.visible = true;
   }
 
   private spawnGlow(origin: Vec3, n: Vec3, now: number, maxScale: number): void {
@@ -443,16 +522,36 @@ export class ImpactEffects {
       const bc = 1.0 - Math.min(t * 1.5, 1);
       g.sprite.material.color.setRGB(1.0, gc, bc);
     }
+
+    for (const fb of this.fireballs) {
+      if (!fb.active) continue;
+      const t = (now - fb.birth) / fb.duration;
+      if (t < 0 || t > 1) { fb.active = false; fb.sprite.visible = false; continue; }
+      fb.sprite.position.set(fb.origin.x - eye.x, fb.origin.y - eye.y, fb.origin.z - eye.z);
+      // Swells fast then keeps expanding slowly (ease-out) over its whole life, like a real fireball
+      // ballooning out and cooling — never shrinks.
+      const ease = 1 - (1 - t) * (1 - t);
+      fb.sprite.scale.setScalar(fb.maxScale * (0.3 + 0.9 * ease));
+      // Punch in over the first ~6% of life, then an ease-out fade for the long lingering tail.
+      const inT = Math.min(t / 0.06, 1);
+      fb.sprite.material.opacity = 0.9 * inT * (1 - t) * (1 - t);
+      // White-hot core -> orange -> deep red as it cools (green drops, then blue).
+      const gc = 1.0 - 0.7 * Math.min(t * 1.2, 1);
+      const bc = 1.0 - Math.min(t * 2.2, 1);
+      fb.sprite.material.color.setRGB(1.0, Math.max(gc, 0), Math.max(bc, 0));
+    }
   }
 
   dispose(): void {
     for (const b of this.bursts) { this.scene.remove(b.points); b.geometry.dispose(); }
     for (const f of this.flashes) { this.scene.remove(f.sprite); f.sprite.material.dispose(); }
     for (const g of this.glows) { this.scene.remove(g.sprite); g.sprite.material.dispose(); }
+    for (const fb of this.fireballs) { this.scene.remove(fb.sprite); fb.sprite.material.dispose(); }
     this.material.dispose();
     this.lutTex.dispose();
     this.sparkTex.dispose();
     this.flashTex.dispose();
     this.glowTex.dispose();
+    this.fireballTex.dispose();
   }
 }

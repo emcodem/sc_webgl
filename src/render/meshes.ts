@@ -177,11 +177,23 @@ function createMeteoritePlaceholderMesh(body: CelestialBody): THREE.Object3D {
   return mesh;
 }
 
+// Placeholder for the Europa body (see world/celestial.ts's EUROPA) shown until the real glTF model
+// (render/celestialModels.ts) finishes loading and swaps in — same split as the meteorite above.
+function createEuropaPlaceholderMesh(body: CelestialBody): THREE.Object3D {
+  const geo = new THREE.SphereGeometry(body.radius, 64, 64);
+  texturizeSphere(geo, body.radius, { amp: body.radius * 0.02, freq: 6, base: new THREE.Color(body.color), darken: 0.7 });
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = body.name;
+  return mesh;
+}
+
 export function createBodyMesh(body: CelestialBody): THREE.Object3D {
-  // these two branches build their own mesh — return before allocating the sphere geometry + group
+  // these branches build their own mesh — return before allocating the sphere geometry + group
   // below (the sun's is a 128^2 sphere), which they'd otherwise discard unused
   if (body.emissive) return createSunMesh(body);
   if (body.meteorite) return createMeteoritePlaceholderMesh(body);
+  if (body.europa) return createEuropaPlaceholderMesh(body);
 
   const group = new THREE.Group();
   group.name = body.name;
@@ -268,68 +280,34 @@ export function createProjectileMesh(color: number): THREE.Mesh {
   return new THREE.Mesh(geo, mat);
 }
 
-// Enemy-death explosion — an outward SPRAY (not a solid ball): a brief white-hot central flash,
-// then radial spark streaks and debris points flung outward from the center, easing out so it
-// bursts fast then drifts. See combat/effects.ts and render/renderer.ts::animateExplosion. Streaks
-// and debris share one set of evenly-spread directions (fibonacci sphere, deterministic — no
-// per-frame RNG). Children are ordered [flash, streaks, debris] — the renderer indexes them.
-export function createExplosionMesh(): THREE.Group {
-  const g = new THREE.Group();
+// (Both enemy-death explosions and laser-hit sparks are now the GPU "hot metal" system in
+// render/impactEffects.ts — ImpactEffects.explode / .trigger — not meshes built here.)
 
-  // 0: brief central flash (small; the renderer fades it out in the first third of the burst)
-  g.add(new THREE.Mesh(
-    new THREE.SphereGeometry(1, 12, 12),
-    new THREE.MeshBasicMaterial({ color: 0xfff4d6, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false })
-  ));
+// PIP Trainer's ESP-style marker — a hollow diamond "PIP" reticle, matching the original 2D
+// project's drawPipTrainerMarker (a stroked diamond, not a filled blip). Built as a flat
+// picture-frame shape (outer diamond with a smaller diamond hole) rather than a THREE.Line so its
+// stroke has real geometric width and stays crisp regardless of GL line-width support. It's billboarded
+// to face the camera every frame in render/renderer.ts (this shape only reads as a diamond square-on).
+export function createPipMarkerMesh(color = 0xffe696): THREE.Mesh {
+  const outerR = 1.6;
+  const innerR = 1.15;
+  const outer = new THREE.Shape();
+  outer.moveTo(0, outerR);
+  outer.lineTo(outerR, 0);
+  outer.lineTo(0, -outerR);
+  outer.lineTo(-outerR, 0);
+  outer.closePath();
+  const hole = new THREE.Path();
+  hole.moveTo(0, innerR);
+  hole.lineTo(innerR, 0);
+  hole.lineTo(0, -innerR);
+  hole.lineTo(-innerR, 0);
+  hole.closePath();
+  outer.holes.push(hole);
 
-  const N = 60;
-  const dir: number[][] = [];
-  for (let i = 0; i < N; i++) {
-    const y = 1 - (i / (N - 1)) * 2;
-    const r = Math.sqrt(Math.max(0, 1 - y * y));
-    const phi = i * 2.399963229; // golden angle
-    dir.push([Math.cos(phi) * r, y, Math.sin(phi) * r]);
-  }
-
-  // 1: spark streaks — a short radial line per direction, dim at the inner (tail) end and bright at
-  // the outer (leading) end via vertex colors, so the whole thing reads as a spiky outward splash.
-  const IN = 1.0, OUT = 2.6;
-  const segPos = new Float32Array(N * 6);
-  const segCol = new Float32Array(N * 6);
-  for (let i = 0; i < N; i++) {
-    const [x, y, z] = dir[i];
-    segPos.set([x * IN, y * IN, z * IN, x * OUT, y * OUT, z * OUT], i * 6);
-    segCol.set([1.0, 0.30, 0.06, 1.0, 0.92, 0.6], i * 6); // inner dim-orange -> outer bright
-  }
-  const segGeo = new THREE.BufferGeometry();
-  segGeo.setAttribute('position', new THREE.BufferAttribute(segPos, 3));
-  segGeo.setAttribute('color', new THREE.BufferAttribute(segCol, 3));
-  g.add(new THREE.LineSegments(segGeo, new THREE.LineBasicMaterial({
-    vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false
-  })));
-
-  // 2: debris — a bright point per direction, flung out past the streak tips
-  const ptPos = new Float32Array(N * 3);
-  for (let i = 0; i < N; i++) ptPos.set(dir[i], i * 3);
-  const ptGeo = new THREE.BufferGeometry();
-  ptGeo.setAttribute('position', new THREE.BufferAttribute(ptPos, 3));
-  g.add(new THREE.Points(ptGeo, new THREE.PointsMaterial({
-    color: 0xffd080, size: 2.5, sizeAttenuation: false, transparent: true, opacity: 1,
-    blending: THREE.AdditiveBlending, depthWrite: false
-  })));
-
-  return g;
-}
-
-// (Laser-hit sparks are now the GPU "hot metal" system in render/impactEffects.ts, not a mesh.)
-
-// PIP Trainer's ESP-style marker — a small bright glow sphere, same "plain MeshBasicMaterial at a
-// near-white/bright tint reads as HDR for the bloom pass" trick as the ship's engine glow and the
-// projectile tracer above. See combat/pipTrainer.ts and render/renderer.ts's per-frame use.
-export function createPipMarkerMesh(color = 0x9fe6ff): THREE.Mesh {
   return new THREE.Mesh(
-    new THREE.SphereGeometry(1.2, 12, 12),
-    new THREE.MeshBasicMaterial({ color })
+    new THREE.ShapeGeometry(outer),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true })
   );
 }
 
@@ -338,8 +316,8 @@ export function createPipMarkerMesh(color = 0x9fe6ff): THREE.Mesh {
 // and per-star colour from the catalogue's blackbody temperature. Rendered as soft round glowing
 // points via a custom shader (PointsMaterial can't vary size/colour per point). Additive so they
 // glow on black and feed the bloom pass.
-export function createStarfield(radius = 1e7, magBrightest?: number, magFaintest?: number): THREE.Points {
-  const stars = loadBrightStars(radius, magBrightest, magFaintest);
+export function createStarfield(radius = 1e7): THREE.Points {
+  const stars = loadBrightStars(radius);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(stars.positions, 3));
