@@ -9,6 +9,11 @@
     <!-- three.js renders into this canvas; it fills the viewport -->
     <canvas id="c"></canvas>
 
+    <!-- 2D overlay for world-anchored flight HUD elements drawn each frame: the total-velocity
+         indicator, per-enemy distance/closing-speed labels, and off-screen target arrows. Ported
+         from the original project's render/render.ts canvas draws; see hud/hud.ts::updateHudCanvas. -->
+    <canvas id="hud-canvas"></canvas>
+
     <!-- Fixed crosshair at screen center (both flight boresight and on-foot look center) -->
     <div id="crosshair"></div>
 

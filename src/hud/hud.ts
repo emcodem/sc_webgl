@@ -1,8 +1,9 @@
-import type { World } from '../core/world';
-import { length, sub } from '../math/vec';
+import type { World, EnemyShip, ShipBody } from '../core/world';
+import { length, sub, clamp } from '../math/vec';
 import { getStatusMessage } from '../control/mode';
 import * as Input from '../input/input';
 import { computeAxes } from '../math/quaternion';
+import { project, type Camera } from '../combat/projection';
 import { findActivePip } from '../combat/pipTargeting';
 import * as MouseLook from '../input/mouseLook';
 import * as EspAssist from '../combat/espAssist';
@@ -33,6 +34,9 @@ const statsDestroyedRowsEl = document.getElementById('stats-destroyed-rows') as 
 
 const el = (id: string) => document.getElementById(id) as HTMLElement;
 
+const hudCanvasEl = document.getElementById('hud-canvas') as HTMLCanvasElement;
+const hudCtx = hudCanvasEl.getContext('2d');
+
 let modeFlagWired = false;
 
 export function updateHUD(world: World): void {
@@ -54,6 +58,7 @@ export function updateHUD(world: World): void {
   damageFlashEl.style.opacity = String(ship.hitFlash * 0.8);
   updatePipMarker(world);
   updateFlightRings(world);
+  updateHudCanvas(world);
 
   // capture hint / status line
   if (!Input.isCaptured()) {
@@ -86,12 +91,14 @@ function updateStatsPanel(world: World): void {
   statsFootRowsEl.style.display = showFoot ? 'block' : 'none';
 
   if (showDestroyed) {
+    statsModeEl.style.display = 'block';
     statsModeEl.textContent = 'SHIP DESTROYED';
     el('s-respawn').textContent = `${ship.respawnTimer.toFixed(1)}s`;
     return;
   }
 
   if (showFoot) {
+    statsModeEl.style.display = 'block';
     statsModeEl.textContent = 'ON FOOT — EVA';
     const speed = length(p.charVel);
     el('s-ground').textContent = p.groundBody ? p.groundBody.name : '— (zero-g)';
@@ -102,7 +109,9 @@ function updateStatsPanel(world: World): void {
     return;
   }
 
-  statsModeEl.textContent = `PILOTING — ${ship.type.name.toUpperCase()}`;
+  // The "PILOTING — <SHIP>" banner is redundant (the SHIP row below already names it), so it's
+  // hidden while flying — the panel leads straight into the flight readout.
+  statsModeEl.style.display = 'none';
 
   const speed = length(ship.vel);
   el('s-throttle').textContent = `${Math.round(ship.throttle * 100)}%`;
@@ -282,6 +291,128 @@ function updateFlightRings(world: World): void {
     vjoyDotEl.setAttribute('cy', String(ry));
     vjoyDotEl.setAttribute('r', '5');
   }
+}
+
+// Canvas-drawn, world-anchored flight HUD, ported from the original project's render/render.ts
+// canvas draws: the total-velocity indicator (prograde/retrograde flight-path marker), a
+// distance + line-of-sight closing-speed readout under every live enemy, and an edge arrow
+// pointing at each enemy that's off-screen or behind the camera. Positioned with the same
+// combat/projection.ts::project() the PIP uses, so it lines up with the three.js render. Drawn on a
+// dedicated 2D canvas beneath the DOM panels (see index.html #hud-canvas) rather than as DOM nodes,
+// since these are per-frame vector draws over a variable number of targets.
+const EDGE_INDICATOR_MARGIN = 28;
+
+function updateHudCanvas(world: World): void {
+  const ctx = hudCtx;
+  if (!ctx) return;
+  const W = window.innerWidth, H = window.innerHeight;
+  if (hudCanvasEl.width !== W) hudCanvasEl.width = W;
+  if (hudCanvasEl.height !== H) hudCanvasEl.height = H;
+  ctx.clearRect(0, 0, W, H);
+
+  const ship = world.player.ship;
+  if (world.player.mode !== 'pilot' || ship.respawnTimer > 0) return;
+  const cam: Camera = { pos: ship.pos, axes: computeAxes(ship.quat) };
+
+  drawTotalVelocityIndicator(ctx, ship, cam, W, H);
+  for (const enemy of world.enemies) {
+    if (enemy.respawnTimer > 0 || enemy.health.points <= 0) continue;
+    drawEnemyInfo(ctx, enemy, ship, cam, W, H);
+    drawOffscreenArrow(ctx, enemy.pos, cam, W, H, '#ff7a45', 'rgba(255, 170, 110, 0.85)');
+  }
+}
+
+// Total-velocity indicator: a flight-path marker projected 40m along the ship's velocity vector.
+// If that prograde point is behind the camera, it flips to the retrograde point and strikes it
+// through. Hidden below 0.5 m/s (no meaningful travel direction).
+function drawTotalVelocityIndicator(ctx: CanvasRenderingContext2D, ship: ShipBody, cam: Camera, W: number, H: number): void {
+  const speed = length(ship.vel);
+  if (speed <= 0.5) return;
+  const dx = ship.vel.x / speed, dy = ship.vel.y / speed, dz = ship.vel.z / speed;
+  let pp = project(ship.pos.x + dx * 40, ship.pos.y + dy * 40, ship.pos.z + dz * 40, cam, W, H);
+  let retrograde = false;
+  if (!pp) {
+    pp = project(ship.pos.x - dx * 40, ship.pos.y - dy * 40, ship.pos.z - dz * 40, cam, W, H);
+    retrograde = true;
+  }
+  if (!pp) return;
+  ctx.strokeStyle = '#8fd3c7';
+  ctx.lineWidth = 1.5;
+  const r = 6, dash = r * 0.8, x = pp.x, y = pp.y;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x - r, y); ctx.lineTo(x - r - dash, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + r + dash, y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x, y - r - dash); ctx.stroke();
+  if (retrograde) { ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.stroke(); }
+}
+
+// Distance + line-of-sight closing speed under an enemy. Relative speed is the range rate
+// d|range|/dt = dot(relPos, relVel)/|relPos| (negative = closing, green; positive = opening,
+// orange), NOT the raw relative-velocity magnitude. Label sits a fixed world offset below the hull,
+// scaled to pixels by the projection and clamped so it stays legible at any range.
+function drawEnemyInfo(ctx: CanvasRenderingContext2D, enemy: EnemyShip, ship: ShipBody, cam: Camera, W: number, H: number): void {
+  const p = project(enemy.pos.x, enemy.pos.y, enemy.pos.z, cam, W, H);
+  if (!p) return;
+  const rx = enemy.pos.x - ship.pos.x, ry = enemy.pos.y - ship.pos.y, rz = enemy.pos.z - ship.pos.z;
+  const distance = Math.hypot(rx, ry, rz);
+  if (distance < 1e-6) return;
+  const rvx = enemy.vel.x - ship.vel.x, rvy = enemy.vel.y - ship.vel.y, rvz = enemy.vel.z - ship.vel.z;
+  const rangeRate = (rx * rvx + ry * rvy + rz * rvz) / distance;
+  const offsetY = clamp(enemy.type.hullRadius * 1.8 * p.scale, 18, 60);
+  ctx.textAlign = 'center';
+  ctx.font = '14px "Courier New", monospace';
+  ctx.fillStyle = 'rgba(200, 225, 215, 0.85)';
+  ctx.fillText(`${distance.toFixed(0)}m`, p.x, p.y + offsetY);
+  ctx.fillStyle = rangeRate < 0 ? 'rgba(125, 255, 160, 0.85)' : 'rgba(255, 150, 110, 0.85)';
+  ctx.fillText(`${rangeRate >= 0 ? '+' : ''}${rangeRate.toFixed(0)} m/s`, p.x, p.y + offsetY + 16);
+}
+
+// Edge arrow for a target that's off-screen or behind the camera: recomputes the target's
+// camera-space direction (mirroring both axes when it's behind, so the arrow points the way you
+// must actually turn), clamps a ray from screen center to the inner edge rectangle (inset by
+// EDGE_INDICATOR_MARGIN), and draws a triangle arrowhead plus a distance label there.
+function drawOffscreenArrow(ctx: CanvasRenderingContext2D, pos: { x: number; y: number; z: number }, cam: Camera, W: number, H: number, arrowColor: string, labelColor: string): void {
+  const cx = W / 2, cy = H / 2;
+  const halfW = cx - EDGE_INDICATOR_MARGIN, halfH = cy - EDGE_INDICATOR_MARGIN;
+  const { forward, right, up } = cam.axes;
+
+  const p = project(pos.x, pos.y, pos.z, cam, W, H);
+  const onScreen = p !== null && p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
+  if (onScreen) return;
+
+  const dx = pos.x - cam.pos.x, dy = pos.y - cam.pos.y, dz = pos.z - cam.pos.z;
+  const camX = dx * right.x + dy * right.y + dz * right.z;
+  const camY = dx * up.x + dy * up.y + dz * up.z;
+  const camZ = dx * forward.x + dy * forward.y + dz * forward.z;
+
+  let dirX = camX, dirY = -camY;
+  if (camZ < 0) { dirX = -dirX; dirY = -dirY; }
+  if (Math.abs(dirX) < 1e-6 && Math.abs(dirY) < 1e-6) dirY = 1;
+
+  const angle = Math.atan2(dirY, dirX);
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const tx = Math.abs(cosA) > 1e-6 ? halfW / Math.abs(cosA) : Infinity;
+  const ty = Math.abs(sinA) > 1e-6 ? halfH / Math.abs(sinA) : Infinity;
+  const t = Math.min(tx, ty);
+  const ex = cx + cosA * t, ey = cy + sinA * t;
+
+  ctx.save();
+  ctx.translate(ex, ey);
+  ctx.rotate(angle);
+  ctx.fillStyle = arrowColor;
+  ctx.beginPath();
+  ctx.moveTo(10, 0);
+  ctx.lineTo(-7, 6);
+  ctx.lineTo(-7, -6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  const distance = Math.hypot(dx, dy, dz);
+  ctx.textAlign = 'center';
+  ctx.font = '14px "Courier New", monospace';
+  ctx.fillStyle = labelColor;
+  ctx.fillText(`${distance.toFixed(0)}m`, ex, ey + (sinA >= 0 ? 20 : -16));
 }
 
 function targetReadout(world: World): string {

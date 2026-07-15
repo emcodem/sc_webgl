@@ -105,6 +105,15 @@ html, body {
 #capture-hint b { color: var(--hud-accent); }
 #capture-hint.hidden { opacity: 0; }
 
+/* World-anchored flight HUD overlay (TVI, enemy labels, off-screen arrows) — below the DOM panels
+   (#hud, z-index 5) so those draw on top, above the WebGL canvas. */
+#hud-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
 #hud {
   position: fixed;
   inset: 0;
@@ -136,7 +145,7 @@ html, body {
   padding: 10px 14px;
   line-height: 1.6;
 }
-#stats { bottom: 16px; left: 16px; min-width: 200px; }
+#stats { top: 16px; left: 16px; min-width: 200px; }
 #scenario-hud, #pip-trainer-hud { top: 44px; left: 50%; transform: translateX(-50%); text-align: center; min-width: 200px; }
 
 #stats-mode {
