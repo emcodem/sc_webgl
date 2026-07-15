@@ -5,7 +5,7 @@ import { BODIES, ENEMY_SPAWN, SPAWN } from '../world/celestial';
 import { createHealth } from '../combat/health';
 import { spawnFighterAI } from '../combat/enemyAI';
 
-const SHIP_MAX_HEALTH = 10;
+const SHIP_MAX_HEALTH = 1000; // free-flight sandbox only — scenarios override via config.hitsToKillPlayer
 const ENEMY_MAX_HEALTH = 10;
 
 export function makeShipBody(type: ShipType): ShipBody {
