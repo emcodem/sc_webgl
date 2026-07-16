@@ -418,14 +418,15 @@ function drawEnemyInfo(ctx: CanvasRenderingContext2D, enemy: EnemyShip, ship: Sh
   const distance = Math.hypot(rx, ry, rz);
   if (distance < 1e-6) return;
   const rvx = enemy.vel.x - ship.vel.x, rvy = enemy.vel.y - ship.vel.y, rvz = enemy.vel.z - ship.vel.z;
-  const rangeRate = (rx * rvx + ry * rvy + rz * rvz) / distance;
+  // closingRate: positive when distance is shrinking (enemy approaching), negative when opening.
+  const closingRate = -(rx * rvx + ry * rvy + rz * rvz) / distance;
   const offsetY = clamp(enemy.type.hullRadius * 1.8 * p.scale, 18, 60);
   ctx.textAlign = 'center';
   ctx.font = '14px "Courier New", monospace';
   ctx.fillStyle = 'rgba(200, 225, 215, 0.85)';
   ctx.fillText(`${distance.toFixed(0)}m`, p.x, p.y + offsetY);
-  ctx.fillStyle = rangeRate < 0 ? 'rgba(125, 255, 160, 0.85)' : 'rgba(255, 150, 110, 0.85)';
-  ctx.fillText(`${rangeRate >= 0 ? '+' : ''}${rangeRate.toFixed(0)} m/s`, p.x, p.y + offsetY + 16);
+  ctx.fillStyle = closingRate > 0 ? 'rgba(125, 255, 160, 0.85)' : 'rgba(255, 150, 110, 0.85)';
+  ctx.fillText(`${closingRate >= 0 ? '+' : ''}${closingRate.toFixed(0)} m/s`, p.x, p.y + offsetY + 16);
 }
 
 // Edge arrow for a target that's off-screen or behind the camera: recomputes the target's
