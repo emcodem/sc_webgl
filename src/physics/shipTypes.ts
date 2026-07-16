@@ -163,9 +163,12 @@ import type { ShipType } from '../core/types';
 //   - coastDecel is a FLAT m/s^2 rate (measured 40), not proportional drag.
 //   - main/retro/verticalSpoolDelay are three separately-timed thruster startup lags — don't merge.
 //   - verticalDown thrust is exactly half verticalUp (measured).
-export const SHIP_TYPES: ShipType[] = [
-  {
+const GLADIUS: ShipType = {
     name: 'Gladius',
+    // Wears the "AJF-12 Dvergr" hull (render/shipModels.ts) — this is the player's default ship and
+    // the Gladius stats are the only real flight data we have. `model` is render-only; it doesn't
+    // touch the physics below.
+    model: 'dvergr',
     mass: 1.5,
     massKg: 48552,
     linearThrust: { main: 201, retro: 63, strafe: 145, verticalUp: 147, verticalDown: 73.5 },
@@ -195,5 +198,13 @@ export const SHIP_TYPES: ShipType[] = [
     boostAngularThrust: { pitch: 14.7021, yaw: 16.7319, roll: 22.4409 },
     boostLinearThrust: { main: 420, retro: 216.5 },
     hullRadius: 10
-  }
-];
+};
+
+// Arrow — the "SpaceShip Fighter" hull (render/shipModels.ts's 'arrow' model). We have no separate
+// Arrow flight data yet, so per harald it flies with the Gladius' EXACT stats — the spread below
+// copies every measured value; only `name` and `model` differ. Swap in real Arrow specs here if/when
+// they're ever measured. Must stay index [1]: SHIP_TYPES[0] is the measured Gladius the tuning tests
+// and scenarios reference.
+const ARROW: ShipType = { ...GLADIUS, name: 'Arrow', model: 'arrow' };
+
+export const SHIP_TYPES: ShipType[] = [GLADIUS, ARROW];

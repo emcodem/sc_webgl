@@ -14,7 +14,8 @@ function makeEnemy(pos = ZERO): EnemyShip {
   return {
     type: TYPE, pos, vel: ZERO, quat: IDENTITY, angVel: { pitch: 0, yaw: 0, roll: 0 },
     boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0, throttleSpoolTime: 0, verticalSpoolTime: 0,
-    health: createHealth(10), behavior: 'orbiter', fireCooldown: 0, respawnTimer: 0
+    health: createHealth(10), behavior: 'orbiter', fireCooldown: 0, respawnTimer: 0,
+    spawnPos: pos, spawnQuat: IDENTITY
   };
 }
 function makePlayer(pos = ZERO): ShipBody {

@@ -8,6 +8,7 @@ import { findActivePip } from '../combat/pipTargeting';
 import * as MouseLook from '../input/mouseLook';
 import * as EspAssist from '../combat/espAssist';
 import { bubbleTicks } from '../scenarios/runtime';
+import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer';
 
 // DOM HUD overlay — ported from the original project's starcitizen_flightsim/index.html +
 // render/render.ts's updateHUD: a bottom-left flight-stats panel (#stats), a top-center mission
@@ -19,6 +20,7 @@ const crosshairEl = document.getElementById('crosshair') as HTMLElement;
 const damageFlashEl = document.getElementById('damage-flash') as HTMLElement;
 const hintEl = document.getElementById('capture-hint') as HTMLElement;
 const pipMarkerEl = document.getElementById('pip-marker') as HTMLElement;
+const pipTrainerMarkerEl = document.getElementById('pip-trainer-marker') as HTMLElement;
 const espCircleEl = document.getElementById('esp-circle') as unknown as SVGCircleElement;
 const vjoyOuterEl = document.getElementById('vjoy-outer') as unknown as SVGCircleElement;
 const vjoyLineEl = document.getElementById('vjoy-line') as unknown as SVGLineElement;
@@ -57,6 +59,7 @@ export function updateHUD(world: World): void {
   crosshairEl.classList.toggle('hit', world.hitMarkerTimer > 0);
   damageFlashEl.style.opacity = String(ship.hitFlash * 0.8);
   updatePipMarker(world);
+  updatePipTrainerMarker(world);
   updateFlightRings(world);
   updateHudCanvas(world);
 
@@ -254,6 +257,33 @@ function updatePipMarker(world: World): void {
   pipMarkerEl.classList.toggle('would-hit', pip.wouldHit);
 }
 
+// PIP Trainer's bare target diamond — deliberately reuses #pip-marker's exact fixed-pixel-size
+// CSS (see style.css) rather than a 3D world-space mesh, so there's exactly one "PIP" look in the
+// game and its size never depends on how far the target actually is (a world-space mesh, even one
+// rescaled by distance every frame, is a second reimplementation of the same idea — this is the
+// real one). Projects the pip's world position with the same combat/projection.ts::project used
+// for the real combat PIP above.
+function updatePipTrainerMarker(world: World): void {
+  const state = world.pipTrainer;
+  if (!state || world.player.mode !== 'pilot') {
+    pipTrainerMarkerEl.style.display = 'none';
+    return;
+  }
+  const ship = world.player.ship;
+  const cam = { pos: ship.pos, axes: computeAxes(ship.quat) };
+  const p = project(state.pos.x, state.pos.y, state.pos.z, cam, window.innerWidth, window.innerHeight);
+  if (!p) {
+    pipTrainerMarkerEl.style.display = 'none';
+    return;
+  }
+  pipTrainerMarkerEl.style.display = 'block';
+  pipTrainerMarkerEl.style.left = `${p.x}px`;
+  pipTrainerMarkerEl.style.top = `${p.y}px`;
+  const holdFrac = state.opts.holdDurationSec > 0
+    ? Math.min(1, Math.max(0, state.holdTimer / state.opts.holdDurationSec)) : 0;
+  pipTrainerMarkerEl.classList.toggle('held', holdFrac > 0);
+}
+
 // Mouse-look virtual-joystick reticle + ESP dampening-zone ring. Ported from the original
 // project's render/render.ts::drawMouseReticle/drawEspCircle (canvas draws) onto this DOM HUD's
 // SVG overlay. Vjoy only shows while mouse-look is actually captured (matches the original); the
@@ -320,6 +350,36 @@ function updateHudCanvas(world: World): void {
     if (enemy.respawnTimer > 0 || enemy.health.points <= 0) continue;
     drawEnemyInfo(ctx, enemy, ship, cam, W, H);
     drawOffscreenArrow(ctx, enemy.pos, cam, W, H, '#ff7a45', 'rgba(255, 170, 110, 0.85)');
+  }
+  if (world.pipTrainer) drawPipTrainerRing(ctx, world.pipTrainer, cam, W, H);
+}
+
+// Hold-progress ring + scored-rep flash ring around the PIP Trainer's diamond (#pip-trainer-marker
+// in the DOM handles the diamond itself). Ported from the original project's render/render.ts::
+// drawPipTrainerMarker — same radii/colors/arc math, just the ring portion, drawn on this canvas
+// instead of the diamond's DOM element since a sweeping arc isn't expressible as a CSS border.
+function drawPipTrainerRing(ctx: CanvasRenderingContext2D, state: PipTrainerState, cam: Camera, W: number, H: number): void {
+  const p = project(state.pos.x, state.pos.y, state.pos.z, cam, W, H);
+  if (!p) return;
+  const r = 8;
+  const opts = state.opts;
+  const holdFrac = opts.holdDurationSec > 0 ? clamp(state.holdTimer / opts.holdDurationSec, 0, 1) : 0;
+
+  if (holdFrac > 0) {
+    ctx.strokeStyle = 'rgba(125,255,160,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 6, -Math.PI / 2, -Math.PI / 2 + holdFrac * Math.PI * 2);
+    ctx.stroke();
+  }
+
+  if (state.scoreFlash > 0) {
+    const progress = 1 - state.scoreFlash / SCORE_FLASH_DURATION;
+    ctx.strokeStyle = `rgba(255,255,255,${(1 - progress).toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 8 + progress * 22, 0, Math.PI * 2);
+    ctx.stroke();
   }
 }
 

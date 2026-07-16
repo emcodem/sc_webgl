@@ -27,10 +27,11 @@ export interface BrightStars {
 const DEG2RAD = Math.PI / 180;
 
 // Visual-magnitude → visual-weight mapping. Brighter stars have *smaller* magnitudes; the catalogue
-// spans ~-1.5 (Sirius) to ~8 (the naked-eye limit) — these are the defaults; loadBrightStars accepts
-// overrides (see render/starDebugPanel.ts, a temporary tuning UI).
-const MAG_BRIGHTEST = -1.5;
-const MAG_FAINTEST = 8.0;
+// spans ~-1.5 (Sirius) to ~8 (the naked-eye limit). MAG_BRIGHTEST is pushed past Sirius so no single
+// star maxes out the size/brightness curve, and MAG_CUTOFF trims the faintest tail — both tuned by
+// eye via a temporary slider panel (since removed).
+const MAG_BRIGHTEST = -3.0;
+const MAG_CUTOFF = 6.6;
 
 function clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
@@ -72,16 +73,12 @@ function kelvinToRgb(kelvin: number, out: Float32Array, o: number): void {
   out[o + 2] = bn;
 }
 
-export function loadBrightStars(
-  radius: number,
-  magBrightest: number = MAG_BRIGHTEST,
-  magFaintest: number = MAG_FAINTEST
-): BrightStars {
+export function loadBrightStars(radius: number): BrightStars {
   const { ra, dec, mag, k } = BRIGHT_STARS;
 
   const kept: number[] = [];
   for (let i = 0; i < ra.length; i++) {
-    if (mag[i] / MAG_SCALE <= magFaintest) kept.push(i);
+    if (mag[i] / MAG_SCALE <= MAG_CUTOFF) kept.push(i);
   }
 
   const count = kept.length;
@@ -102,7 +99,7 @@ export function loadBrightStars(
     positions[p + 2] = radius * cosDec * Math.sin(raRad);
 
     const m = mag[i] / MAG_SCALE;
-    const w = clamp01((magFaintest - m) / (magFaintest - magBrightest));
+    const w = clamp01((MAG_CUTOFF - m) / (MAG_CUTOFF - MAG_BRIGHTEST));
     sizes[j] = 2.5 + 14.0 * Math.pow(w, 1.5);  // faintest ~2.5px, Sirius ~16.5px — a wide spread so
                                                 // brightness differences actually read as size too
     bright[j] = 0.35 + 0.65 * Math.pow(w, 1.1);

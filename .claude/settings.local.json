@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/dev/starcitizen_flightsim/**)",
+      "Skill(run)",
+      "PowerShell(& \"D:\\\\dev\\\\sc_webgl\\\\node_modules\\\\.bin\\\\tsc.cmd\" -p D:\\\\dev\\\\sc_webgl\\\\tsconfig.json --noEmit)",
+      "Bash(xargs wc -l)",
+      "Bash(\"./node_modules/.bin/vite\" preview *)",
+      "Bash(echo \"preview pid $!\")",
+      "Read(//d/dev/sc_webgl/**)",
+      "Bash(node \"C:/Users/Gam3r1/AppData/Local/Temp/claude/C--dev-sc-webgl/a67940a9-df18-406f-a1d6-b1e8fadc2e7a/scratchpad/smoke.mjs\")",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}

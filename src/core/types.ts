@@ -127,6 +127,9 @@ export interface EvasiveAIMemory {
 // fields without a real re-measurement.
 export interface ShipType {
   name: string;
+  model: string;   // render-layer glTF id (see render/shipModels.ts's MODELS map) — NOT physics;
+                   // which visual hull this ship wears. Multiple ShipTypes may share flight stats
+                   // but wear different models (e.g. 'Arrow' is the Gladius' stats on the 'arrow' hull).
   mass: number;    // gameplay-tuning mass, doubles as rotational inertia
   massKg: number;  // real-world reference mass, informational only
   linearThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };

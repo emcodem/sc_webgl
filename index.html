@@ -20,6 +20,10 @@
     <!-- Predicted-impact-point reticle for the active combat target (see hud/hud.ts, combat/pipTargeting.ts) -->
     <div id="pip-marker"></div>
 
+    <!-- PIP Trainer's bare target diamond — same fixed-size reticle as #pip-marker above (see
+         hud/hud.ts::updatePipTrainerMarker, combat/pipTrainer.ts) -->
+    <div id="pip-trainer-marker"></div>
+
     <!-- Mouse-look virtual-joystick reticle + ESP dampening-zone ring — see hud/hud.ts's
          updateFlightRings(). Ported from the original project's render/render.ts::drawMouseReticle
          / drawEspCircle, moved from canvas draws to an SVG overlay for this DOM-based HUD. -->

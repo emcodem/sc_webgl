@@ -32,7 +32,7 @@ describe('resetWorld', () => {
 
     expect(world.player.mode).toBe('pilot');
     expect(world.player.ship.health.points).toBe(world.player.ship.health.maxPoints);
-    expect(world.enemies).toHaveLength(1); // back to the single fresh default enemy, not 2
+    expect(world.enemies).toHaveLength(11); // back to the fresh default roster, not 12
     expect(world.projectiles).toHaveLength(0);
     expect(world.hitMarkerTimer).toBe(0);
     expect(world.scenario).toBeNull();

@@ -52,6 +52,8 @@ export function initMainMenu(world: World): void {
     startFreeFlight: (w) => resetWorld(w),
     startPipTrainer: (w, opts) => {
       resetWorld(w); // clean deterministic start, same convention as every other picker card
+      w.enemies = []; // pure aim-tracking airspace — the free-flight sandbox's dogfight AI ships
+                       // don't belong here, only the pip (see combat/pipTrainer.ts)
       w.pipTrainer = startPipTrainer(w.player.ship, opts);
     }
   }, hide);

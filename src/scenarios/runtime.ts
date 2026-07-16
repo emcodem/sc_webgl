@@ -46,7 +46,11 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
     turnRateRadPerSec: spawn.turnRateRadPerSec,
     ai: spawn.behavior === 'fighter' ? spawnFighterAI(spawn.tuning) : undefined,
     fireCooldown: 0,
-    respawnTimer: 0
+    respawnTimer: 0,
+    // unused by scenarios — updateScenario() never resets a dead enemy to a spawn point (see the
+    // loop below); only combatSystem.ts's free-flight stepCombat reads spawnPos/spawnQuat.
+    spawnPos: { x: spawn.pos.x, y: spawn.pos.y, z: spawn.pos.z },
+    spawnQuat: { x: spawn.quat.x, y: spawn.quat.y, z: spawn.quat.z, w: spawn.quat.w }
   };
 }
 

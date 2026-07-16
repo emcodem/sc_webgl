@@ -1,5 +1,5 @@
 import type { World } from '../core/world';
-import { ENEMY_SPAWN, SPAWN } from '../world/celestial';
+import { SPAWN } from '../world/celestial';
 import { computeAxes } from '../math/quaternion';
 import { length, sub } from '../math/vec';
 import { integrateFlight, resolveBoost } from '../physics/flightModel';
@@ -7,7 +7,7 @@ import * as Keybinds from '../input/keybinds';
 import * as Joystick from '../input/joystickMap';
 import * as MouseButtons from '../input/mouseButtons';
 import * as MouseLook from '../input/mouseLook';
-import { canFire, think } from './enemyAI';
+import { think } from './enemyAI';
 import { createHealth } from './health';
 import { resolveHits, resolveObjectHits } from './hitDetection';
 import { spawnExplosion, spawnImpact, updateEffects } from './effects';
@@ -75,17 +75,18 @@ export function stepCombat(world: World, dt: number): void {
     if (enemy.respawnTimer > 0) {
       enemy.respawnTimer -= dt;
       if (enemy.respawnTimer <= 0) {
-        enemy.pos = { x: ENEMY_SPAWN.pos.x, y: ENEMY_SPAWN.pos.y, z: ENEMY_SPAWN.pos.z };
+        enemy.pos = { x: enemy.spawnPos.x, y: enemy.spawnPos.y, z: enemy.spawnPos.z };
         enemy.vel = { x: 0, y: 0, z: 0 };
-        enemy.quat = { x: ENEMY_SPAWN.quat.x, y: ENEMY_SPAWN.quat.y, z: ENEMY_SPAWN.quat.z, w: ENEMY_SPAWN.quat.w };
+        enemy.quat = { x: enemy.spawnQuat.x, y: enemy.spawnQuat.y, z: enemy.spawnQuat.z, w: enemy.spawnQuat.w };
         enemy.angVel = { pitch: 0, yaw: 0, roll: 0 };
         enemy.health = createHealth(enemy.health.maxPoints);
       }
       continue;
     }
-    if (!enemy.ai) continue; // free-flight sandbox enemies always have 'ai' (see core/player.ts);
-                              // only a scenario's non-fighter enemies ever lack it, and scenarios
-                              // are driven by scenarios/runtime.ts::updateScenario, not stepCombat
+    if (!enemy.ai) continue; // static free-flight ships (core/player.ts) have no 'ai' and just sit
+                              // in place; only a moving free-flight ship or a scenario's fighter
+                              // ever has one, and scenarios are driven by
+                              // scenarios/runtime.ts::updateScenario, not stepCombat
 
     const decision = think(enemy, enemy.ai, ship, dt);
     const boost = resolveBoost(enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, decision.boostRequested, dt);
@@ -93,16 +94,9 @@ export function stepCombat(world: World, dt: number): void {
     enemy.boosting = boost.boosting;
     enemy.boostCooldownTimer = boost.cooldownTimer;
     integrateFlight(enemy, decision.inputs, dt);
-
-    enemy.fireCooldown -= dt;
-    if (decision.wantsToFire && enemy.fireCooldown <= 0) {
-      const axes = computeAxes(enemy.quat);
-      const dist = length(sub(ship.pos, enemy.pos));
-      if (canFire(axes.forward, decision.aimDir, dist, enemy.ai.tuning)) {
-        spawnProjectileFrom(enemy.pos, enemy.vel, axes.forward, axes.right, axes.up, 'enemy', world.projectiles, dist);
-        enemy.fireCooldown = FIRE_COOLDOWN_SEC;
-      }
-    }
+    // Free-flight opponents fly and maneuver but never fire — this is a sandbox to practice flying
+    // and shooting AT them, not a dogfight where they shoot back. Scenarios (updateScenario) are the
+    // only place enemies actually open fire.
   }
 
   updateProjectiles(world.projectiles, dt);

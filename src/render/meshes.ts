@@ -220,43 +220,10 @@ export function createBodyMesh(body: CelestialBody): THREE.Object3D {
   return group;
 }
 
-// A rough Aegis-Gladius-ish fighter (~17.5 x 21 x 5.5 m). Local axes: forward +Z, right +X, up +Y.
-// `accentColor` distinguishes the nose/engine-glow tint of the player's own (invisible-from-cockpit)
-// ship from an AI opponent's, so a dogfight reads at a glance.
-export function createShipMesh(accentColor = 0xff7a45): THREE.Object3D {
-  const group = new THREE.Group();
-  const hull = new THREE.MeshStandardMaterial({ color: 0x9aa4ad, roughness: 0.55, metalness: 0.4 });
-  const accent = new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.55, metalness: 0.35 });
-
-  const body = new THREE.Mesh(new THREE.BoxGeometry(3, 2.2, 11), hull);
-  body.position.z = -1;
-  group.add(body);
-
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.5, 6, 12), accent);
-  nose.rotation.x = Math.PI / 2;
-  nose.position.z = 7.5;
-  group.add(nose);
-
-  const wingGeo = new THREE.BoxGeometry(9, 0.4, 4);
-  const wingL = new THREE.Mesh(wingGeo, hull);
-  wingL.position.set(-5, 0, -1.5); wingL.rotation.z = 0.08; group.add(wingL);
-  const wingR = new THREE.Mesh(wingGeo, hull);
-  wingR.position.set(5, 0, -1.5); wingR.rotation.z = -0.08; group.add(wingR);
-
-  const finGeo = new THREE.BoxGeometry(0.3, 2.5, 3);
-  const finL = new THREE.Mesh(finGeo, hull); finL.position.set(-1.3, 1.4, -6); group.add(finL);
-  const finR = new THREE.Mesh(finGeo, hull); finR.position.set(1.3, 1.4, -6); group.add(finR);
-
-  // engine glow (bright -> blooms)
-  const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.9, 12, 12),
-    new THREE.MeshBasicMaterial({ color: 0x9fe6ff })
-  );
-  glow.position.z = -6.6;
-  group.add(glow);
-
-  return group;
-}
+// (The old procedural placeholder fighter that used to live here — createShipMesh — is gone: every
+// ship now wears a real glTF hull loaded via render/shipModels.ts, both the player's own ship and
+// the AI/fleet opponents. Ships render nothing until their model resolves rather than falling back
+// to a primitive.)
 
 // A weapon-round tracer: a simple straight red line, PROJECTILE_LENGTH metres long, oriented in
 // true 3D along the round's travel direction (see render/renderer.ts's per-projectile loop). A thin
@@ -283,33 +250,8 @@ export function createProjectileMesh(color: number): THREE.Mesh {
 // (Both enemy-death explosions and laser-hit sparks are now the GPU "hot metal" system in
 // render/impactEffects.ts — ImpactEffects.explode / .trigger — not meshes built here.)
 
-// PIP Trainer's ESP-style marker — a hollow diamond "PIP" reticle, matching the original 2D
-// project's drawPipTrainerMarker (a stroked diamond, not a filled blip). Built as a flat
-// picture-frame shape (outer diamond with a smaller diamond hole) rather than a THREE.Line so its
-// stroke has real geometric width and stays crisp regardless of GL line-width support. It's billboarded
-// to face the camera every frame in render/renderer.ts (this shape only reads as a diamond square-on).
-export function createPipMarkerMesh(color = 0xffe696): THREE.Mesh {
-  const outerR = 1.6;
-  const innerR = 1.15;
-  const outer = new THREE.Shape();
-  outer.moveTo(0, outerR);
-  outer.lineTo(outerR, 0);
-  outer.lineTo(0, -outerR);
-  outer.lineTo(-outerR, 0);
-  outer.closePath();
-  const hole = new THREE.Path();
-  hole.moveTo(0, innerR);
-  hole.lineTo(innerR, 0);
-  hole.lineTo(0, -innerR);
-  hole.lineTo(-innerR, 0);
-  hole.closePath();
-  outer.holes.push(hole);
-
-  return new THREE.Mesh(
-    new THREE.ShapeGeometry(outer),
-    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true })
-  );
-}
+// (The PIP Trainer's target marker is drawn as a DOM overlay — hud.ts's updatePipTrainerMarker —
+// not a mesh here; see that file's doc comment for why.)
 
 // Starfield: a fixed, camera-anchored celestial sphere built from the real Yale Bright Star
 // Catalog (see world/brightStars.ts) — true positions, per-star brightness from visual magnitude,

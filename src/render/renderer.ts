@@ -11,22 +11,21 @@ import { normalize } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
-  createBodyMesh, createPipMarkerMesh, createProjectileMesh,
-  createShipMesh, createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
+  createBodyMesh, createProjectileMesh,
+  createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
 } from './meshes';
 import { ImpactEffects } from './impactEffects';
 import { setCameraBasis, setObjectBasis } from './camera';
-import { cloneArrow, loadArrowTemplate } from './shipModels';
+import { cloneShip, loadShipTemplate, SHIP_MODEL_NAMES, type ShipModelName } from './shipModels';
 import { loadEuropaTemplate, loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
 
 // Player and enemy tracers share one look — a saturated laser red — so a dogfight's incoming vs.
 // outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
 const LASER_COLOR = 0xff2a2a;
 
-// PIP Trainer marker colors — amber at rest, shading to green as the hold timer fills, matching
-// the original 2D project's drawPipTrainerMarker palette.
-const PIP_MARKER_AMBER = new THREE.Color(0xffe696);
-const PIP_MARKER_GREEN = new THREE.Color(0x7dffa0);
+// (The PIP Trainer's target marker is a DOM overlay — hud.ts's updatePipTrainerMarker, sharing
+// #pip-marker's fixed-pixel diamond style with the real combat PIP — not a 3D mesh here, so its
+// on-screen size is genuinely constant regardless of the target's world-space distance.)
 
 // Release the GPU-side geometry + material(s) of an object and its whole subtree. three.js does
 // NOT free these on scene.remove(), so any mesh torn down at runtime (enemy/gate rebuilds on every
@@ -62,7 +61,10 @@ export class Renderer {
   private shipMesh: THREE.Object3D;
   private enemyMeshes = new Map<EnemyShip, THREE.Object3D>();
   private currentEnemyList: EnemyShip[] | null = null;
-  private arrowTemplate: THREE.Object3D | null = null;
+  // Loaded glTF ship templates, keyed by model id (see render/shipModels.ts). Each ship (player or
+  // enemy) clones the template matching its ShipType.model; a ship whose template hasn't resolved
+  // yet renders as an empty placeholder group until it does.
+  private shipTemplates = new Map<ShipModelName, THREE.Object3D>();
   private projectilePool: THREE.Object3D[] = [];
   private gateMeshes: THREE.Mesh[] = [];
   private currentGatePath: FlightGate[] | null = null;
@@ -74,7 +76,6 @@ export class Renderer {
   private impacts!: ImpactEffects;
   private clock = new THREE.Clock();
   private emittedImpacts = new WeakSet<VisualEffect>();
-  private pipMarkerMesh: THREE.Mesh | null = null;
   private starfield: THREE.Points;
   private spaceDust: SpaceDust;
   private meteoriteFieldMesh: THREE.InstancedMesh | null = null;
@@ -156,8 +157,10 @@ export class Renderer {
     }
 
     // ship — hidden while piloting (no cockpit yet; the camera sits at the ship origin), shown when
-    // the player is on foot so the parked ship is visible.
-    this.shipMesh = createShipMesh();
+    // the player is on foot so the parked ship is visible. Starts as an empty placeholder group and
+    // is swapped onto the player's real hull (world.player.ship.type.model — the default AJF-12
+    // Dvergr) once that template loads, below.
+    this.shipMesh = this.buildShipMesh(world.player.ship.type.model);
     this.shipMesh.visible = false;
     this.scene.add(this.shipMesh);
 
@@ -166,13 +169,18 @@ export class Renderer {
     // a different length at any time (see scenarios/runtime.ts::startScenario).
     this.rebuildEnemyMeshes(world.enemies);
 
-    // "Arrow" drone model (see shipModels.ts) loads in async — enemies render as the procedural
-    // placeholder ship until it resolves, then get rebuilt onto the real model. Cached at module
-    // level, so this is a no-op fetch/decode after the very first Renderer in the page's lifetime.
-    loadArrowTemplate().then((template) => {
-      this.arrowTemplate = template;
-      this.rebuildEnemyMeshes(this.currentEnemyList ?? world.enemies);
-    });
+    // Real glTF ship hulls (see shipModels.ts) load in async — the player ship and every enemy
+    // render as empty placeholders until the model each one wears resolves, then get rebuilt onto
+    // it. Each load is cached at module level, so these are no-op fetches/decodes after the very
+    // first Renderer in the page's lifetime. Preload every model so a scenario that later swaps in
+    // different opponents (render()'s rebuildEnemyMeshes call) always finds its template ready.
+    for (const model of SHIP_MODEL_NAMES) {
+      loadShipTemplate(model).then((template) => {
+        this.shipTemplates.set(model, template);
+        this.rebuildPlayerShip(world);
+        this.rebuildEnemyMeshes(this.currentEnemyList ?? world.enemies);
+      });
+    }
 
     // lighting: a strong warm directional light from the sun, a dim cool hemisphere fill so
     // shadowed sides read as starlit rather than pure black, a soft ambient floor (metals with no
@@ -364,25 +372,6 @@ export class Renderer {
     }
     this.impacts.update(now, eye);
 
-    // PIP Trainer marker — a billboarded diamond "PIP" reticle at the pip's live position, only
-    // while a PIP Trainer session is active. Amber by default, shading toward the original's
-    // "on target" green as the hold timer fills, and scaling up briefly on a scored rep
-    // (scoreFlash), same visual language as the explosion bursts' fade-out above.
-    if (world.pipTrainer) {
-      const pip = world.pipTrainer;
-      const mesh = this.pipMarkerMesh ?? this.createPipMarker();
-      mesh.visible = true;
-      mesh.position.set(pip.pos.x - eye.x, pip.pos.y - eye.y, pip.pos.z - eye.z);
-      mesh.lookAt(0, 0, 0); // billboard: camera is always pinned at the GL origin
-      const holdFrac = pip.opts.holdDurationSec > 0
-        ? Math.min(1, Math.max(0, pip.holdTimer / pip.opts.holdDurationSec)) : 0;
-      (mesh.material as THREE.MeshBasicMaterial).color.set(PIP_MARKER_AMBER).lerp(PIP_MARKER_GREEN, holdFrac);
-      const flash = pip.scoreFlash > 0 ? 1 + (pip.scoreFlash / 0.25) * 2 : 1;
-      mesh.scale.setScalar(flash);
-    } else if (this.pipMarkerMesh) {
-      this.pipMarkerMesh.visible = false;
-    }
-
     // aim the sun light from the sun's relative direction toward the origin (camera)
     const sunRel = this.relDir(SUN, eye);
     this.sunLight.position.set(sunRel.x, sunRel.y, sunRel.z);
@@ -409,18 +398,42 @@ export class Renderer {
     return this.projectilePool[i];
   }
 
-  // Tears down and recreates one mesh per current enemy, using the model's own natural color (no
-  // tint) rather than a distinguishing accent — see cloneArrow's own doc comment for how an
-  // omitted tint skips the color-multiply step entirely. Called whenever world.enemies is swapped
-  // for a brand-new array (scenario start/switch, restart) — see the render() call site — and once
-  // more when the "Arrow" drone model (shipModels.ts) finishes loading, to swap the placeholder for it.
+  // Builds one ship mesh for the given model id: a clone of that model's loaded template, or an
+  // empty placeholder group if it hasn't resolved yet (the caller shows nothing until the swap).
+  // Uses the model's own natural color (no tint) rather than a distinguishing accent — see
+  // cloneShip's own doc comment for how an omitted tint skips the color-multiply step entirely.
+  private buildShipMesh(model: string): THREE.Object3D {
+    const template = this.shipTemplates.get(model as ShipModelName);
+    if (!template) return new THREE.Group(); // placeholder until this model loads
+    const mesh = cloneShip(template);
+    // cloneShip instances share the template geometry — mark so teardown disposes only materials
+    mesh.userData.sharedGeom = true;
+    return mesh;
+  }
+
+  // Swaps the player's parked-ship mesh onto its real hull once that model loads (called from each
+  // template-load callback). A no-op before the player's model resolves — buildShipMesh returned an
+  // empty placeholder then and returns the same until the template is in the map.
+  private rebuildPlayerShip(world: World): void {
+    const model = world.player.ship.type.model;
+    if (!this.shipTemplates.has(model as ShipModelName)) return;
+    const wasVisible = this.shipMesh.visible;
+    this.scene.remove(this.shipMesh);
+    disposeObject3D(this.shipMesh);
+    this.shipMesh = this.buildShipMesh(model);
+    this.shipMesh.visible = wasVisible;
+    this.scene.add(this.shipMesh);
+  }
+
+  // Tears down and recreates one mesh per current enemy, each cloning the template for the hull that
+  // enemy's ShipType wears (enemy.type.model). Called whenever world.enemies is swapped for a
+  // brand-new array (scenario start/switch, restart) — see the render() call site — and once more
+  // when each ship model (shipModels.ts) finishes loading, to swap its placeholders for the model.
   private rebuildEnemyMeshes(enemies: EnemyShip[]): void {
     for (const mesh of this.enemyMeshes.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     this.enemyMeshes.clear();
     for (const enemy of enemies) {
-      const mesh = this.arrowTemplate ? cloneArrow(this.arrowTemplate) : createShipMesh();
-      // cloneArrow instances share the template geometry — mark so teardown disposes only materials
-      if (this.arrowTemplate) mesh.userData.sharedGeom = true;
+      const mesh = this.buildShipMesh(enemy.type.model);
       this.scene.add(mesh);
       this.enemyMeshes.set(enemy, mesh);
     }
@@ -452,13 +465,6 @@ export class Renderer {
     );
     this.scene.add(mesh);
     this.rangeBubbleMesh = mesh;
-    return mesh;
-  }
-
-  private createPipMarker(): THREE.Mesh {
-    const mesh = createPipMarkerMesh();
-    this.scene.add(mesh);
-    this.pipMarkerMesh = mesh;
     return mesh;
   }
 

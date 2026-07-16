@@ -48,8 +48,9 @@ html, body {
 #crosshair.hit::before, #crosshair.hit::after { background: var(--hud-on); }
 
 /* Diamond reticle over the active PIP's screen position; JS drives left/top/display (hud.ts),
-   the yellow/green swap mirrors the original project's wouldHit-color rule. */
-#pip-marker {
+   the yellow/green swap mirrors the original project's wouldHit-color rule. Fixed pixel size —
+   deliberately NOT scaled by target distance, same convention #pip-trainer-marker below shares. */
+#pip-marker, #pip-trainer-marker {
   position: fixed;
   width: 16px;
   height: 16px;
@@ -60,7 +61,7 @@ html, body {
   z-index: 5;
   display: none;
 }
-#pip-marker.would-hit { border-color: var(--hud-on); }
+#pip-marker.would-hit, #pip-trainer-marker.held { border-color: var(--hud-on); }
 
 /* Mouse-look vjoy reticle + ESP ring — one full-screen SVG overlay, elements positioned/sized by
    hud.ts each frame. Hidden by default; JS toggles visibility per element (vjoy only while

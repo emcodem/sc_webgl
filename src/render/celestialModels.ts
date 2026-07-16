@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { METEORITE } from '../world/celestial';
+import { EUROPA, METEORITE } from '../world/celestial';
 
 // ============================================================================================
 // Real glTF celestial-body models, loading in alongside the procedural primitives in meshes.ts —
@@ -61,6 +61,57 @@ function loadMeteorite(): Promise<THREE.Object3D> {
 export function loadMeteoriteTemplate(): Promise<THREE.Object3D> {
   if (!meteoritePromise) meteoritePromise = loadMeteorite();
   return meteoritePromise;
+}
+
+// ============================================================================================
+// "Europa Terraformed" backdrop planet (see world/celestial.ts's EUROPA) — same "load in async,
+// swap onto the placeholder sphere" split as the meteorite above, but a single body with no
+// instanced field.
+//
+// Attribution: "Europa Terraformed" (https://sketchfab.com/3d-models/europa-terraformed-91f8f5e827fc4d32902906511cb7e64d)
+// by uperesito (https://sketchfab.com/uperesito), licensed CC-BY-4.0
+// (http://creativecommons.org/licenses/by/4.0/). Credit this source wherever the game credits
+// assets (about/credits screen, README, etc.) once one exists — same convention as
+// shipModels.ts's Arrow credit block. See also downloads/planets/europa_terraformed_credits.txt.
+// ============================================================================================
+
+const EUROPA_MODEL_URL = '/models/europa.glb';
+const EUROPA_TARGET_SIZE = EUROPA.radius * 2; // metres — see METEORITE_TARGET_SIZE's doc comment above
+
+let europaPromise: Promise<THREE.Object3D> | null = null;
+
+function loadEuropa(): Promise<THREE.Object3D> {
+  const loader = new GLTFLoader();
+  return new Promise((resolve, reject) => {
+    loader.load(
+      EUROPA_MODEL_URL,
+      (gltf) => {
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+
+        const wrapper = new THREE.Group();
+        wrapper.name = 'Europa';
+        wrapper.add(gltf.scene);
+        gltf.scene.position.sub(center);
+
+        const largestDim = Math.max(size.x, size.y, size.z) || 1;
+        wrapper.scale.setScalar(EUROPA_TARGET_SIZE / largestDim);
+
+        resolve(wrapper);
+      },
+      undefined,
+      reject
+    );
+  });
+}
+
+// Cached — a page only ever needs one Europa load regardless of how many Renderers get built.
+export function loadEuropaTemplate(): Promise<THREE.Object3D> {
+  if (!europaPromise) europaPromise = loadEuropa();
+  return europaPromise;
 }
 
 // ---------- Reusing the same rock 50-100x without either a perf hit or visible repetition ----------

@@ -18,7 +18,7 @@ function makeEnemy(pos: { x: number; y: number; z: number }, overrides: Partial<
     type: TYPE, pos, vel: ZERO, quat: { x: 0, y: 0, z: 0, w: 1 },
     angVel: { pitch: 0, yaw: 0, roll: 0 }, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), behavior: 'cruiser',
-    fireCooldown: 0, respawnTimer: 0, ...overrides
+    fireCooldown: 0, respawnTimer: 0, spawnPos: pos, spawnQuat: { x: 0, y: 0, z: 0, w: 1 }, ...overrides
   };
 }
 

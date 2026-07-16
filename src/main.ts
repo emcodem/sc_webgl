@@ -9,12 +9,11 @@ import { handleEdgeActions } from './control/mode';
 import { stepCombat } from './combat/combatSystem';
 import { updateScenario, startScenario } from './scenarios/runtime';
 import { SCENARIOS } from './scenarios/definitions';
-import { updatePipTrainer } from './combat/pipTrainer';
+import { updatePipTrainer, startPipTrainer, PIP_TRAINER_DEFAULTS } from './combat/pipTrainer';
 import { checkScenarioResult, checkPipTrainerResult } from './ui/scenarioMenu';
 import { updateHUD } from './hud/hud';
 import { initUI, isPaused } from './ui';
 import * as Gamepad from './input/gamepad';
-import { initStarDebugPanel } from './render/starDebugPanel'; // TEMPORARY — see that file's header
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -29,7 +28,6 @@ const world = makeWorld();
 initInput(canvas);
 const renderer = new Renderer(canvas, world);
 initUI(world); // restores the last-active control preset, if any — see ui/controlsPanel/presetsUI.ts
-initStarDebugPanel(renderer); // TEMPORARY — remove along with render/starDebugPanel.ts when done tuning
 
 // Expose live state for headless/browser verification (see the original project's verify skill).
 (window as unknown as { __world: typeof world }).__world = world;
@@ -40,6 +38,13 @@ initStarDebugPanel(renderer); // TEMPORARY — remove along with render/starDebu
 (window as unknown as { __startScenario: (id: string) => void }).__startScenario = (id: string) => {
   const config = SCENARIOS.find(s => s.id === id);
   if (config) startScenario(world, config);
+};
+
+// Same convention — jump straight into the PIP Trainer (see ui/mainMenu.ts's startPipTrainer
+// wiring) without driving the F3 picker's DOM.
+(window as unknown as { __startPipTrainer: (opts?: Partial<typeof PIP_TRAINER_DEFAULTS>) => void }).__startPipTrainer = (opts) => {
+  world.enemies = [];
+  world.pipTrainer = startPipTrainer(world.player.ship, { ...PIP_TRAINER_DEFAULTS, ...opts });
 };
 
 let last = performance.now();
