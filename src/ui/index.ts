@@ -1,7 +1,7 @@
 import type { World } from '../core/world';
 import { initButtonBar } from './buttonBar';
 import { initMainMenu, isMenuOpen } from './mainMenu';
-import { initControlsPanel, isControlsPanelOpen } from './controlsPanel';
+import { initControlsPanel } from './controlsPanel';
 
 export function initUI(world: World): void {
   initButtonBar(world);
@@ -9,8 +9,10 @@ export function initUI(world: World): void {
   initControlsPanel();
 }
 
-// True while a menu/panel overlay is up — main.ts's loop freezes sim stepping (but keeps
-// rendering) so nothing can hit you while you're reading a menu or dragging a slider.
+// True while the F3 main menu is up — main.ts's loop freezes sim stepping (but keeps rendering)
+// so nothing can hit you while you're reading it. The F4 controls panel deliberately does NOT
+// pause: it's the place you retune mouse sensitivity/deadzone/bindings, and you need the ship
+// still flying to feel the effect of a change as you make it.
 export function isPaused(): boolean {
-  return isMenuOpen() || isControlsPanelOpen();
+  return isMenuOpen();
 }
