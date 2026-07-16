@@ -62,7 +62,7 @@ export const ACTION_LABELS: Record<ActionName, string> = {
   strafeLeft: 'Strafe left', strafeRight: 'Strafe right',
   strafeUp: 'Strafe up', strafeDown: 'Strafe down',
   decoupleToggle: 'Decouple toggle', spaceBrake: 'Space brake', boost: 'Boost', primaryFire: 'Primary fire',
-  interact: 'Interact (board/exit ship)',
+  interact: 'Release mouse cursor',
   jump: 'Jump (on foot)'
 };
 

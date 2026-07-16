@@ -21,6 +21,10 @@ const AUTOLAND_ALT = 200; // if within this altitude of a walkable surface, dise
                           // is clean; higher/deeper than this, you free-float beside the ship (EVA)
 const SHIP_HOVER = 2.5;   // metres the landed ship's origin sits above the surface (hull clearance)
 
+// EVA/on-foot disembarking is temporarily hidden — F just releases the pointer lock (shows the
+// cursor) instead of exiting the ship. Flip this back to true to restore F as the board/exit toggle.
+const EVA_ENABLED = false;
+
 let statusMessage = '';
 
 export function getStatusMessage(): string {
@@ -38,8 +42,13 @@ export function handleEdgeActions(world: World): void {
 
   const interacted = Keybinds.justPressed('interact') || Joystick.buttonJustPressed('interact');
   if (interacted) {
-    if (p.mode === 'pilot') exitShip(world);
-    else enterShip(world);
+    if (!EVA_ENABLED) {
+      if (document.pointerLockElement) document.exitPointerLock();
+    } else if (p.mode === 'pilot') {
+      exitShip(world);
+    } else {
+      enterShip(world);
+    }
   }
 }
 
