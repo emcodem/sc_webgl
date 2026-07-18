@@ -3,6 +3,7 @@ import type {
 } from './types';
 import type { ScenarioRuntime } from '../scenarios/types';
 import type { PipTrainerState } from '../combat/pipTrainer';
+import type { FlightInputs } from '../physics/flightModel';
 
 // ============================================================================================
 // The renderer-agnostic simulation world. Everything here is expressed in ABSOLUTE, f64
@@ -60,6 +61,11 @@ export interface ShipBody {
   hitFlash: number;      // 0..1, set to 1 when hit, decays over time — drives the HUD damage flash
   fireCooldown: number;  // seconds until the next shot may fire (see combat/weapons.ts WEAPON.fireRate)
   respawnTimer: number;  // >0 while destroyed and waiting to respawn; 0 = alive/flyable
+  // The FlightInputs actually fed to integrateFlight this frame (set in control/pilot.ts) —
+  // transient bookkeeping, same convention as hitFlash/fireCooldown above, read by
+  // replay/recorder.ts so a recorded clip carries the control inputs alongside the resulting
+  // state. Absent while on foot (no flight tick ran).
+  lastInputs?: FlightInputs;
 }
 
 // A traveling weapon round — see combat/weapons.ts. `owner` tags which side it damages on hit.
@@ -114,6 +120,12 @@ export interface EnemyShip {
   spawnPos: Vec3;  // where this ship (re)spawns — free-flight sandbox enemies each get their own
   spawnQuat: Quat; // spot (core/player.ts) rather than sharing a single point, since several can
                    // now be placed around the player's start; see combat/combatSystem.ts respawn.
+  // The FlightInputs actually fed to integrateFlight this frame (set alongside each integrateFlight
+  // call in combat/combatSystem.ts / scenarios/runtime.ts) — same transient-bookkeeping convention
+  // as ShipBody.lastInputs above; absent for behaviors that don't go through integrateFlight
+  // (turret/cruiser/orbiter/drifter), which is fine — replay/recorder.ts treats a missing value as
+  // "no control decision this sample."
+  lastInputs?: FlightInputs;
 }
 
 export type ControlMode = 'pilot' | 'onfoot';

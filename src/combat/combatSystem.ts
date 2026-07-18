@@ -94,6 +94,7 @@ export function stepCombat(world: World, dt: number): void {
     enemy.boosting = boost.boosting;
     enemy.boostCooldownTimer = boost.cooldownTimer;
     integrateFlight(enemy, decision.inputs, dt);
+    enemy.lastInputs = decision.inputs; // see core/world.ts's EnemyShip.lastInputs
     // Free-flight opponents fly and maneuver but never fire — this is a sandbox to practice flying
     // and shooting AT them, not a dogfight where they shoot back. Scenarios (updateScenario) are the
     // only place enemies actually open fire.

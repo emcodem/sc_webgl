@@ -59,7 +59,7 @@ export function stepPilot(world: World, dt: number): void {
 
   ship.spaceBrakeOn = Keybinds.isActive('spaceBrake') || Joystick.isButtonPressed('spaceBrake') || MouseButtons.isPressed('spaceBrake');
 
-  integrateFlight(ship, {
+  const inputs = {
     throttle: ship.throttle,
     pitch: clamp(pitchInput, -1, 1),
     yaw: clamp(yawInput, -1, 1),
@@ -68,5 +68,7 @@ export function stepPilot(world: World, dt: number): void {
     strafeY: clamp(strafeY, -1, 1),
     brake: ship.spaceBrakeOn,
     decoupled: ship.decoupled
-  }, dt);
+  };
+  integrateFlight(ship, inputs, dt);
+  ship.lastInputs = inputs; // see core/world.ts's ShipBody.lastInputs — read by replay/recorder.ts
 }

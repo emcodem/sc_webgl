@@ -154,6 +154,7 @@ export function updateScenario(world: World, dt: number): void {
         enemy.boosting = boost.boosting;
         enemy.boostCooldownTimer = boost.cooldownTimer;
         integrateFlight(enemy, decision.inputs, dt);
+        enemy.lastInputs = decision.inputs; // see core/world.ts's EnemyShip.lastInputs
 
         enemy.fireCooldown -= dt;
         if (decision.wantsToFire && enemy.fireCooldown <= 0) {
@@ -176,6 +177,7 @@ export function updateScenario(world: World, dt: number): void {
         enemy.boosting = boost.boosting;
         enemy.boostCooldownTimer = boost.cooldownTimer;
         integrateFlight(enemy, decision.inputs, dt);
+        enemy.lastInputs = decision.inputs; // see core/world.ts's EnemyShip.lastInputs
 
         enemy.fireCooldown -= dt;
         if (decision.wantsToFire && enemy.fireCooldown <= 0) {
@@ -222,6 +224,7 @@ export function updateScenario(world: World, dt: number): void {
         enemy.boosting = boost.boosting;
         enemy.boostCooldownTimer = boost.cooldownTimer;
         integrateFlight(enemy, decision.inputs, dt);
+        enemy.lastInputs = decision.inputs; // see core/world.ts's EnemyShip.lastInputs
 
         enemy.fireCooldown -= dt;
         if (decision.wantsToFire && enemy.fireCooldown <= 0) {

@@ -9,6 +9,7 @@ import * as MouseLook from '../input/mouseLook';
 import * as EspAssist from '../combat/espAssist';
 import { bubbleTicks } from '../scenarios/runtime';
 import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer';
+import * as Recorder from '../replay/recorder';
 
 // DOM HUD overlay — ported from the original project's starcitizen_flightsim/index.html +
 // render/render.ts's updateHUD: a bottom-left flight-stats panel (#stats), a top-center mission
@@ -28,6 +29,9 @@ const vjoyDotEl = document.getElementById('vjoy-dot') as unknown as SVGCircleEle
 
 const scenarioHudEl = document.getElementById('scenario-hud') as HTMLElement;
 const pipTrainerHudEl = document.getElementById('pip-trainer-hud') as HTMLElement;
+
+const recIndicatorEl = document.getElementById('rec-indicator') as HTMLElement;
+const recIndicatorTimeEl = document.getElementById('rec-indicator-time') as HTMLElement;
 
 const statsModeEl = document.getElementById('stats-mode') as HTMLElement;
 const statsFlightRowsEl = document.getElementById('stats-flight-rows') as HTMLElement;
@@ -55,6 +59,7 @@ export function updateHUD(world: World): void {
   updateScenarioHUD(world);
   updatePipTrainerHUD(world);
   updateStatsPanel(world);
+  updateRecordingIndicator();
 
   crosshairEl.classList.toggle('hit', world.hitMarkerTimer > 0);
   damageFlashEl.style.opacity = String(ship.hitFlash * 0.8);
@@ -231,6 +236,17 @@ function updatePipTrainerHUD(world: World): void {
   } else {
     el('pip-trainer-timer-label').textContent = 'TIME';
     el('pip-trainer-timer').textContent = `${state.elapsedSec.toFixed(1)}s`;
+  }
+}
+
+// Manual-recording indicator — see replay/recorder.ts. Only shows for an intentionally-started
+// manual session, not the always-on rolling buffer (that one's invisible by design).
+function updateRecordingIndicator(): void {
+  const recording = Recorder.isManualRecording();
+  recIndicatorEl.style.display = recording ? 'block' : 'none';
+  if (recording) {
+    const s = Math.floor(Recorder.manualRecordingElapsedSec());
+    recIndicatorTimeEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 }
 

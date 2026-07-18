@@ -13,7 +13,10 @@ import { updatePipTrainer, startPipTrainer, PIP_TRAINER_DEFAULTS } from './comba
 import { checkScenarioResult, checkPipTrainerResult } from './ui/scenarioMenu';
 import { updateHUD } from './hud/hud';
 import { initUI, isPaused } from './ui';
+import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
+import * as Recorder from './replay/recorder';
+import * as ReplayPlayer from './replay/player';
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -58,29 +61,41 @@ function loop(now: number): void {
 
     // sim fully freezes (but keeps rendering) while a menu/panel overlay is open
     if (!isPaused()) {
-      // controls freeze while the ship is destroyed and waiting to respawn, or once a scenario's
-      // outcome has left 'active' (won/lost) — the result screen takes over from there. The F/C
-      // edge actions (enter/exit, decouple) are gated too: firing them mid-respawn would park and
-      // disembark a ship that stepCombat is about to teleport back to spawn.
-      const controlsLive = world.player.ship.respawnTimer <= 0
-        && (!world.scenario || world.scenario.outcome === 'active');
-      if (controlsLive) {
-        handleEdgeActions(world);
-        if (world.player.mode === 'pilot') stepPilot(world, dt);
-        else stepFoot(world, dt);
+      if (ReplayPlayer.isActive()) {
+        // A loaded replay clip takes over the whole step block — no live input/AI/combat runs,
+        // it just interpolates recorded state into world.player.ship/world.enemies[] each frame
+        // (see replay/player.ts). Never recorded itself (no replay of a replay).
+        ReplayPlayer.stepPlayback(world, dt);
+      } else {
+        // controls freeze while the ship is destroyed and waiting to respawn, or once a scenario's
+        // outcome has left 'active' (won/lost) — the result screen takes over from there. The F/C
+        // edge actions (enter/exit, decouple) are gated too: firing them mid-respawn would park and
+        // disembark a ship that stepCombat is about to teleport back to spawn.
+        const controlsLive = world.player.ship.respawnTimer <= 0
+          && (!world.scenario || world.scenario.outcome === 'active');
+        if (controlsLive) {
+          handleEdgeActions(world);
+          if (world.player.mode === 'pilot') stepPilot(world, dt);
+          else stepFoot(world, dt);
+        }
+        if (world.scenario) updateScenario(world, dt);
+        else stepCombat(world, dt);
+        // PIP Trainer is fully additive — layered on top of whatever stepPilot/stepFoot/stepCombat
+        // already did to the ship/world this frame, regardless of pilot/on-foot mode (see
+        // combat/pipTrainer.ts's doc comment on why it never touches world.enemies/hit detection).
+        if (world.pipTrainer) updatePipTrainer(world.pipTrainer, world.player.ship, dt);
+        checkScenarioResult(world); // opens the F3 results view the instant an outcome leaves 'active'
+        checkPipTrainerResult(world);
+
+        // always-on rolling recording buffer (see replay/recorder.ts) — ship flight only, same
+        // controlsLive gate as the flight/combat stepping above.
+        if (controlsLive && world.player.mode === 'pilot') Recorder.sampleTick(world, dt);
       }
-      if (world.scenario) updateScenario(world, dt);
-      else stepCombat(world, dt);
-      // PIP Trainer is fully additive — layered on top of whatever stepPilot/stepFoot/stepCombat
-      // already did to the ship/world this frame, regardless of pilot/on-foot mode (see
-      // combat/pipTrainer.ts's doc comment on why it never touches world.enemies/hit detection).
-      if (world.pipTrainer) updatePipTrainer(world.pipTrainer, world.player.ship, dt);
-      checkScenarioResult(world); // opens the F3 results view the instant an outcome leaves 'active'
-      checkPipTrainerResult(world);
     }
 
     renderer.render(world);
     updateHUD(world);
+    tickReplayPanelUI();
   } catch (err) {
     console.error('Frame error (continuing):', err);
   } finally {

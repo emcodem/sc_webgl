@@ -49,6 +49,12 @@ export function clone(v: Vec3): Vec3 {
   return { x: v.x, y: v.y, z: v.z };
 }
 
+// Linear interpolation between two points — used by replay/player.ts to reconstruct a smooth
+// position/velocity between two recorded samples (orientation uses quaternion.ts's slerp instead).
+export function lerp(a: Vec3, b: Vec3, t: number): Vec3 {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+}
+
 // Component of `v` remaining after removing everything along unit vector `axis` — i.e. the
 // projection of v onto the plane whose normal is `axis`. Used by the character controller to keep
 // movement/heading tangent to a planet's curved surface.

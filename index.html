@@ -41,6 +41,9 @@
     <!-- Click-to-capture hint / mode banner -->
     <div id="capture-hint">Click to capture mouse — WASD/arrows fly, <b>F</b> to exit ship</div>
 
+    <!-- Manual-recording indicator — see replay/recorder.ts, hud/hud.ts's updateRecordingIndicator -->
+    <div id="rec-indicator" style="display:none">&#9679; REC <span id="rec-indicator-time">0:00</span></div>
+
     <!-- HUD overlay (DOM, layered over the canvas) — ported from the original project's
          starcitizen_flightsim/index.html: a bottom-left flight-stats panel plus top-center
          mission-stats (scenario) and PIP Trainer panels. See hud/hud.ts. -->
@@ -106,6 +109,7 @@
       <button id="fullscreen-toggle" class="toggle-btn">F2 FULLSCREEN</button>
       <button id="menu-toggle" class="toggle-btn">F3 MENU</button>
       <button id="controls-toggle" class="toggle-btn">F4 CONTROLS</button>
+      <button id="replay-toggle" class="toggle-btn">F6 REPLAY</button>
     </div>
 
     <!-- F3: dimmed full-screen overlay, pauses the sim while open. Also hosts the training
@@ -241,6 +245,56 @@
       <section>
         <button id="ctrl-reset-btn">Reset to Sandbox Defaults</button>
       </section>
+    </div>
+
+    <!-- F6: flight recorder — recording controls + clip management. Pauses the sim while open,
+         same convention as the F3 overlay (see ui/replayPanel/index.ts). -->
+    <div id="replay-panel-overlay">
+      <div id="replay-panel-box">
+        <button id="replay-panel-close-btn" aria-label="Close replay panel">CLOSE</button>
+        <h2>Flight Recorder</h2>
+        <div class="menu-sub">Record your flight, review it, or share the file with someone else.</div>
+
+        <section>
+          <label>Rolling buffer (always recording in the background)</label>
+          <div id="replay-window-buttons" class="replay-btn-row"></div>
+          <div class="ctrl-status" id="replay-buffer-status"></div>
+        </section>
+
+        <section>
+          <label>Manual recording (records the whole session, no rolling limit)</label>
+          <button id="replay-record-btn">&#9679; Start Recording</button>
+          <div class="ctrl-status" id="replay-record-status"></div>
+        </section>
+
+        <section>
+          <label>Grab the last…</label>
+          <div id="replay-save-buttons" class="replay-btn-row"></div>
+        </section>
+
+        <section>
+          <label>Current clip</label>
+          <button id="replay-play-btn" disabled>&#9654; Play</button>
+          <button id="replay-export-btn" disabled>Export (.vreplay)</button>
+          <button type="button" id="replay-import-btn">Load from File (.vreplay)</button>
+          <input type="file" id="replay-import-input" accept=".vreplay" style="display:none">
+          <div class="ctrl-status" id="replay-clip-status"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Non-modal playback transport bar — shown only while a replay is loaded. Does not pause
+         the sim; playback advances every frame the same way live flight does. -->
+    <div id="replay-transport" style="display:none">
+      <button id="replay-transport-playpause">&#9208;</button>
+      <input type="range" id="replay-transport-scrub" min="0" max="1000" step="1" value="0">
+      <span id="replay-transport-time">0:00 / 0:00</span>
+      <select id="replay-transport-speed">
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+      </select>
+      <button id="replay-transport-exit">Exit Replay</button>
     </div>
 
     <script type="module" src="/src/main.ts"></script>
