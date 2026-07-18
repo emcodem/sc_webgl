@@ -132,4 +132,48 @@ describe('replay playback', () => {
     ReplayPlayer.stepPlayback(world, 0);
     expect(world.effects.length).toBe(0);
   });
+
+  it('trail queries collect history within the window and restart after a dead/despawned gap', () => {
+    const world = makeWorld();
+    const clip: ReplayClip = {
+      schemaVersion: REPLAY_SCHEMA_VERSION,
+      recordedAt: '2026-01-01T00:00:00.000Z',
+      sampleHz: 20,
+      frames: [
+        { simTime: 0, player: snap(0), enemies: [snap(0)] },
+        { simTime: 1, player: snap(1), enemies: [snap(1)] },
+        { simTime: 2, player: snap(2), enemies: [null] }, // enemy despawned this sample
+        { simTime: 3, player: snap(3), enemies: [snap(3)] },
+        { simTime: 4, player: snap(4), enemies: [snap(4)] }
+      ],
+      events: []
+    };
+    ReplayPlayer.loadClip(world, clip);
+    ReplayPlayer.pause();
+    ReplayPlayer.seek(4);
+    ReplayPlayer.stepPlayback(world, 0);
+
+    // player never has a gap (recording only samples while flyable — see recorder.ts)
+    expect(ReplayPlayer.getPlayerTrail(10).map(p => p.pos.x)).toEqual([0, 1, 2, 3, 4]);
+    // the enemy's trail drops everything before its despawn gap at t=2 — a ribbon should never
+    // bridge across a teleport/respawn
+    expect(ReplayPlayer.getEnemyTrail(0, 10).map(p => p.pos.x)).toEqual([3, 4]);
+  });
+
+  it('trail queries respect the windowSec cutoff relative to the current playback clock', () => {
+    const world = makeWorld();
+    const clip: ReplayClip = {
+      schemaVersion: REPLAY_SCHEMA_VERSION,
+      recordedAt: '2026-01-01T00:00:00.000Z',
+      sampleHz: 20,
+      frames: [0, 1, 2, 3, 4, 5].map(t => ({ simTime: t, player: snap(t), enemies: [] })),
+      events: []
+    };
+    ReplayPlayer.loadClip(world, clip);
+    ReplayPlayer.pause();
+    ReplayPlayer.seek(5);
+    ReplayPlayer.stepPlayback(world, 0);
+
+    expect(ReplayPlayer.getPlayerTrail(2).map(p => p.pos.x)).toEqual([3, 4, 5]);
+  });
 });

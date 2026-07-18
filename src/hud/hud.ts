@@ -10,6 +10,7 @@ import * as EspAssist from '../combat/espAssist';
 import { bubbleTicks } from '../scenarios/runtime';
 import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer';
 import * as Recorder from '../replay/recorder';
+import * as ReplayPlayer from '../replay/player';
 
 // DOM HUD overlay — ported from the original project's starcitizen_flightsim/index.html +
 // render/render.ts's updateHUD: a bottom-left flight-stats panel (#stats), a top-center mission
@@ -71,7 +72,9 @@ export function updateHUD(world: World): void {
   // capture hint / status line
   if (!Input.isCaptured()) {
     hintEl.classList.remove('hidden');
-    hintEl.innerHTML = 'Click to capture mouse';
+    hintEl.innerHTML = ReplayPlayer.isActive()
+      ? 'Click to capture mouse — WASD flies the free camera (toggle it in the transport bar)'
+      : 'Click to capture mouse';
   } else {
     const status = getStatusMessage();
     if (status) {

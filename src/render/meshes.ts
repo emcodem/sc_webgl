@@ -247,6 +247,71 @@ export function createProjectileMesh(color: number): THREE.Mesh {
   return new THREE.Mesh(geo, mat);
 }
 
+// A flat "roll band" trailing a ship during flight-replay review (see replay/player.ts's
+// getPlayerTrail/getEnemyTrail, render/renderer.ts's updateTrails) — a quad strip running through
+// each recorded (position, right-axis) sample, offset +/- halfWidth along that sample's own right
+// vector. Since a ship rolling rotates its right axis about the direction of travel, a roll during
+// the recorded window visibly twists the band along its length rather than just tracing a bare
+// line — the whole point of drawing a band instead of a THREE.Line.
+//
+// Preallocated for TRAIL_MAX_POINTS samples and rewritten every frame (same DynamicDrawUsage
+// buffer + frustumCulled:false convention as the space-dust field below, since positions are
+// camera-relative and rewritten every frame — a static bounding sphere would risk wrong culling);
+// geo.setDrawRange trims it down to however many samples are actually live this frame without
+// ever reallocating the buffers.
+export const TRAIL_MAX_POINTS = 80; // >= 3s window at the recorder's 20Hz sample rate, plus headroom
+
+export function createTrailRibbon(color: number): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+
+  const positions = new THREE.BufferAttribute(new Float32Array(TRAIL_MAX_POINTS * 2 * 3), 3);
+  positions.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('position', positions);
+
+  const triCount = (TRAIL_MAX_POINTS - 1) * 2;
+  const indices = new Uint16Array(triCount * 3);
+  for (let i = 0; i < TRAIL_MAX_POINTS - 1; i++) {
+    const l0 = i * 2, r0 = i * 2 + 1, l1 = (i + 1) * 2, r1 = (i + 1) * 2 + 1;
+    const base = i * 6;
+    indices[base] = l0; indices[base + 1] = r0; indices[base + 2] = l1;
+    indices[base + 3] = r0; indices[base + 4] = r1; indices[base + 5] = l1;
+  }
+  geo.setIndex(new THREE.BufferAttribute(indices, 1));
+  geo.setDrawRange(0, 0); // nothing to show until updateTrailRibbon populates a real sample count
+
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false; // positions are camera-relative and rewritten every frame (see space
+                              // dust's identical convention) — a static bounding sphere would risk
+                              // wrong culling
+  return mesh;
+}
+
+// `points` must already be camera-relative (floating-origin subtracted) and oldest-first; only the
+// most recent TRAIL_MAX_POINTS are drawn if more are passed. Fewer than 2 points draws nothing (a
+// single point has no direction to form a band along).
+export function updateTrailRibbon(
+  mesh: THREE.Mesh,
+  points: { pos: { x: number; y: number; z: number }; right: { x: number; y: number; z: number } }[],
+  halfWidth: number
+): void {
+  const geo = mesh.geometry;
+  const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;
+  const start = Math.max(0, points.length - TRAIL_MAX_POINTS);
+  const n = points.length - start;
+  for (let i = 0; i < n; i++) {
+    const p = points[start + i];
+    posAttr.setXYZ(i * 2,
+      p.pos.x + p.right.x * halfWidth, p.pos.y + p.right.y * halfWidth, p.pos.z + p.right.z * halfWidth);
+    posAttr.setXYZ(i * 2 + 1,
+      p.pos.x - p.right.x * halfWidth, p.pos.y - p.right.y * halfWidth, p.pos.z - p.right.z * halfWidth);
+  }
+  posAttr.needsUpdate = true;
+  geo.setDrawRange(0, n < 2 ? 0 : (n - 1) * 6);
+}
+
 // (Both enemy-death explosions and laser-hit sparks are now the GPU "hot metal" system in
 // render/impactEffects.ts — ImpactEffects.explode / .trigger — not meshes built here.)
 

@@ -17,6 +17,7 @@ import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
 import * as Recorder from './replay/recorder';
 import * as ReplayPlayer from './replay/player';
+import * as FreeCamera from './control/freeCamera';
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -66,6 +67,9 @@ function loop(now: number): void {
         // it just interpolates recorded state into world.player.ship/world.enemies[] each frame
         // (see replay/player.ts). Never recorded itself (no replay of a replay).
         ReplayPlayer.stepPlayback(world, dt);
+        // free-fly spectator camera (see control/freeCamera.ts) — a no-op unless the transport
+        // bar's "Free Camera" toggle enabled it; steerable independent of play/pause state.
+        FreeCamera.step(dt);
       } else {
         // controls freeze while the ship is destroyed and waiting to respawn, or once a scenario's
         // outcome has left 'active' (won/lost) — the result screen takes over from there. The F/C

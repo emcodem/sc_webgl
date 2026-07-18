@@ -1,5 +1,6 @@
 import type { World, EnemyShip, Projectile, ShipBody, VisualEffect } from '../core/world';
-import type { ReplayClip, ReplayEntitySnapshot, ReplayEvent, ReplayFrame } from './types';
+import type { Quat, Vec3 } from '../core/types';
+import type { ReplayClip, ReplayEntitySnapshot, ReplayFrame } from './types';
 import { SHIP_TYPES } from '../physics/shipTypes';
 import { lerp } from '../math/vec';
 import { slerp } from '../math/quaternion';
@@ -221,14 +222,14 @@ function applyFrame(world: World, sampled: Sampled | null): void {
 // scrub-safe, no persisted mid-flight state to get out of sync.
 const MAX_EVENT_VISIBLE_DURATION = Math.max(WEAPON.lifetime, EXPLOSION_DURATION, IMPACT_DURATION);
 
-// First index whose simTime >= t — events are simTime-ordered (see replay/recorder.ts), so a
-// window of [that index .. first index whose simTime > t] bounds everything that could possibly
-// still be visible at `t`, regardless of how long the overall clip is.
-function lowerBoundIndex(events: ReplayEvent[], t: number): number {
-  let lo = 0, hi = events.length;
+// First index whose simTime >= t — both clip.events and clip.frames are simTime-ordered (see
+// replay/recorder.ts), so a window of [that index .. first index whose simTime > t] bounds
+// everything that could possibly still matter at `t`, regardless of how long the overall clip is.
+function lowerBound<T extends { simTime: number }>(items: T[], t: number): number {
+  let lo = 0, hi = items.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (events[mid].simTime < t) lo = mid + 1; else hi = mid;
+    if (items[mid].simTime < t) lo = mid + 1; else hi = mid;
   }
   return lo;
 }
@@ -237,7 +238,7 @@ function applyEvents(world: World, t: number): void {
   const projectiles: Projectile[] = [];
   const effects: VisualEffect[] = [];
   if (clip) {
-    const start = lowerBoundIndex(clip.events, t - MAX_EVENT_VISIBLE_DURATION);
+    const start = lowerBound(clip.events, t - MAX_EVENT_VISIBLE_DURATION);
     for (let i = start; i < clip.events.length; i++) {
       const ev = clip.events[i];
       if (ev.simTime > t) break;
@@ -262,4 +263,38 @@ function applyEvents(world: World, t: number): void {
   }
   world.projectiles = projectiles;
   world.effects = effects;
+}
+
+// ---------- Movement trail query (render/renderer.ts's flat "roll band" while reviewing a replay) ----------
+// Read-only: hands back recorded (pos, quat) history for the trailing `windowSec` seconds ending at
+// the CURRENT playback clock — the renderer appends today's live interpolated position itself (it
+// already has it) and builds the actual ribbon geometry; this just answers "what were the samples."
+export interface TrailPoint {
+  pos: Vec3;
+  quat: Quat;
+}
+
+// A dead/despawned gap partway through the window (entity destroyed then respawned) drops
+// everything recorded before the gap — a ribbon should never bridge across a teleport.
+function collectTrail(pick: (f: ReplayFrame) => ReplayEntitySnapshot | null, windowSec: number): TrailPoint[] {
+  if (!clip) return [];
+  const tStart = clockSec - windowSec;
+  const startIdx = lowerBound(clip.frames, tStart);
+  let points: TrailPoint[] = [];
+  for (let i = startIdx; i < clip.frames.length; i++) {
+    const f = clip.frames[i];
+    if (f.simTime > clockSec) break;
+    const snap = pick(f);
+    if (!snap) { points = []; continue; }
+    points.push({ pos: snap.pos, quat: snap.quat });
+  }
+  return points;
+}
+
+export function getPlayerTrail(windowSec: number): TrailPoint[] {
+  return collectTrail(f => f.player, windowSec);
+}
+
+export function getEnemyTrail(index: number, windowSec: number): TrailPoint[] {
+  return collectTrail(f => f.enemies[index] ?? null, windowSec);
 }

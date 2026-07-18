@@ -493,6 +493,7 @@ html, body {
   cursor: pointer;
 }
 #replay-transport button:hover { border-color: var(--hud-accent); color: var(--hud-accent); }
+#replay-transport button.on { border-color: var(--hud-on); color: var(--hud-on); }
 #replay-transport-scrub { width: 240px; }
 #replay-transport-speed {
   background: rgba(255, 255, 255, 0.05);

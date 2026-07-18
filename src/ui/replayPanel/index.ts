@@ -4,6 +4,8 @@ import * as Recorder from '../../replay/recorder';
 import * as ReplayPlayer from '../../replay/player';
 import * as ReplayIO from '../../replay/io';
 import type { ReplayClip } from '../../replay/types';
+import * as FreeCamera from '../../control/freeCamera';
+import { computeAxes } from '../../math/quaternion';
 
 // ============================================================================================
 // F6 flight recorder panel — recording controls + clip management (modal, pauses the sim while
@@ -55,6 +57,7 @@ export function initReplayPanel(w: World): void {
   const transportScrub = document.getElementById('replay-transport-scrub') as HTMLInputElement;
   const transportTime = document.getElementById('replay-transport-time') as HTMLElement;
   const transportSpeed = document.getElementById('replay-transport-speed') as HTMLSelectElement;
+  const transportFreecam = document.getElementById('replay-transport-freecam') as HTMLButtonElement;
   const transportExit = document.getElementById('replay-transport-exit') as HTMLButtonElement;
 
   function refreshPanel(): void {
@@ -169,8 +172,30 @@ export function initReplayPanel(w: World): void {
   transportSpeed.addEventListener('change', () => {
     ReplayPlayer.setSpeed(Number(transportSpeed.value));
   });
+  transportFreecam.addEventListener('click', () => {
+    if (FreeCamera.isActive()) {
+      FreeCamera.disable();
+    } else {
+      // Start a short distance behind the ship (along its own forward axis) and above it in WORLD
+      // space (+Y, matching control/freeCamera.ts's own world-up movement convention — the ship's
+      // own "up" axis is inverted relative to world +Y in this project's convention, see CLAUDE.md,
+      // and would be the wrong direction to use here), aimed back at the ship rather than its exact
+      // origin — starting there would put the camera inside the hull, at the cockpit position.
+      const ship = world.player.ship;
+      const forward = computeAxes(ship.quat).forward;
+      const startPos = {
+        x: ship.pos.x - forward.x * 40,
+        y: ship.pos.y - forward.y * 40 + 15,
+        z: ship.pos.z - forward.z * 40
+      };
+      FreeCamera.enable(startPos, ship.pos);
+    }
+    transportFreecam.classList.toggle('on', FreeCamera.isActive());
+  });
   transportExit.addEventListener('click', () => {
     ReplayPlayer.stop();
+    FreeCamera.disable(); // don't leave the spectator camera active over live flight
+    transportFreecam.classList.remove('on');
     resetWorld(world);
     transport.style.display = 'none';
   });

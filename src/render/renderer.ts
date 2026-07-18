@@ -3,21 +3,30 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import type { World, CelestialBody, EnemyShip, VisualEffect } from '../core/world';
-import type { Vec3 } from '../core/types';
+import type { World, CelestialBody, EnemyShip, ShipBody, VisualEffect } from '../core/world';
+import type { Quat, Vec3 } from '../core/types';
 import type { FlightGate } from '../scenarios/types';
 import { computeAxes } from '../math/quaternion';
 import { normalize } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
-  createBodyMesh, createProjectileMesh,
+  createBodyMesh, createProjectileMesh, createTrailRibbon, updateTrailRibbon,
   createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
 } from './meshes';
 import { ImpactEffects } from './impactEffects';
 import { setCameraBasis, setObjectBasis } from './camera';
 import { cloneShip, loadShipTemplate, SHIP_MODEL_NAMES, type ShipModelName } from './shipModels';
 import { loadEuropaTemplate, loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
+import * as FreeCamera from '../control/freeCamera';
+import * as ReplayPlayer from '../replay/player';
+
+// Movement-history "roll band" shown while reviewing a flight replay (see updateTrails below) —
+// player teal / enemy orange, matching the HUD's own --hud-fg / --hud-accent palette so the trail
+// colors read consistently with the rest of the UI rather than introducing a third color scheme.
+const TRAIL_COLOR_PLAYER = 0x8fd3c7;
+const TRAIL_COLOR_ENEMY = 0xff7a45;
+const TRAIL_WINDOW_SEC = 3;
 
 // Player and enemy tracers share one look — a saturated laser red — so a dogfight's incoming vs.
 // outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
@@ -61,6 +70,11 @@ export class Renderer {
   private shipMesh: THREE.Object3D;
   private enemyMeshes = new Map<EnemyShip, THREE.Object3D>();
   private currentEnemyList: EnemyShip[] | null = null;
+  // Replay-review movement trails — see updateTrails(). One ribbon per enemy, torn down/rebuilt
+  // alongside the ship meshes above (same world.enemies-array-swap trigger); the player's is a
+  // single mesh created once, since there's always exactly one player ship regardless of clip.
+  private playerTrailMesh!: THREE.Mesh;
+  private enemyTrailMeshes = new Map<EnemyShip, THREE.Mesh>();
   // Loaded glTF ship templates, keyed by model id (see render/shipModels.ts). Each ship (player or
   // enemy) clones the template matching its ShipType.model; a ship whose template hasn't resolved
   // yet renders as an empty placeholder group until it does.
@@ -164,6 +178,10 @@ export class Renderer {
     this.shipMesh.visible = false;
     this.scene.add(this.shipMesh);
 
+    this.playerTrailMesh = createTrailRibbon(TRAIL_COLOR_PLAYER);
+    this.playerTrailMesh.visible = false;
+    this.scene.add(this.playerTrailMesh);
+
     // AI opponents — see the rebuildEnemyMeshes() call at the top of render(): the mesh set is
     // (re)built there, not here, since a scenario can swap world.enemies to a different array with
     // a different length at any time (see scenarios/runtime.ts::startScenario).
@@ -231,8 +249,12 @@ export class Renderer {
     this.camera.updateProjectionMatrix();
   }
 
-  // Absolute world position + orientation basis of the camera this frame, per control mode.
+  // Absolute world position + orientation basis of the camera this frame, per control mode. The
+  // free-fly spectator camera (only ever active while reviewing a replay — see
+  // control/freeCamera.ts) takes priority over pilot/on-foot regardless of world.player.mode, since
+  // it's an independent camera-only concern layered on top rather than a real control mode.
   private cameraView(world: World): { eye: Vec3; forward: Vec3; up: Vec3 } {
+    if (FreeCamera.isActive()) return FreeCamera.getView();
     const p = world.player;
     if (p.mode === 'pilot') {
       const axes = computeAxes(p.ship.quat);
@@ -263,10 +285,15 @@ export class Renderer {
     }
 
     const ship = world.player.ship;
-    this.spaceDust.mesh.visible = world.player.mode === 'pilot';
+    // both of these assume the camera is sitting at the ship's own position (the cockpit view) —
+    // wrong the instant the free-fly spectator camera (control/freeCamera.ts) is looking at the
+    // ship from outside instead, same as being on foot: the speed-sensation dust doesn't belong to
+    // an external view, and the player's own hull needs to actually be visible from one.
+    const thirdPerson = world.player.mode === 'onfoot' || FreeCamera.isActive();
+    this.spaceDust.mesh.visible = world.player.mode === 'pilot' && !FreeCamera.isActive();
     if (this.spaceDust.mesh.visible) this.updateSpaceDust(ship.pos, ship.vel);
 
-    this.shipMesh.visible = world.player.mode === 'onfoot';
+    this.shipMesh.visible = thirdPerson;
     if (this.shipMesh.visible) {
       this.shipMesh.position.set(ship.pos.x - eye.x, ship.pos.y - eye.y, ship.pos.z - eye.z);
       const axes = computeAxes(ship.quat);
@@ -291,6 +318,8 @@ export class Renderer {
       const axes = computeAxes(enemy.quat);
       setObjectBasis(mesh, axes.forward, axes.up);
     });
+
+    this.updateTrails(world, eye);
 
     // weapon-round tracers — a pooled straight red line per live projectile (see
     // createProjectileMesh), oriented in true 3D so its local +Z runs down the round's velocity
@@ -432,12 +461,52 @@ export class Renderer {
   private rebuildEnemyMeshes(enemies: EnemyShip[]): void {
     for (const mesh of this.enemyMeshes.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
     this.enemyMeshes.clear();
+    for (const mesh of this.enemyTrailMeshes.values()) { this.scene.remove(mesh); disposeObject3D(mesh); }
+    this.enemyTrailMeshes.clear();
     for (const enemy of enemies) {
       const mesh = this.buildShipMesh(enemy.type.model);
       this.scene.add(mesh);
       this.enemyMeshes.set(enemy, mesh);
+      const trail = createTrailRibbon(TRAIL_COLOR_ENEMY);
+      this.scene.add(trail);
+      this.enemyTrailMeshes.set(enemy, trail);
     }
     this.currentEnemyList = enemies;
+  }
+
+  // Movement-history "roll band" behind each ship, visible only while reviewing a replay (see
+  // replay/player.ts's getPlayerTrail/getEnemyTrail) — hidden outright during live flight, since
+  // the trail data source only has meaning against a loaded clip.
+  private updateTrails(world: World, eye: Vec3): void {
+    const active = ReplayPlayer.isActive();
+    this.playerTrailMesh.visible = active;
+    for (const mesh of this.enemyTrailMeshes.values()) mesh.visible = active;
+    if (!active) return;
+
+    const ship = world.player.ship;
+    this.writeTrail(this.playerTrailMesh, ReplayPlayer.getPlayerTrail(TRAIL_WINDOW_SEC), ship, eye);
+
+    world.enemies.forEach((enemy, i) => {
+      const mesh = this.enemyTrailMeshes.get(enemy);
+      if (!mesh) return;
+      const alive = enemy.respawnTimer <= 0 && enemy.health.points > 0;
+      mesh.visible = alive;
+      if (!alive) return;
+      this.writeTrail(mesh, ReplayPlayer.getEnemyTrail(i, TRAIL_WINDOW_SEC), enemy, eye);
+    });
+  }
+
+  // Appends the entity's current (already-interpolated) position/orientation as the trail's
+  // leading point — matches exactly what its ship mesh is drawn at this frame, so the band's head
+  // never lags a discrete recorded sample behind the hull it's trailing.
+  private writeTrail(mesh: THREE.Mesh, history: ReplayPlayer.TrailPoint[], current: ShipBody | EnemyShip, eye: Vec3): void {
+    const camRelative = (pos: Vec3, quat: Quat) => ({
+      pos: { x: pos.x - eye.x, y: pos.y - eye.y, z: pos.z - eye.z },
+      right: computeAxes(quat).right
+    });
+    const points = history.map((h) => camRelative(h.pos, h.quat));
+    points.push(camRelative(current.pos, current.quat));
+    updateTrailRibbon(mesh, points, current.type.hullRadius * 0.5);
   }
 
   // One ring mesh per gate in a 'gates' scenario's course, torn down and rebuilt whenever the
