@@ -6,12 +6,24 @@ import { onConfigApplied } from '../../input/configRegistry';
 // slice of the original project's ui/mouseCapture.ts (the capture-hint/pointer-lock wiring itself
 // lives in input/input.ts + hud.ts here, which already do the equivalent job).
 
+function setValueText(id: string, text: string): void {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
 function syncMouseSettingsUI(): void {
   const sensSlider = document.getElementById('ctrl-mouse-sens') as HTMLInputElement | null;
   if (sensSlider) sensSlider.value = String(MouseLook.getSensitivity());
+  setValueText('ctrl-mouse-sens-val', MouseLook.getSensitivity().toFixed(1));
 
+  const rangeSlider = document.getElementById('ctrl-mouse-range') as HTMLInputElement | null;
+  if (rangeSlider) rangeSlider.value = String(MouseLook.getRange());
+  setValueText('ctrl-mouse-range-val', `${MouseLook.getRange().toFixed(1)}°`);
+
+  // stored as a 0-1 fraction of the range; the slider shows it as a 0-20 percentage
   const deadzoneSlider = document.getElementById('ctrl-mouse-deadzone') as HTMLInputElement | null;
-  if (deadzoneSlider) deadzoneSlider.value = String(MouseLook.getDeadzone());
+  if (deadzoneSlider) deadzoneSlider.value = String(MouseLook.getDeadzone() * 100);
+  setValueText('ctrl-mouse-deadzone-val', `${(MouseLook.getDeadzone() * 100).toFixed(2)}%`);
 
   const invertCheckbox = document.getElementById('ctrl-mouse-invert') as HTMLInputElement | null;
   if (invertCheckbox) invertCheckbox.checked = MouseLook.getInvertY();
@@ -23,10 +35,25 @@ export function initMouseSettingsUI(): void {
   syncMouseSettingsUI();
 
   const sensSlider = document.getElementById('ctrl-mouse-sens') as HTMLInputElement;
-  sensSlider.addEventListener('input', (e) => MouseLook.setSensitivity(parseFloat((e.target as HTMLInputElement).value)));
+  sensSlider.addEventListener('input', (e) => {
+    const v = parseFloat((e.target as HTMLInputElement).value);
+    MouseLook.setSensitivity(v);
+    setValueText('ctrl-mouse-sens-val', v.toFixed(1));
+  });
+
+  const rangeSlider = document.getElementById('ctrl-mouse-range') as HTMLInputElement;
+  rangeSlider.addEventListener('input', (e) => {
+    const v = parseFloat((e.target as HTMLInputElement).value);
+    MouseLook.setRange(v);
+    setValueText('ctrl-mouse-range-val', `${v.toFixed(1)}°`);
+  });
 
   const deadzoneSlider = document.getElementById('ctrl-mouse-deadzone') as HTMLInputElement;
-  deadzoneSlider.addEventListener('input', (e) => MouseLook.setDeadzone(parseFloat((e.target as HTMLInputElement).value)));
+  deadzoneSlider.addEventListener('input', (e) => {
+    const v = parseFloat((e.target as HTMLInputElement).value);
+    MouseLook.setDeadzone(v / 100);
+    setValueText('ctrl-mouse-deadzone-val', `${v.toFixed(2)}%`);
+  });
 
   const invertCheckbox = document.getElementById('ctrl-mouse-invert') as HTMLInputElement;
   invertCheckbox.addEventListener('change', (e) => MouseLook.setInvertY((e.target as HTMLInputElement).checked));

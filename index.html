@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>Vector — WebGL Universe</title>
+    <style>html, body { background: #05070a; }</style>
   </head>
   <body>
     <!-- three.js renders into this canvas; it fills the viewport -->
@@ -215,12 +216,14 @@
       </section>
 
       <section>
-        <label style="color:var(--hud-fg)">Mouse Look (absolute — SC-style virtual joystick)</label>
+        <h3 style="margin-top:0">Mouse Look (absolute — SC-style virtual joystick)</h3>
         <div class="ctrl-status" id="ctrl-mouse-status">Click the game view to enable.</div>
-        <label style="margin-top:8px">Sensitivity</label>
+        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Sensitivity</label><span class="value" id="ctrl-mouse-sens-val"></span></div>
         <input type="range" id="ctrl-mouse-sens" min="0.5" max="4" step="0.1" style="width:100%">
-        <label style="margin-top:8px">Deadzone</label>
-        <input type="range" id="ctrl-mouse-deadzone" min="0" max="0.3" step="0.01" style="width:100%">
+        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">VJoy Range (degrees)</label><span class="value" id="ctrl-mouse-range-val"></span></div>
+        <input type="range" id="ctrl-mouse-range" min="4" max="25" step="0.1" style="width:100%">
+        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Mouse Deadzone (% of the range)</label><span class="value" id="ctrl-mouse-deadzone-val"></span></div>
+        <input type="range" id="ctrl-mouse-deadzone" min="0" max="20" step="0.01" style="width:100%">
         <label style="display:flex; align-items:center; gap:6px; margin-top:6px">
           <input type="checkbox" id="ctrl-mouse-invert" style="width:auto"> Invert Y
         </label>
@@ -229,9 +232,9 @@
 
       <section>
         <label style="color:var(--hud-fg)">ESP / Aim Assist (always active — dampens yaw/pitch near the lead indicator)</label>
-        <label style="margin-top:8px">Circle Size</label>
+        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Circle Size</label><span class="value" id="ctrl-esp-circle-size-val"></span></div>
         <input type="range" id="ctrl-esp-circle-size" min="15" max="120" step="5" style="width:100%">
-        <label style="margin-top:8px">Dampening Strength</label>
+        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Dampening Strength</label><span class="value" id="ctrl-esp-dampening-val"></span></div>
         <input type="range" id="ctrl-esp-dampening" min="0" max="0.95" step="0.05" style="width:100%">
       </section>
 

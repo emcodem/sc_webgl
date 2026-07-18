@@ -21,11 +21,23 @@ const canvas = document.getElementById('c') as HTMLCanvasElement;
 
 let captured = false;
 let offsetX = 0, offsetY = 0; // persistent virtual-stick deflection, in pixels
-const MAX_OFFSET = 220; // pixels of mouse travel for full deflection
 let sensitivity = 1.5;
 let invertY = true;
-let deadzone = 0.05; // fraction of MAX_OFFSET ignored near center, absorbs sensor/hand jitter
+let deadzone = 0.0445; // fraction of the range (see getMaxOffsetPx) ignored near center, absorbs sensor/hand jitter
+let range = 4; // degrees of screen visual angle the mouse must cross for full deflection
 const listeners: Array<(captured: boolean) => void> = [];
+
+// Vertical FOV of the real three.js camera (render/renderer.ts's `new THREE.PerspectiveCamera(70, ...)`)
+// — kept in sync here (duplicated the same way combat/projection.ts and combat/weapons.ts do) so
+// "range" reads as an actual on-screen visual angle rather than a raw, resolution-dependent pixel count.
+const CAMERA_FOV_DEG = 70;
+
+// Pixels of mouse travel for full deflection, derived from `range` (degrees) and the current
+// viewport height — resolution/FOV-independent, unlike a fixed pixel constant would be.
+function getMaxOffsetPx(): number {
+  const focalLength = window.innerHeight / (2 * Math.tan((CAMERA_FOV_DEG * Math.PI) / 180 / 2));
+  return focalLength * Math.tan((range * Math.PI) / 180);
+}
 
 function notify(): void {
   listeners.forEach(fn => fn(captured));
@@ -42,8 +54,9 @@ document.addEventListener('pointerlockerror', () => {
 });
 document.addEventListener('mousemove', (e) => {
   if (!captured) return;
-  offsetX = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, offsetX + (e.movementX || 0)));
-  offsetY = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, offsetY + (e.movementY || 0)));
+  const maxOffset = getMaxOffsetPx();
+  offsetX = Math.max(-maxOffset, Math.min(maxOffset, offsetX + (e.movementX || 0)));
+  offsetY = Math.max(-maxOffset, Math.min(maxOffset, offsetY + (e.movementY || 0)));
 });
 window.addEventListener('blur', () => {
   try { if (document.pointerLockElement === canvas) document.exitPointerLock(); } catch { /* ignore */ }
@@ -56,8 +69,9 @@ export function recenter(): void {
 // Reads the CURRENT stick deflection — does not reset it, since the deflection should keep
 // driving rotation until the mouse is physically moved back or recenter() is called.
 export function consume(): MouseLookInput {
-  let xRatio = offsetX / MAX_OFFSET;
-  let yRatio = offsetY / MAX_OFFSET;
+  const maxOffset = getMaxOffsetPx();
+  let xRatio = offsetX / maxOffset;
+  let yRatio = offsetY / maxOffset;
   if (Math.abs(xRatio) < deadzone) xRatio = 0;
   if (Math.abs(yRatio) < deadzone) yRatio = 0;
   const yaw = Math.max(-1, Math.min(1, xRatio * sensitivity));
@@ -70,7 +84,7 @@ export function isCaptured(): boolean {
   return captured;
 }
 export function getOffset(): { x: number; y: number; max: number } {
-  return { x: offsetX, y: offsetY, max: MAX_OFFSET };
+  return { x: offsetX, y: offsetY, max: getMaxOffsetPx() };
 }
 export function onChange(fn: (captured: boolean) => void): void {
   listeners.push(fn);
@@ -81,20 +95,24 @@ export function getInvertY(): boolean { return invertY; }
 export function setInvertY(v: boolean): void { invertY = v; }
 export function getDeadzone(): number { return deadzone; }
 export function setDeadzone(v: number): void { deadzone = v; }
+export function getRange(): number { return range; }
+export function setRange(v: number): void { range = v; }
 
 interface MouseLookConfig {
   sensitivity: number;
   invertY: boolean;
   deadzone: number;
+  range: number;
 }
 registerConfig({
   key: 'mouseLook',
-  serialize: (): MouseLookConfig => ({ sensitivity, invertY, deadzone }),
+  serialize: (): MouseLookConfig => ({ sensitivity, invertY, deadzone, range }),
   deserialize: (data) => {
     const d = data as Partial<MouseLookConfig> | null | undefined;
     if (!d) return;
     if (typeof d.sensitivity === 'number') sensitivity = d.sensitivity;
     if (typeof d.invertY === 'boolean') invertY = d.invertY;
     if (typeof d.deadzone === 'number') deadzone = d.deadzone;
+    if (typeof d.range === 'number') range = d.range;
   }
 });
