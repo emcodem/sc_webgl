@@ -5,7 +5,7 @@ start to grow into a whole explorable universe: fly your ship, **get out and wal
 seamlessly, over one shared world.
 
 This is the WebGL successor to the original 2D-canvas project at
-**`D:\dev\starcitizen_flightsim`** (referred to below as "the original"). It **reuses the original's
+**`C:\dev\starcitizen_flightsim`** (referred to below as "the original"). It **reuses the original's
 frame-counted, real-measured Gladius flight model** but is otherwise a ground-up universe-scale
 architecture.
 
@@ -107,7 +107,7 @@ Two things that will bite you if you don't know them (both detailed in `CLAUDE.m
 
 ## PORTED from the original — in detail
 
-Everything here was carried over from `D:\dev\starcitizen_flightsim`. "Verbatim" means copied with
+Everything here was carried over from `C:\dev\starcitizen_flightsim`. "Verbatim" means copied with
 only import-path changes; "adapted" means reshaped for the new architecture.
 
 | New file | From original | Status | Notes |
@@ -226,7 +226,7 @@ browser (same recipe as the original's `.claude/skills/verify`):
 
 - **Node 20.18** is installed; Vite 7 prints a "wants 20.19+" warning but builds/serves fine.
 - The **Bash tool resets cwd on `cd`** — run local binaries directly via PowerShell, e.g.
-  `& "D:\dev\sc_webgl\node_modules\.bin\tsc.cmd" -p D:\dev\sc_webgl\tsconfig.json --noEmit`.
+  `& "C:\dev\sc_webgl\node_modules\.bin\tsc.cmd" -p C:\dev\sc_webgl\tsconfig.json --noEmit`.
 - No git repo initialised yet (a `.gitignore` is in place). Ask before committing.
 
 ---

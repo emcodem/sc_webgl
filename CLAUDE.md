@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Orientation file for the WebGL rebuild of "Vector". The original 2D-canvas project lives at
-`D:\dev\starcitizen_flightsim` (referred to below as "the original"); this project reuses its
+`C:\dev\starcitizen_flightsim` (referred to below as "the original"); this project reuses its
 hard-won flight tuning but is a ground-up universe-scale architecture.
 
 **Original project sync point:** as of 2026-07-14, the original is at commit `2277c1b08ea32f38080dbeb1b056902af95d56f8`
@@ -29,7 +29,7 @@ gravity → **F** to re-board. Verified in a real headless browser (see below).
 
 Node note: the user's Node is 20.18; Vite 7 *warns* it wants 20.19+ but builds/serves fine. On
 Windows the Bash tool resets cwd on `cd` — run the local binaries directly via PowerShell, e.g.
-`& "D:\dev\sc_webgl\node_modules\.bin\tsc.cmd" -p D:\dev\sc_webgl\tsconfig.json --noEmit`.
+`& "C:\dev\sc_webgl\node_modules\.bin\tsc.cmd" -p C:\dev\sc_webgl\tsconfig.json --noEmit`.
 
 ## Architecture (the important part)
 
