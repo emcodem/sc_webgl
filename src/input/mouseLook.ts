@@ -1,4 +1,5 @@
 import { registerConfig } from './configRegistry';
+import { shapeAxis } from './axisCurve';
 
 // ============================================================================================
 // MouseLook — the "full vjoy" the flight model wants: models Star Citizen's default ABSOLUTE
@@ -23,8 +24,8 @@ let captured = false;
 let offsetX = 0, offsetY = 0; // persistent virtual-stick deflection, in pixels
 let sensitivity = 1.5;
 let invertY = true;
-let deadzone = 0.0445; // fraction of the range (see getMaxOffsetPx) ignored near center, absorbs sensor/hand jitter
-let range = 4; // degrees of screen visual angle the mouse must cross for full deflection
+let deadzone = 0.0445; // 4.45% — matches SC's VJoyCombinedDeadZone default (see capture/MEASUREMENTS.md); fraction of the range (getMaxOffsetPx) ignored near center
+let range = 10; // degrees of screen visual angle the mouse must cross for full deflection
 const listeners: Array<(captured: boolean) => void> = [];
 
 // Vertical FOV of the real three.js camera (render/renderer.ts's `new THREE.PerspectiveCamera(70, ...)`)
@@ -70,10 +71,9 @@ export function recenter(): void {
 // driving rotation until the mouse is physically moved back or recenter() is called.
 export function consume(): MouseLookInput {
   const maxOffset = getMaxOffsetPx();
-  let xRatio = offsetX / maxOffset;
-  let yRatio = offsetY / maxOffset;
-  if (Math.abs(xRatio) < deadzone) xRatio = 0;
-  if (Math.abs(yRatio) < deadzone) yRatio = 0;
+  // rescaled deadzone + shared convex expo curve (SC-matching, see axisCurve.ts), then sensitivity.
+  const xRatio = shapeAxis(offsetX / maxOffset, deadzone);
+  const yRatio = shapeAxis(offsetY / maxOffset, deadzone);
   const yaw = Math.max(-1, Math.min(1, xRatio * sensitivity));
   let pitch = Math.max(-1, Math.min(1, yRatio * sensitivity));
   if (invertY) pitch = -pitch;

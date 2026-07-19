@@ -3,6 +3,7 @@ import type {
 } from './actions';
 import { registerConfig } from './configRegistry';
 import { findByVidPid, findDevice } from './gamepad';
+import { shapeAxis } from './axisCurve';
 
 // ============================================================================================
 // Shared mutable joystick state: which physical devices the last-imported actionmaps.xml
@@ -99,7 +100,7 @@ function readAxisFor(concept: AxisConcept): number | null {
   if (!pad) return null; // device known, but not currently seen by the browser
   if (idx === undefined || idx >= pad.axesValues.length) return null;
   let v = pad.axesValues[idx];
-  if (Math.abs(v) < DEADZONE) v = 0;
+  v = shapeAxis(v, DEADZONE); // rescaled deadzone + shared convex expo curve (SC-matching, see axisCurve.ts)
   if (invert[concept]) v = -v;
   return v;
 }

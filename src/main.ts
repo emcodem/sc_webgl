@@ -15,6 +15,7 @@ import { updateHUD } from './hud/hud';
 import { initUI, isPaused } from './ui';
 import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
+import * as AxisCurve from './input/axisCurve';
 import * as Recorder from './replay/recorder';
 import * as ReplayPlayer from './replay/player';
 import * as FreeCamera from './control/freeCamera';
@@ -42,6 +43,12 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
 (window as unknown as { __startScenario: (id: string) => void }).__startScenario = (id: string) => {
   const config = SCENARIOS.find(s => s.id === id);
   if (config) startScenario(world, config);
+};
+
+// Same convention — live-tune the shared input expo curve from the console while comparing against
+// real SC side-by-side (e.g. __setInputExpo(1.6)). Also settable via the F4 mouse-look panel slider.
+(window as unknown as { __setInputExpo: (v: number) => void }).__setInputExpo = (v: number) => {
+  AxisCurve.setExponent(v);
 };
 
 // Same convention — jump straight into the PIP Trainer (see ui/mainMenu.ts's startPipTrainer

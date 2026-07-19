@@ -1,4 +1,5 @@
 import * as MouseLook from '../../input/mouseLook';
+import * as AxisCurve from '../../input/axisCurve';
 import { onConfigApplied } from '../../input/configRegistry';
 
 // The F4 panel's mouse-look tuning section — sensitivity/deadzone/invert-Y sliders plus a
@@ -24,6 +25,11 @@ function syncMouseSettingsUI(): void {
   const deadzoneSlider = document.getElementById('ctrl-mouse-deadzone') as HTMLInputElement | null;
   if (deadzoneSlider) deadzoneSlider.value = String(MouseLook.getDeadzone() * 100);
   setValueText('ctrl-mouse-deadzone-val', `${(MouseLook.getDeadzone() * 100).toFixed(2)}%`);
+
+  // Shared convex input curve (also applied to the joystick axes — see input/axisCurve.ts).
+  const expoSlider = document.getElementById('ctrl-mouse-expo') as HTMLInputElement | null;
+  if (expoSlider) expoSlider.value = String(AxisCurve.getExponent());
+  setValueText('ctrl-mouse-expo-val', AxisCurve.getExponent().toFixed(2));
 
   const invertCheckbox = document.getElementById('ctrl-mouse-invert') as HTMLInputElement | null;
   if (invertCheckbox) invertCheckbox.checked = MouseLook.getInvertY();
@@ -53,6 +59,13 @@ export function initMouseSettingsUI(): void {
     const v = parseFloat((e.target as HTMLInputElement).value);
     MouseLook.setDeadzone(v / 100);
     setValueText('ctrl-mouse-deadzone-val', `${v.toFixed(2)}%`);
+  });
+
+  const expoSlider = document.getElementById('ctrl-mouse-expo') as HTMLInputElement;
+  expoSlider.addEventListener('input', (e) => {
+    const v = parseFloat((e.target as HTMLInputElement).value);
+    AxisCurve.setExponent(v);
+    setValueText('ctrl-mouse-expo-val', v.toFixed(2));
   });
 
   const invertCheckbox = document.getElementById('ctrl-mouse-invert') as HTMLInputElement;
