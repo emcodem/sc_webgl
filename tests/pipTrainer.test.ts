@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PIP_TRAINER_DEFAULTS, updatePipTrainer, type PipTrainerState } from '../src/combat/pipTrainer';
 import { createHealth } from '../src/combat/health';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 import { normalize } from '../src/math/vec';
 import { lookAtQuat } from '../src/math/quaternion';
 import type { ShipBody } from '../src/core/world';
 
-const TYPE = SHIP_TYPES[0];
+const TYPE = getShipType('Gladius');
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const ZERO = { x: 0, y: 0, z: 0 };
 

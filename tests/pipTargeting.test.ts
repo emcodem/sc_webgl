@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { findActivePip } from '../src/combat/pipTargeting';
 import { createHealth } from '../src/combat/health';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 import type { EnemyShip } from '../src/core/world';
 import type { Camera } from '../src/combat/projection';
 
-const TYPE = SHIP_TYPES[0];
+const TYPE = getShipType('Gladius');
 const ORIGIN = { x: 0, y: 0, z: 0 };
 const ZERO = { x: 0, y: 0, z: 0 };
 const CAM: Camera = {

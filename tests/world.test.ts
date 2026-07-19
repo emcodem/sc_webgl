@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { makeWorld, makeShipBody, resetWorld } from '../src/core/player';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 
 describe('makeShipBody / makeWorld', () => {
   it('starts the boost meter at the ship type\'s boostCapacity', () => {
-    const ship = makeShipBody(SHIP_TYPES[0]);
-    expect(ship.boostMeter).toBe(SHIP_TYPES[0].boostCapacity);
+    const ship = makeShipBody(getShipType('Gladius'));
+    expect(ship.boostMeter).toBe(getShipType('Gladius').boostCapacity);
 
     const world = makeWorld();
     expect(world.player.ship.boostMeter).toBe(world.player.ship.type.boostCapacity);

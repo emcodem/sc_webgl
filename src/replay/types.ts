@@ -33,7 +33,7 @@ export interface ReplayInputs {
 }
 
 export interface ReplayEntitySnapshot {
-  shipTypeId: string; // ShipType.name (see physics/shipTypes.ts's SHIP_TYPES) — looked up on
+  shipTypeId: string; // ShipType.name (see physics/ships' registry) — looked up on
                        // playback rather than duplicating the full (large, static) tuning object.
   pos: Vec3;
   quat: Quat;

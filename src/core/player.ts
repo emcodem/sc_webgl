@@ -1,6 +1,6 @@
 import type { EnemyShip, Player, ShipBody, World } from './world';
 import type { Quat, ShipType, Vec3 } from './types';
-import { SHIP_TYPES } from '../physics/shipTypes';
+import { getShipType, DEFAULT_SHIP_TYPE_ID } from '../physics/ships';
 import { BODIES, ENEMY_SPAWN, SPAWN } from '../world/celestial';
 import { createHealth } from '../combat/health';
 import { spawnFighterAI } from '../combat/enemyAI';
@@ -58,14 +58,15 @@ function makeEnemyShip(type: ShipType, pos: Vec3, quat: Quat, moving: boolean): 
 }
 
 // The free-flight fleet the player flies among: 5 AJF-12 Dvergr + 6 "SpaceShip Fighter" (Arrow),
-// 11 ships total. Both types fly with the Gladius flight model (SHIP_TYPES — the Arrow entry is the
-// Gladius stats on the Arrow hull); only the visual model differs. Interleaved so the two hulls mix
-// rather than cluster. Index 0 is the lone moving dogfighter (spawned at ENEMY_SPAWN below); the
-// rest ring around SPAWN. 5 Dvergr at the even indices (0,2,4,6,8), 6 Arrow at the odd ones + the
-// last (1,3,5,7,9,10).
+// 11 ships total. Both types fly with the Gladius flight model (the Arrow entry is the Gladius stats
+// on the Arrow hull); only the visual model differs. Interleaved so the two hulls mix rather than
+// cluster. Index 0 is the lone moving dogfighter (spawned at ENEMY_SPAWN below); the rest ring around
+// SPAWN. 5 Dvergr at the even indices (0,2,4,6,8), 6 Arrow at the odd ones + the last (1,3,5,7,9,10).
+const DVERGR = getShipType('Gladius');
+const ARROW = getShipType('Arrow');
 const FREE_FLIGHT_FLEET: ShipType[] = [
-  SHIP_TYPES[0], SHIP_TYPES[1], SHIP_TYPES[0], SHIP_TYPES[1], SHIP_TYPES[0], SHIP_TYPES[1],
-  SHIP_TYPES[0], SHIP_TYPES[1], SHIP_TYPES[0], SHIP_TYPES[1], SHIP_TYPES[1]
+  DVERGR, ARROW, DVERGR, ARROW, DVERGR, ARROW,
+  DVERGR, ARROW, DVERGR, ARROW, ARROW
 ];
 
 // The `types` (one per ring ship) both size the ring and assign each ship's hull — half holding
@@ -90,7 +91,7 @@ function makeOtherShips(types: ShipType[]): EnemyShip[] {
 }
 
 export function makeWorld(): World {
-  const ship = makeShipBody(SHIP_TYPES[0]); // player flies the default AJF-12 Dvergr (Gladius stats)
+  const ship = makeShipBody(getShipType(DEFAULT_SHIP_TYPE_ID)); // player flies the default AJF-12 Dvergr (Gladius stats)
   const player: Player = {
     mode: 'pilot',
     ship,

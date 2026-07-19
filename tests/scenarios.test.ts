@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
-import { deriveShipType } from '../src/physics/deriveShipType';
+import { getShipType } from '../src/physics/ships';
+import { deriveShipType } from '../src/physics/ships/deriveShipType';
 import { buildBarrelRollGatePath, evaluateGateCrossing } from '../src/scenarios/gatePath';
 
 // Guards the two pure-function pieces of the scenario-system port that are cheap to unit test
@@ -8,7 +8,7 @@ import { buildBarrelRollGatePath, evaluateGateCrossing } from '../src/scenarios/
 // that needs a running renderer/world (see tests/shipTuning.test.ts).
 
 describe('deriveShipType', () => {
-  const base = SHIP_TYPES[0];
+  const base = getShipType('Gladius');
   const derived = deriveShipType(base, { angularScale: 0.5, name: 'Test Variant' });
   const AXES = ['pitch', 'yaw', 'roll'] as const;
 

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EVASIVE_TUNING, evasiveThink } from '../src/combat/ai/evasiveAI';
 import { createHealth } from '../src/combat/health';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 import type { EnemyShip, ShipBody } from '../src/core/world';
 import type { EvasiveAIMemory } from '../src/core/types';
 
-const TYPE = SHIP_TYPES[0];
+const TYPE = getShipType('Gladius');
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const ZERO = { x: 0, y: 0, z: 0 };
 

@@ -6,7 +6,7 @@ import { computeAxes, integrateOrientation } from '../math/quaternion';
 // Newtonian ship flight model — PORTED VERBATIM from the original 2D-canvas project
 // (starcitizen_flightsim/src/physics/flightModel.ts). Every constant and every ordering choice
 // here is fit to frame-counted real-Star-Citizen-Gladius measurements; the load-bearing invariants
-// are documented in the original project's CLAUDE.md and in physics/shipTypes.ts here. Do not
+// are documented in the original project's CLAUDE.md and in physics/ships/gladius.ts here. Do not
 // "clean this up" without re-deriving against real traces — it has been gotten wrong twice before.
 // ============================================================================================
 

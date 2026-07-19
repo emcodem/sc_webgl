@@ -1,4 +1,4 @@
-import type { ShipType } from '../core/types';
+import type { RawShipMeasurement } from './rawShipType';
 
 // Gladius — PORTED VERBATIM from the original project (starcitizen_flightsim/src/ship/shipTypes.ts),
 // including the full derivation below (not just a summary) — this is the source of truth these
@@ -11,26 +11,28 @@ import type { ShipType } from '../core/types';
 // rates above vs. below boostRedZonePct, a reactivation floor, and a recharge delay (see
 // flightModel.ts::resolveBoost).
 //
-// angularThrust/boostAngularThrust are each set to their corresponding maxAngVel * angularDrag,
-// per axis (angularDrag is itself per-axis — see the real-measurement note below; boost reuses the
-// same angularDrag as non-boosted, since boost doesn't change RCS dampening, just authority).
+// NOTE ON angularThrust/boostAngularThrust: these are NO LONGER authored here — physics/ships/
+// buildShipType.ts DERIVES each as (maxAngVel|boostMaxAngVel) * angularDrag, per axis, so the
+// invariant below can't drift. The reasoning (kept because it's why the model is shaped this way):
 // angularDrag is applied every frame proportional to the current angular velocity (see
 // physics/flightModel.ts), so the ship settles at a steady state of angularThrust / angularDrag,
 // NOT at maxAngVel — the clamp is a ceiling, not a target. Deriving angularThrust this way makes
 // full input actually converge to the documented real rotation rate instead of stalling out at
-// roughly half of it.
+// roughly half of it. (boost reuses the same non-boosted angularDrag, since boost doesn't change RCS
+// dampening, just authority.)
 //
-// boostLinearThrust is derived the same way as angularThrust above: == boostSpeedForward/Back *
-// boostLinearDrag * mass, so the ship actually accelerates through drag up to the documented
-// boosted top speed instead of just raising the cap without the thrust to ever reach it. Boost
-// uses its own boostLinearDrag rather than reusing linearDrag — real-game measurement (see below)
-// showed boosting is far less damped than plain thrust (lower drag, not just more thrust), so
-// boostLinearThrust ends up *lower* than plain linearThrust despite the much higher top speed.
+// boostLinearThrust IS still authored here (main/retro). Real-game measurement (see below) showed
+// boosting is far less damped than plain thrust (lower drag, not just more thrust) — boostLinearDrag
+// is its own value — so boostLinearThrust ends up *lower* than plain linearThrust despite the much
+// higher top speed. It's GOVERNOR-limited: thrust EXCEEDS boostSpeed * boostLinearDrag * mass, so the
+// speed>speedCap governor (not drag) caps boost (guarded by tests/shipTuning.test.ts).
 //
 // coastDecel is a separate, constant (not velocity-proportional) deceleration applied only when
 // there's no throttle/strafe input at all in coupled mode (see physics/flightModel.ts) — real
 // Gladius sheds speed at a flat rate when you let go of the stick, not a decaying one, so this
 // can't be modeled by just cranking up linearDrag (which would taper off approaching zero).
+// (See candidateRefinements.perAxisCoastDecel below — capture found this is really per-axis; the flat
+// scalar is kept live pending a gated flightModel.ts change.)
 //
 // massKg (real mass, 48,552 kg) isn't wired into the physics — `mass` below is a separately tuned
 // gameplay value used for both linear thrust-to-accel and rotational inertia (see
@@ -150,9 +152,9 @@ import type { ShipType } from '../core/types';
 //     those are unchanged.
 //
 // Summary of the invariants that MUST hold (see the original project's CLAUDE.md) — guarded by
-// tests/shipTuning.test.ts:
-//   - angularThrust == maxAngVel * angularDrag  (per axis) — steady-state target, not a clamp.
-//   - boostAngularThrust == boostMaxAngVel * angularDrag  (per axis).
+// tests/shipTuning.test.ts (and, for the structural ones, by buildShipType.ts at load time):
+//   - angularThrust == maxAngVel * angularDrag  (per axis) — derived by buildShipType, true by construction.
+//   - boostAngularThrust == boostMaxAngVel * angularDrag  (per axis) — likewise derived.
 //   - boost is GOVERNOR-limited (like forward), not drag-limited: boostLinearThrust EXCEEDS
 //     boostSpeed * boostLinearDrag * mass, so the speed>speedCap governor is what caps boost. The
 //     old "boostLinearThrust == boostSpeed*drag*mass" equality no longer holds (re-measured
@@ -163,48 +165,78 @@ import type { ShipType } from '../core/types';
 //   - coastDecel is a FLAT m/s^2 rate (measured 40), not proportional drag.
 //   - main/retro/verticalSpoolDelay are three separately-timed thruster startup lags — don't merge.
 //   - verticalDown thrust is exactly half verticalUp (measured).
-const GLADIUS: ShipType = {
-    name: 'Gladius',
-    // Wears the "AJF-12 Dvergr" hull (render/shipModels.ts) — this is the player's default ship and
-    // the Gladius stats are the only real flight data we have. `model` is render-only; it doesn't
-    // touch the physics below.
-    model: 'dvergr',
-    mass: 1.5,
-    massKg: 48552,
-    linearThrust: { main: 201, retro: 63, strafe: 145, verticalUp: 147, verticalDown: 73.5 },
-    angularThrust: { pitch: 12.2261, yaw: 14.0721, roll: 18.6963 },
-    mainSpoolDelay: 0.07,
-    retroSpoolDelay: 0.024,
-    verticalSpoolDelay: 0.066,
-    linearDrag: 0.001,
-    boostLinearDrag: 0.38,
-    coastDecel: 40,
-    brakeGain: 1.04,
-    angularDrag: { pitch: 10.2740, yaw: 15.4639, roll: 5.3571 },
-    maxAngVel: { pitch: 1.19, yaw: 0.91, roll: 3.49 },
-    scmSpeed: 226,
-    scmSpeedBack: 225,
-    boostSpeedForward: 520,
-    boostSpeedBack: 268,
-    boostCapacity: 100,
-    boostRedZonePct: 25,
-    boostReactivatePct: 26,
-    boostDrainRate: 7.5,
-    boostDrainRateRedZone: 13.0208,
-    boostRechargeRate: 2.8846,
-    boostRechargeRateRedZone: 62.5,
-    boostRechargeDelaySec: 0.3,
-    boostMaxAngVel: { pitch: 1.431, yaw: 1.082, roll: 4.189 },
-    boostAngularThrust: { pitch: 14.7021, yaw: 16.7319, roll: 22.4409 },
-    boostLinearThrust: { main: 420, retro: 216.5 },
-    hullRadius: 10
+
+export const GLADIUS_RAW: RawShipMeasurement = {
+  name: 'Gladius',
+  // Wears the "AJF-12 Dvergr" hull (render/shipModels.ts) — this is the player's default ship and
+  // the Gladius stats are the only real flight data we have. `model` is render-only; it doesn't
+  // touch the physics below.
+  model: 'dvergr',
+  provenance: {
+    overall: {
+      status: 'measured',
+      date: '2026-07-15',
+      note:
+        'Fully fitted to real-game capture: 360° stopwatch timings (roll/pitch/yaw tau), dense 40ms ' +
+        'velocity traces (main/retro/strafe/vertical thrust, boosted forward re-measured 2026-07-15), ' +
+        'flat coast-decel + space-brake velocity-controller fits, and the two-rate boost meter. ' +
+        'Cross-validated against reference/ships/aegs-gladius.json (agility/speed/afterburner). See the ' +
+        'derivation comment block above and capture/MEASUREMENTS.md.'
+    }
+  },
+  mass: 1.5,
+  massKg: 48552,
+  linearThrust: { main: 201, retro: 63, strafe: 145, verticalUp: 147, verticalDown: 73.5 },
+  mainSpoolDelay: 0.07,
+  retroSpoolDelay: 0.024,
+  verticalSpoolDelay: 0.066,
+  linearDrag: 0.001,
+  coastDecel: 40,
+  brakeGain: 1.04,
+  angularDrag: { pitch: 10.2740, yaw: 15.4639, roll: 5.3571 },
+  maxAngVel: { pitch: 1.19, yaw: 0.91, roll: 3.49 },
+  scmSpeed: 226,
+  scmSpeedBack: 225,
+  boostSpeedForward: 520,
+  boostSpeedBack: 268,
+  boostLinearDrag: 0.38,
+  boostLinearThrust: { main: 420, retro: 216.5 },
+  boostMaxAngVel: { pitch: 1.431, yaw: 1.082, roll: 4.189 },
+  boostCapacity: 100,
+  boostRedZonePct: 25,
+  boostReactivatePct: 26,
+  boostDrainRate: 7.5,
+  boostDrainRateRedZone: 13.0208,
+  boostRechargeRate: 2.8846,
+  boostRechargeRateRedZone: 62.5,
+  boostRechargeDelaySec: 0.3,
+  hullRadius: 10,
+
+  // Measured-but-GATED findings (would each require an equation change in the ported-verbatim
+  // flightModel.ts — see capture/MEASUREMENTS.md). NOT applied to the compiled ShipType; carried here
+  // so the numbers are ready when a flightModel.ts change is signed off. buildShipType never reads this.
+  candidateRefinements: {
+    perAxisCoastDecel: {
+      note:
+        'Coast decel is really per-(axis,direction) = opposing-thruster-authority / mass, not the flat ' +
+        'scalar coastDecel=40. Measured: forward brakes retro (42, ~matches the live 40); back brakes ' +
+        'main (134); lateral both ways ~98; up brakes down (49); down brakes up (98). Live model ' +
+        'under-brakes lateral/vertical ~2.4x.',
+      forward: 42, back: 134, strafe: 98, up: 49, down: 98
+    },
+    decoupledDropsAutoBrake: {
+      note:
+        'Decoupled mode drops the LINEAR auto-brake (release -> drift, ~0 decel; SCM cap and thruster ' +
+        'authority unchanged). Rotational auto-stop is UNAFFECTED (roll still hard-stops in decoupled). ' +
+        'flightModel.ts does not model decoupled coast differently today.',
+      recommendedApplies: true
+    },
+    boostedLateralVertical: {
+      note:
+        'Boost raises strafe/vertical too, which the coded boostLinearThrust {main,retro} omits. ' +
+        'Measured boosted strafe/vertical accel ~127 m/s^2 (~x1.3 over the 98 unboosted) with a shared ' +
+        'boosted-maneuvering speed cap ~385 m/s — distinct from and below boostSpeedForward (520).',
+      strafeAccel: 127, maneuveringSpeedCap: 385
+    }
+  }
 };
-
-// Arrow — the "SpaceShip Fighter" hull (render/shipModels.ts's 'arrow' model). We have no separate
-// Arrow flight data yet, so per harald it flies with the Gladius' EXACT stats — the spread below
-// copies every measured value; only `name` and `model` differ. Swap in real Arrow specs here if/when
-// they're ever measured. Must stay index [1]: SHIP_TYPES[0] is the measured Gladius the tuning tests
-// and scenarios reference.
-const ARROW: ShipType = { ...GLADIUS, name: 'Arrow', model: 'arrow' };
-
-export const SHIP_TYPES: ShipType[] = [GLADIUS, ARROW];

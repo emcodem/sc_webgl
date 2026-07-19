@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 import { buildAimTrainingScenario, buildEvasivePilotScenario } from '../src/scenarios/definitions';
 import type { ScenarioConfig } from '../src/scenarios/types';
 
@@ -26,7 +26,7 @@ beforeAll(async () => {
   makeWorld = (await import('../src/core/player')).makeWorld;
 });
 
-const TYPE = SHIP_TYPES[0];
+const TYPE = getShipType('Gladius');
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 
 function destroyScenario(enemyCount: number): ScenarioConfig {

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { resolveHits } from '../src/combat/hitDetection';
 import { createHealth } from '../src/combat/health';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 import type { EnemyShip, Projectile, ShipBody } from '../src/core/world';
 
-const TYPE = SHIP_TYPES[0];
+const TYPE = getShipType('Gladius');
 
 function makeShip(pos = { x: 0, y: 0, z: 0 }): ShipBody {
   return {

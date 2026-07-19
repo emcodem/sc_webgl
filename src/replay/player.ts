@@ -1,7 +1,7 @@
 import type { World, EnemyShip, Projectile, ShipBody, VisualEffect } from '../core/world';
 import type { Quat, Vec3 } from '../core/types';
 import type { ReplayClip, ReplayEntitySnapshot, ReplayFrame } from './types';
-import { SHIP_TYPES } from '../physics/shipTypes';
+import { getShipType, tryGetShipType, DEFAULT_SHIP_TYPE_ID } from '../physics/ships';
 import { lerp } from '../math/vec';
 import { slerp } from '../math/quaternion';
 import { createHealth } from '../combat/health';
@@ -42,7 +42,7 @@ export function getDurationSec(): number {
 }
 
 function findShipType(id: string) {
-  return SHIP_TYPES.find(t => t.name === id) ?? SHIP_TYPES[0];
+  return tryGetShipType(id) ?? getShipType(DEFAULT_SHIP_TYPE_ID);
 }
 
 // A minimally-valid EnemyShip to hold interpolated playback state — never touched by AI/combat
@@ -87,7 +87,7 @@ export function loadClip(world: World, replay: ReplayClip): void {
   const enemies: EnemyShip[] = [];
   for (let i = 0; i < enemyCount; i++) {
     const snap = firstFrame!.enemies[i];
-    enemies.push(makePlaceholderEnemy(snap ? snap.shipTypeId : SHIP_TYPES[0].name));
+    enemies.push(makePlaceholderEnemy(snap ? snap.shipTypeId : DEFAULT_SHIP_TYPE_ID));
   }
   world.enemies = enemies;
 

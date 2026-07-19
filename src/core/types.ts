@@ -123,7 +123,7 @@ export interface EvasiveAIMemory {
 }
 
 // Full ship tuning — ported verbatim from the original project's ShipType. Every field carries a
-// measured, load-bearing value (see physics/shipTypes.ts's comment block). Do NOT drop or collapse
+// measured, load-bearing value (see physics/ships/gladius.ts's comment block). Do NOT drop or collapse
 // fields without a real re-measurement.
 export interface ShipType {
   name: string;

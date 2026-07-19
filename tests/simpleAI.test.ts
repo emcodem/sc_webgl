@@ -3,10 +3,10 @@ import { CHASER_TUNING, chaserThink, cruiseThink } from '../src/combat/ai/simple
 import { steeringToward } from '../src/combat/enemyAI';
 import { computeAxes } from '../src/math/quaternion';
 import { createHealth } from '../src/combat/health';
-import { SHIP_TYPES } from '../src/physics/shipTypes';
+import { getShipType } from '../src/physics/ships';
 import type { EnemyShip, ShipBody } from '../src/core/world';
 
-const TYPE = SHIP_TYPES[0];
+const TYPE = getShipType('Gladius');
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 
 function makeEnemy(pos: { x: number; y: number; z: number }, quat = IDENTITY): EnemyShip {
