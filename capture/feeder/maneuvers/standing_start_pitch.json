@@ -1,0 +1,8 @@
+{
+  "name": "standing_start_pitch",
+  "description": "Long-hold baseline for the OLD stopwatch-full-360-rotation cross-check (re-confirms tau_pitch ~0.146s / standing-start 360 in 5.44s @ 68 deg/s). Do NOT run this through track_landmark.py -- a tracked landmark exits frame well before this 8s hold completes. For a continuous spin-up omega(t) curve, use pitch_spool_up.json instead.",
+  "segments": [
+    {"start": 0.0, "end": 8.0, "axes": {"pitch": 1.0}},
+    {"start": 8.0, "end": 9.0, "axes": {"pitch": 0.0}}
+  ]
+}

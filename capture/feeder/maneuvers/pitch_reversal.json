@@ -1,0 +1,9 @@
+{
+  "name": "pitch_reversal",
+  "description": "Pitch equivalent of yaw_reversal.json: full pitch up held just long enough to reach steady-state max rate (tau_pitch ~0.146s, so 0.8s is >5 tau of margin), hard flip to full pitch down held 1.0s, then neutral. Kept short for the same frame-exit reason as yaw_reversal.json -- see its description.",
+  "segments": [
+    {"start": 0.0, "end": 0.8, "axes": {"pitch": 1.0}},
+    {"start": 0.8, "end": 1.8, "axes": {"pitch": -1.0}},
+    {"start": 1.8, "end": 2.2, "axes": {"pitch": 0.0}}
+  ]
+}

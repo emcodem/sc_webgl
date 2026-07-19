@@ -1,0 +1,8 @@
+{
+  "name": "yaw_360_check",
+  "description": "Not for pixel-tracking (see orchestrate.py's usual pipeline) -- a before/after landmark-position check instead. Holds full yaw for exactly 360/52=6.9230769s, the duration a full 360deg rotation should take at the coded maxAngVel.yaw (52 deg/s) if reached and held throughout the entire turn. If real sustained yaw genuinely reaches 52 deg/s, a landmark's screen position before the maneuver and after should coincide almost exactly (a full rotation returns the ship to the same heading). If the real settling time constant is longer than modeled (raised by harald: the 52 deg/s spec itself was measured via a multi-second sustained rotation, so a short reversal maneuver's plateau isn't necessarily proof either way), the ship will have completed LESS than 360deg in this time and the landmark will land short of its start position by a measurable, convertible-to-degrees offset.",
+  "segments": [
+    {"start": 0.0, "end": 6.9230769, "axes": {"yaw": 1.0}},
+    {"start": 6.9230769, "end": 7.5, "axes": {"yaw": 0.0}}
+  ]
+}

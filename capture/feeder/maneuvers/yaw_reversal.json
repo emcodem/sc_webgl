@@ -1,0 +1,9 @@
+{
+  "name": "yaw_reversal",
+  "description": "The core reversal trace: full yaw right held just long enough to reach steady-state max rate (tau_yaw ~0.097s, so 0.5s is >4 tau of margin), then a hard flip to full yaw left held 1.0s (long enough to establish the new steady state and its settle), then neutral. Kept short deliberately: at ~52 deg/s sustained, a tracked landmark exits a typical ~90deg FOV frame in well under 2s, so this is NOT the old multi-second full-360 stopwatch maneuver (see standing_start_yaw.json for that) -- this one is sized for continuous single-landmark pixel tracking across the whole clip. This is the maneuver the 'massentraegheit'/reversal-lag complaint is about -- compare the flip's transient shape against yaw_spool_up.json's plain spin-up.",
+  "segments": [
+    {"start": 0.0, "end": 0.5, "axes": {"yaw": 1.0}},
+    {"start": 0.5, "end": 1.5, "axes": {"yaw": -1.0}},
+    {"start": 1.5, "end": 2.0, "axes": {"yaw": 0.0}}
+  ]
+}

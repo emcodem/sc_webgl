@@ -1,0 +1,20 @@
+# Raw capture output under data/ — large (video/screenshots), never committed. Tracked doc:
+# data/MANIFEST.md (the clip catalog). Add a line here for each new per-ship folder as it's
+# captured (e.g. data/Taurus/, data/Arrow/).
+data/Gladius/
+data/actionmaps_backups/
+data/attributes_backups/
+data/angular/
+data/indicator/
+data/linear/
+data/roll/
+data/yaw_reversal/
+data/*.png
+data/*.json
+
+*.mp4
+*.mkv
+*.avi
+__pycache__/
+*.pyc
+.venv/

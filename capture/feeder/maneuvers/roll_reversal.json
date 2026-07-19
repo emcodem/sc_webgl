@@ -1,0 +1,9 @@
+{
+  "name": "roll_reversal",
+  "description": "Roll equivalent of yaw_reversal.json/pitch_reversal.json, but MUCH shorter than a naive '5 tau of margin' hold would give (tau_roll ~0.28s => full settling would want ~1.4s/2.0s holds, as an earlier version of this file used) -- deliberately traded settling margin for staying inside a single rotation. At Gladius's ~200 deg/s roll rate, a 1.4s hold sweeps ~280 deg, and a real capture attempt confirmed a landmark's circular path at that scale crosses the cockpit's side MFD panels partway around, silently hijacking the tracker onto a bright, screen-fixed panel instead of the (moving) landmark -- see BLUEPRINT.md's Gotchas. Segment 1 (0.5s) only reaches ~85% of the first-order-lag's steady-state rate and roughly 53 deg of rotation; segment 2 (0.7s) is long enough to see the reversal's transient shape without a full second settle. This is a real, accepted tradeoff (less-settled data), not an oversight -- the fit still constrains tau/thrust/drag from the transient shape, just with less steady-state plateau to lean on than yaw/pitch's reversal clips have.",
+  "segments": [
+    {"start": 0.0, "end": 0.5, "axes": {"roll": 1.0}},
+    {"start": 0.5, "end": 1.2, "axes": {"roll": -1.0}},
+    {"start": 1.2, "end": 1.5, "axes": {"roll": 0.0}}
+  ]
+}

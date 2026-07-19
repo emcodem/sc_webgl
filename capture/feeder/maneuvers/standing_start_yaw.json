@@ -1,0 +1,8 @@
+{
+  "name": "standing_start_yaw",
+  "description": "Long-hold baseline for the OLD stopwatch-full-360-rotation cross-check (re-confirms tau_yaw ~0.097s / standing-start 360 in 7.000s @ 52 deg/s against a scripted, jitter-free input instead of a human-held key) -- read the 360-rotation time off the recording by eye/timestamp, do NOT run this through track_landmark.py: at ~52 deg/s sustained a tracked landmark exits a typical ~90deg FOV frame in well under 2s, so continuous pixel tracking across this whole 8s hold isn't possible. For a continuous spin-up omega(t) curve, use yaw_spool_up.json instead.",
+  "segments": [
+    {"start": 0.0, "end": 8.0, "axes": {"yaw": 1.0}},
+    {"start": 8.0, "end": 9.0, "axes": {"yaw": 0.0}}
+  ]
+}

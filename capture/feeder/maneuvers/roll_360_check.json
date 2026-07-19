@@ -1,0 +1,8 @@
+{
+  "name": "roll_360_check",
+  "description": "Roll equivalent of yaw_360_check.json/pitch_360_check.json -- not for pixel-tracking, a before/after landmark-position check instead. Holds full roll for exactly 360/200=1.8s, the duration a full rotation should take at the coded maxAngVel.roll (200 deg/s, matching shipTypes.ts's own 'confirms the 200 deg/s spec' measurement note). Unlike yaw/pitch, roll's angle model (analysis/angle_convert.py's --axis roll, polar angle around frame center) is EXACT geometry with no FOV/focal-length calibration involved at all, so this check can't be confounded by the same calibration-bug class the pitch check caught -- only needs the landmark's pixel position before and after, converted via atan2 around frame center, no fov_deg dependency.",
+  "segments": [
+    {"start": 0.0, "end": 1.8, "axes": {"roll": 1.0}},
+    {"start": 1.8, "end": 2.3, "axes": {"roll": 0.0}}
+  ]
+}

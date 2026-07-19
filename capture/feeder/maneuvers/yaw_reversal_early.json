@@ -1,0 +1,9 @@
+{
+  "name": "yaw_reversal_early",
+  "description": "Variant of yaw_reversal.json that flips direction well BEFORE reaching steady state (at 0.3s, mid-spool, vs. 0.5s in the standard maneuver). Tests whether the reversal transient depends on how much rotation rate was already built up -- i.e. whether the effect is a function of current angular velocity at the moment of the flip, or a fixed post-flip response regardless of starting rate. Kept short for the same frame-exit reason as yaw_reversal.json.",
+  "segments": [
+    {"start": 0.0, "end": 0.3, "axes": {"yaw": 1.0}},
+    {"start": 0.3, "end": 1.1, "axes": {"yaw": -1.0}},
+    {"start": 1.1, "end": 1.5, "axes": {"yaw": 0.0}}
+  ]
+}

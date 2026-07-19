@@ -1,0 +1,8 @@
+{
+  "name": "yaw_spool_up_half",
+  "description": "Half-deflection version of yaw_spool_up.json (yaw=0.5 instead of 1.0, same 0.6s hold then neutral) -- tests whether Star Citizen applies a nonlinear response curve to the vJoy axis before it reaches the flight model (open question, see BLUEPRINT.md's vJoy config section: no explicit curve override was found in actionmaps.xml, so whatever curve is in effect is SC's unconfirmed default). If the response is linear, this maneuver's steady-state rate should be exactly half of yaw_spool_up.json's. A ratio meaningfully different from 0.5 would mean a real curve is biasing every fitted thrust/drag value derived from full-deflection (u=1.0) maneuvers throughout this project so far.",
+  "segments": [
+    {"start": 0.0, "end": 0.6, "axes": {"yaw": 0.5}},
+    {"start": 0.6, "end": 1.0, "axes": {"yaw": 0.0}}
+  ]
+}

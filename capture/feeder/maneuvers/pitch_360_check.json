@@ -1,0 +1,8 @@
+{
+  "name": "pitch_360_check",
+  "description": "Pitch equivalent of yaw_360_check.json -- not for pixel-tracking, a before/after landmark-position check instead. Holds full pitch for exactly 360/68=5.2941176s, the duration a full 360deg rotation should take at the coded maxAngVel.pitch (68 deg/s, matching shipTypes.ts's own '360/68 deg/s = 5.294s ideal' comment) if reached and held throughout. Motivated by the pitch_reversal.json fit implying a peak steady-state rate (~110-120 deg/s) far above the coded spec -- before trusting that, check whether SUSTAINED pitch actually reaches ~68 deg/s the way yaw's equivalent check confirmed ~52 deg/s for yaw (a landmark should return to ~its starting screen position after this hold if the spec is right; a large systematic shortfall would mean sustained pitch is genuinely slower than spec, not just a short-reversal-maneuver artifact).",
+  "segments": [
+    {"start": 0.0, "end": 5.2941176, "axes": {"pitch": 1.0}},
+    {"start": 5.2941176, "end": 5.8, "axes": {"pitch": 0.0}}
+  ]
+}
