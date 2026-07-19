@@ -77,7 +77,21 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   const prevAngVel = { pitch: body.angVel.pitch, yaw: body.angVel.yaw, roll: body.angVel.roll };
   body.angVel.pitch += (pitchInput * angularThrust.pitch / t.mass) * dt - (prevAngVel.pitch * t.angularDrag.pitch / t.mass) * dt;
   body.angVel.yaw   += (yawInput   * angularThrust.yaw   / t.mass) * dt - (prevAngVel.yaw   * t.angularDrag.yaw   / t.mass) * dt;
-  body.angVel.roll  += (rollInput  * angularThrust.roll  / t.mass) * dt - (prevAngVel.roll  * t.angularDrag.roll  / t.mass) * dt;
+
+  // Roll release is a hard, roughly-constant-deceleration GOVERNOR stop (measured ~40deg roll-out
+  // from full rate in ~0.5s), NOT the proportional/exponential drag used for spin-up (unchanged below)
+  // and for pitch/yaw's own release — see shipTypes.rollReleaseDecel and capture/BLUEPRINT.md's
+  // roll-reversal findings (fitted drag pins at exactly 0 during release, across 5 independent
+  // trials). Pitch/yaw's release-transient evidence is weaker/noisier, so they keep the proportional-
+  // drag model + snap-to-zero-floor approximation below.
+  if (rollInput !== 0) {
+    body.angVel.roll += (rollInput * angularThrust.roll / t.mass) * dt - (prevAngVel.roll * t.angularDrag.roll / t.mass) * dt;
+  } else {
+    const decelStep = t.rollReleaseDecel * dt;
+    body.angVel.roll = Math.abs(prevAngVel.roll) <= decelStep
+      ? 0
+      : prevAngVel.roll - Math.sign(prevAngVel.roll) * decelStep;
+  }
 
   // This drag is proportional (exponential decay), so on release it only asymptotically
   // approaches zero and never actually arrives — the real ship's RCS reads as stopping a little
@@ -87,10 +101,10 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   // decay shape. Gated on that axis having zero input — otherwise this stomps small in-progress
   // rotation (a gentle mouse-look nudge, or even full keyboard input at a high enough frame rate
   // that one tick's accel is still under the threshold), which reads as a large deadzone that has
-  // nothing to do with any actual input deadzone setting.
+  // nothing to do with any actual input deadzone setting. (Roll's release is handled by the governor
+  // branch above instead — it snaps to exactly zero by construction, no threshold needed.)
   if (pitchInput === 0 && Math.abs(body.angVel.pitch) < ANGULAR_STOP_THRESHOLD) body.angVel.pitch = 0;
   if (yawInput === 0 && Math.abs(body.angVel.yaw) < ANGULAR_STOP_THRESHOLD) body.angVel.yaw = 0;
-  if (rollInput === 0 && Math.abs(body.angVel.roll) < ANGULAR_STOP_THRESHOLD) body.angVel.roll = 0;
 
   body.angVel.pitch = clamp(body.angVel.pitch, -maxAngVel.pitch, maxAngVel.pitch);
   body.angVel.yaw   = clamp(body.angVel.yaw,   -maxAngVel.yaw,   maxAngVel.yaw);

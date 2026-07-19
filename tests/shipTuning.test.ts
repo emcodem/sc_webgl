@@ -66,6 +66,7 @@ describe('Gladius measured tuning invariants', () => {
       brakeGain: 1.04,
       angularDrag: { pitch: 10.2740, yaw: 15.4639, roll: 5.3571 },
       maxAngVel: { pitch: 1.19, yaw: 0.91, roll: 3.49 },
+      rollReleaseDecel: 8.7234,
       scmSpeed: 226,
       scmSpeedBack: 225,
       boostSpeedForward: 520,
@@ -91,6 +92,69 @@ describe('Gladius measured tuning invariants', () => {
     }
     const strip = (t: ShipType) => ({ ...t, angularThrust: undefined, boostAngularThrust: undefined });
     expect(strip(g)).toEqual(strip(EXPECTED_GLADIUS));
+  });
+});
+
+// Roll-release governor (2026-07-20): real Gladius stops roll on release with a hard, roughly-
+// constant deceleration, not the proportional/exponential drag pitch/yaw still use — see
+// shipTypes.rollReleaseDecel and flightModel.ts's roll branch. Confirms the actual bug report this
+// fixed: a small partial-rate roll tap should stop in proportionally (not just absolutely) less time
+// than a full-rate release, since a FLAT decel's stop time scales linearly with the starting rate.
+describe('roll-release governor (flat deceleration, not proportional drag)', () => {
+  const NO_INPUT = { throttle: 0, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false };
+
+  function bodyWithRoll(type: ShipType, rollAngVel: number): FlightBody {
+    return {
+      type,
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      angVel: { pitch: 0, yaw: 0, roll: rollAngVel },
+      boosting: false,
+      throttleSpoolTime: 0,
+      verticalSpoolTime: 0
+    };
+  }
+
+  function timeToStop(g: ShipType, initialRollAngVel: number, dt: number): number {
+    const body = bodyWithRoll(g, initialRollAngVel);
+    let steps = 0;
+    while (body.angVel.roll !== 0 && steps < 600) {
+      integrateFlight(body, NO_INPUT, dt);
+      steps++;
+    }
+    return steps * dt;
+  }
+
+  it('decrements roll rate by a flat step per tick, not proportionally to the current rate', () => {
+    const g = getShipType('Gladius');
+    const dt = 1 / 240;
+    const body = bodyWithRoll(g, g.maxAngVel.roll);
+    const before = body.angVel.roll;
+    integrateFlight(body, NO_INPUT, dt);
+    const drop = before - body.angVel.roll;
+    expect(drop).toBeCloseTo(g.rollReleaseDecel * dt, 6);
+  });
+
+  it('stops full-rate roll at exactly zero (no infinite exponential tail) in roughly the measured time', () => {
+    const g = getShipType('Gladius');
+    const dt = 1 / 60;
+    const body = bodyWithRoll(g, g.maxAngVel.roll);
+    let steps = 0;
+    while (body.angVel.roll !== 0 && steps < 600) {
+      integrateFlight(body, NO_INPUT, dt);
+      steps++;
+    }
+    expect(body.angVel.roll).toBe(0);
+    expect(steps * dt).toBeCloseTo(g.maxAngVel.roll / g.rollReleaseDecel, 1);
+  });
+
+  it('a small partial-rate tap stops proportionally faster than a full-rate release', () => {
+    const g = getShipType('Gladius');
+    const dt = 1 / 60;
+    const fullRateStopTime = timeToStop(g, g.maxAngVel.roll, dt);
+    const smallTapStopTime = timeToStop(g, g.maxAngVel.roll * 0.2, dt);
+    expect(smallTapStopTime).toBeCloseTo(fullRateStopTime * 0.2, 1);
   });
 });
 

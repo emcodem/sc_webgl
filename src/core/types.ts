@@ -143,6 +143,13 @@ export interface ShipType {
   brakeGain: number;                // 1/s space-brake velocity-controller gain
   angularDrag: AngularState;        // per-axis
   maxAngVel: AngularState;
+  // Roll-release governor: on releasing roll input, real Gladius stops with a hard, roughly-constant
+  // deceleration (rad/s^2) rather than the proportional/exponential drag used for spin-up and for
+  // pitch/yaw's release — measured ~40deg roll-out from full rate (200deg/s) vs the exponential
+  // model's ~56deg tail (see capture/BLUEPRINT.md's roll-reversal findings: fitted drag pins at
+  // exactly 0 during release). Pitch/yaw keep the exponential-decay release model (their own
+  // release-transient evidence is weaker/noisier) — see physics/flightModel.ts.
+  rollReleaseDecel: number;
   scmSpeed: number;
   scmSpeedBack: number;
   boostSpeedForward: number;

@@ -195,6 +195,18 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   brakeGain: 1.04,
   angularDrag: { pitch: 10.2740, yaw: 15.4639, roll: 5.3571 },
   maxAngVel: { pitch: 1.19, yaw: 0.91, roll: 3.49 },
+  // Roll-release governor (2026-07-20, applied per user go-ahead — was previously a flagged/gated
+  // finding). Real Gladius roll release measured ~40deg roll-out from full rate (200deg/s) in ~0.5s —
+  // NOT the exponential-drag tail (200*tau_roll=56deg) still used for pitch/yaw release. Derived from
+  // the roll-out figure (the more directly-measured of the two): decel = maxAngVel.roll^2 /
+  // (2 * rolloutRad), rolloutRad = 40deg in radians => ~8.72 rad/s^2 (~500 deg/s^2); this predicts a
+  // ~0.4s stop time, consistent with the measured "~0.5s" within rounding. See
+  // capture/BLUEPRINT.md's roll-reversal findings (fitted drag pins at exactly 0 during release/
+  // reversal, both symmetric and asymmetric models, across 5 independent trials) and
+  // capture/MEASUREMENTS.md's "Gladius ROLL" section ("Roll-end (release -> stop) | 192 -> 0 in
+  // ~0.5s"). Applied to flightModel.ts's roll release branch only — pitch/yaw's own release-transient
+  // evidence is weaker/noisier, so they keep the proportional-drag model (see flightModel.ts).
+  rollReleaseDecel: 8.7234,
   scmSpeed: 226,
   scmSpeedBack: 225,
   boostSpeedForward: 520,

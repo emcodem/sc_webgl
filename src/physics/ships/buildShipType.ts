@@ -31,6 +31,7 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     brakeGain: raw.brakeGain,
     angularDrag: { ...raw.angularDrag },
     maxAngVel: { ...raw.maxAngVel },
+    rollReleaseDecel: raw.rollReleaseDecel,
     scmSpeed: raw.scmSpeed,
     scmSpeedBack: raw.scmSpeedBack,
     boostSpeedForward: raw.boostSpeedForward,
@@ -101,6 +102,8 @@ export function validateShipType(t: ShipType, id: string): void {
   positiveAxes(t.angularThrust, 'angularThrust');       // derived — finiteness/positivity sanity
   positiveAxes(t.boostMaxAngVel, 'boostMaxAngVel');
   positiveAxes(t.boostAngularThrust, 'boostAngularThrust');
+  finite(t.rollReleaseDecel, 'rollReleaseDecel');
+  if (t.rollReleaseDecel <= 0) throw new Error(`Invalid ShipType '${id}': rollReleaseDecel must be > 0, got ${t.rollReleaseDecel}`);
 
   finite(t.scmSpeed, 'scmSpeed');
   finite(t.scmSpeedBack, 'scmSpeedBack');

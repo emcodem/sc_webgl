@@ -93,6 +93,10 @@ export interface RawShipMeasurement {
   angularDrag: AngularState;   // primitive — per-axis RCS damping (tau = mass/drag)
   maxAngVel: AngularState;     // primitive — angularThrust DERIVED from this + angularDrag
 
+  // Flat rad/s^2 deceleration applied on roll-release (governor, not proportional drag) — see
+  // core/types.ts's ShipType.rollReleaseDecel for the full rationale.
+  rollReleaseDecel: number;
+
   scmSpeed: number;
   scmSpeedBack: number;
 
