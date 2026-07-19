@@ -75,8 +75,15 @@ html, body {
   z-index: 5;
 }
 #esp-circle { stroke: #ff7a45; stroke-width: 1; opacity: 0.5; visibility: hidden; }
-#vjoy-line { stroke: var(--hud-accent); stroke-width: 1.5; visibility: hidden; }
-#vjoy-dot { stroke: var(--hud-accent); stroke-width: 1.5; visibility: hidden; }
+/* Vjoy reticle: lavender, 50% opacity, matching real SC's indicator colour (capture/BLUEPRINT.md's
+   "#8C8AE9"). #vjoy-line is the center-to-stick-position line; #vjoy-triangle is the marker at its
+   end — an OUTLINE only, 3 lines, not filled (per BLUEPRINT.md: "the indicator's end is a triangle
+   (3 lines)"). Its 20px side runs PERPENDICULAR to the line (crossing it), only 10px extends along
+   the line toward the tip (BLUEPRINT.md: "pointing left it is ~20px tall x ~10px wide" — tall/
+   perpendicular is the long dimension). Positioned/rotated by hud.ts each frame via its transform
+   attribute (local points are pre-built pointing along +x). */
+#vjoy-line { stroke: #8c8ae9; stroke-width: 1.5; opacity: 0.5; visibility: hidden; }
+#vjoy-triangle { fill: none; stroke: #8c8ae9; stroke-width: 1.5; opacity: 0.5; visibility: hidden; }
 /* ESP label — same colour as the circle's stroke, same 50% opacity, sits below the circle. */
 #esp-label { fill: #ff7a45; opacity: 0.5; font: 10px 'Courier New', monospace; letter-spacing: 1px; visibility: hidden; }
 

@@ -27,7 +27,7 @@ const pipTrainerMarkerEl = document.getElementById('pip-trainer-marker') as HTML
 const espCircleEl = document.getElementById('esp-circle') as unknown as SVGCircleElement;
 const espLabelEl = document.getElementById('esp-label') as unknown as SVGTextElement;
 const vjoyLineEl = document.getElementById('vjoy-line') as unknown as SVGLineElement;
-const vjoyDotEl = document.getElementById('vjoy-dot') as unknown as SVGCircleElement;
+const vjoyTriangleEl = document.getElementById('vjoy-triangle') as unknown as SVGPolygonElement;
 
 const scenarioHudEl = document.getElementById('scenario-hud') as HTMLElement;
 const pipTrainerHudEl = document.getElementById('pip-trainer-hud') as HTMLElement;
@@ -330,7 +330,7 @@ function updateFlightRings(world: World): void {
   // the real mouse is driving actual SC in another window; see remoteMouseInput.ts).
   const showVjoy = piloting && (MouseLook.isCaptured() || RemoteMouseInput.isConnected());
   vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
-  vjoyDotEl.style.visibility = showVjoy ? 'visible' : 'hidden';
+  vjoyTriangleEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   if (showVjoy) {
     const { x, y } = MouseLook.getOffset();
     const scale = 0.55; // keep the reticle's travel visually inside the crosshair area
@@ -341,9 +341,10 @@ function updateFlightRings(world: World): void {
     vjoyLineEl.setAttribute('x2', String(rx));
     vjoyLineEl.setAttribute('y2', String(ry));
 
-    vjoyDotEl.setAttribute('cx', String(rx));
-    vjoyDotEl.setAttribute('cy', String(ry));
-    vjoyDotEl.setAttribute('r', '5');
+    // Triangle's local points (in the SVG markup) point along +x; rotate to face the deflection
+    // direction (same direction the line points, away from center) and place it at the stick position.
+    const angleDeg = (Math.atan2(ry - cy, rx - cx) * 180) / Math.PI;
+    vjoyTriangleEl.setAttribute('transform', `translate(${rx},${ry}) rotate(${angleDeg})`);
   }
 }
 
