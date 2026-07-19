@@ -68,8 +68,8 @@ export function recenter(): void {
 }
 
 // Inject remote mouse deltas (e.g., from a capture server) into the virtual stick.
+// Applied regardless of pointer-lock state since it comes from an external source (e.g., SC).
 export function injectDelta(dx: number, dy: number): void {
-  if (!captured) return; // only apply when pointer-lock is active
   const maxOffset = getMaxOffsetPx();
   offsetX = Math.max(-maxOffset, Math.min(maxOffset, offsetX + dx));
   offsetY = Math.max(-maxOffset, Math.min(maxOffset, offsetY + dy));

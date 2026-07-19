@@ -6,6 +6,7 @@ import { computeAxes } from '../math/quaternion';
 import { project, type Camera } from '../combat/projection';
 import { findActivePip } from '../combat/pipTargeting';
 import * as MouseLook from '../input/mouseLook';
+import * as RemoteMouseInput from '../input/remoteMouseInput';
 import * as EspAssist from '../combat/espAssist';
 import { bubbleTicks } from '../scenarios/runtime';
 import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer';
@@ -324,7 +325,10 @@ function updateFlightRings(world: World): void {
     espLabelEl.setAttribute('y', String(cy + r + 12));
   }
 
-  const showVjoy = piloting && MouseLook.isCaptured();
+  // Shows on real pointer-lock capture OR while remote mouse input is streaming deltas (the
+  // side-by-side-vs-SC workflow — the game canvas is never clicked/pointer-locked there, since
+  // the real mouse is driving actual SC in another window; see remoteMouseInput.ts).
+  const showVjoy = piloting && (MouseLook.isCaptured() || RemoteMouseInput.isConnected());
   vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   vjoyDotEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   if (showVjoy) {
