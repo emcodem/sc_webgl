@@ -2,6 +2,7 @@ import { initBindingsTableUI, renderBindings } from './bindingsTableUI';
 import { initPresetsUI, refreshPresetList, restoreLastPreset } from './presetsUI';
 import { initActionmapsImportUI } from './actionmapsImportUI';
 import { initJoystickDetectionUI, renderGamepads } from './joystickDetectionUI';
+import { initJoystickSettingsUI } from './joystickSettingsUI';
 import { initMouseSettingsUI } from './mouseSettingsUI';
 import { initEspSettingsUI } from './espSettingsUI';
 
@@ -31,6 +32,7 @@ export function initControlsPanel(): void {
   initPresetsUI();
   initActionmapsImportUI();
   initJoystickDetectionUI();
+  initJoystickSettingsUI();
   initMouseSettingsUI();
   initEspSettingsUI();
   restoreLastPreset();

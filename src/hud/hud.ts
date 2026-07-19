@@ -24,7 +24,7 @@ const hintEl = document.getElementById('capture-hint') as HTMLElement;
 const pipMarkerEl = document.getElementById('pip-marker') as HTMLElement;
 const pipTrainerMarkerEl = document.getElementById('pip-trainer-marker') as HTMLElement;
 const espCircleEl = document.getElementById('esp-circle') as unknown as SVGCircleElement;
-const vjoyOuterEl = document.getElementById('vjoy-outer') as unknown as SVGCircleElement;
+const espLabelEl = document.getElementById('esp-label') as unknown as SVGTextElement;
 const vjoyLineEl = document.getElementById('vjoy-line') as unknown as SVGLineElement;
 const vjoyDotEl = document.getElementById('vjoy-dot') as unknown as SVGCircleElement;
 
@@ -313,24 +313,24 @@ function updateFlightRings(world: World): void {
   const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
 
   espCircleEl.style.visibility = piloting ? 'visible' : 'hidden';
+  espLabelEl.style.visibility = piloting ? 'visible' : 'hidden';
   if (piloting) {
+    const r = EspAssist.getCircleRadius();
     espCircleEl.setAttribute('cx', String(cx));
     espCircleEl.setAttribute('cy', String(cy));
-    espCircleEl.setAttribute('r', String(EspAssist.getCircleRadius()));
+    espCircleEl.setAttribute('r', String(r));
+    // ESP label sits just below its circle
+    espLabelEl.setAttribute('x', String(cx));
+    espLabelEl.setAttribute('y', String(cy + r + 12));
   }
 
   const showVjoy = piloting && MouseLook.isCaptured();
-  vjoyOuterEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   vjoyDotEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   if (showVjoy) {
-    const { x, y, max } = MouseLook.getOffset();
+    const { x, y } = MouseLook.getOffset();
     const scale = 0.55; // keep the reticle's travel visually inside the crosshair area
     const rx = cx + x * scale, ry = cy + y * scale;
-
-    vjoyOuterEl.setAttribute('cx', String(cx));
-    vjoyOuterEl.setAttribute('cy', String(cy));
-    vjoyOuterEl.setAttribute('r', String(max * scale));
 
     vjoyLineEl.setAttribute('x1', String(cx));
     vjoyLineEl.setAttribute('y1', String(cy));

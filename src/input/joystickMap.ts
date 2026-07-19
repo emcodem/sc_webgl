@@ -4,6 +4,7 @@ import type {
 import { registerConfig } from './configRegistry';
 import { findByVidPid, findDevice } from './gamepad';
 import { shapeAxis } from './axisCurve';
+import { getJoystickDeadzone } from './joystickDeadzone';
 
 // ============================================================================================
 // Shared mutable joystick state: which physical devices the last-imported actionmaps.xml
@@ -69,7 +70,8 @@ registerConfig({
 // driver. AXIS_INDEX below is a reasonable default guess (the common DirectInput ordering), used
 // only for XML-imported bindings; manually-captured bindings observe the exact index live and
 // don't need this guess at all.
-const DEADZONE = 0.08;
+// Deadzone + expo curve live in axisCurve.ts (applied via shapeAxis below). The joystick deadzone is
+// separate from the mouse's (getJoystickDeadzone) — a physical stick needs a much larger one.
 const AXIS_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, rotx: 3, roty: 4, rotz: 5, slider1: 6, slider2: 7 };
 // Not persisted (matches the original project — a fresh load always starts from these defaults).
 const invert: Record<AxisConcept, boolean> = {
@@ -100,7 +102,9 @@ function readAxisFor(concept: AxisConcept): number | null {
   if (!pad) return null; // device known, but not currently seen by the browser
   if (idx === undefined || idx >= pad.axesValues.length) return null;
   let v = pad.axesValues[idx];
-  v = shapeAxis(v, DEADZONE); // rescaled deadzone + shared convex expo curve (SC-matching, see axisCurve.ts)
+  // Joystick is LINEAR in-game (no expo) — apply only the rescaled joystick deadzone, exp=1. The
+  // Input Curve expo is mouse-only (see axisCurve.ts / mouseLook.ts).
+  v = shapeAxis(v, getJoystickDeadzone(), 1);
   if (invert[concept]) v = -v;
   return v;
 }

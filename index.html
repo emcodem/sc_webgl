@@ -30,7 +30,7 @@
          / drawEspCircle, moved from canvas draws to an SVG overlay for this DOM-based HUD. -->
     <svg id="flight-hud-svg">
       <circle id="esp-circle" fill="none" />
-      <circle id="vjoy-outer" fill="none" />
+      <text id="esp-label" text-anchor="middle">ESP</text>
       <line id="vjoy-line" />
       <circle id="vjoy-dot" fill="none" />
     </svg>
@@ -222,26 +222,52 @@
       <section>
         <h3 style="margin-top:0">Mouse Look (absolute — SC-style virtual joystick)</h3>
         <div class="ctrl-status" id="ctrl-mouse-status">Click the game view to enable.</div>
-        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Sensitivity</label><span class="value" id="ctrl-mouse-sens-val"></span></div>
-        <input type="range" id="ctrl-mouse-sens" min="0.5" max="4" step="0.1" style="width:100%">
-        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">VJoy Range (degrees)</label><span class="value" id="ctrl-mouse-range-val"></span></div>
-        <input type="range" id="ctrl-mouse-range" min="4" max="25" step="0.1" style="width:100%">
-        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Mouse Deadzone (% of the range)</label><span class="value" id="ctrl-mouse-deadzone-val"></span></div>
-        <input type="range" id="ctrl-mouse-deadzone" min="0" max="20" step="0.01" style="width:100%">
-        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Input Curve (expo — shared with joystick)</label><span class="value" id="ctrl-mouse-expo-val"></span></div>
-        <input type="range" id="ctrl-mouse-expo" min="1" max="2.5" step="0.01" style="width:100%">
-        <label style="display:flex; align-items:center; gap:6px; margin-top:6px">
-          <input type="checkbox" id="ctrl-mouse-invert" style="width:auto"> Invert Y
-        </label>
-        <button id="ctrl-mouse-recenter">Recenter Stick</button>
+        <label style="margin-top:8px">Sensitivity</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-mouse-sens" min="0.5" max="4" step="0.1">
+          <input type="number" class="ctrl-num" id="ctrl-mouse-sens-num" min="0.5" max="4" step="0.1">
+        </div>
+        <div class="ctrl-warn" id="ctrl-mouse-sens-warn"></div>
+        <label style="margin-top:8px">VJoy Range (degrees)</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-mouse-range" min="4" max="25" step="0.1">
+          <input type="number" class="ctrl-num" id="ctrl-mouse-range-num" min="4" max="25" step="0.1">
+        </div>
+        <div class="ctrl-warn" id="ctrl-mouse-range-warn"></div>
+        <label style="margin-top:8px">Mouse Deadzone (%)</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-mouse-deadzone" min="0" max="20" step="0.01">
+          <input type="number" class="ctrl-num" id="ctrl-mouse-deadzone-num" min="0" max="20" step="0.01">
+        </div>
+        <div class="ctrl-warn" id="ctrl-mouse-deadzone-warn"></div>
+        <label style="margin-top:8px">Joystick Deadzone (0–1)</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-joystick-deadzone" min="0" max="1" step="0.01">
+          <input type="number" class="ctrl-num" id="ctrl-joystick-deadzone-num" min="0" max="1" step="0.01">
+        </div>
+        <div class="ctrl-warn" id="ctrl-joystick-deadzone-warn"></div>
+        <label style="margin-top:8px">Input Curve (expo — mouse only)</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-mouse-expo" min="0.4" max="2.5" step="0.01">
+          <input type="number" class="ctrl-num" id="ctrl-mouse-expo-num" min="0.4" max="2.5" step="0.01">
+        </div>
+        <div class="ctrl-warn" id="ctrl-mouse-expo-warn"></div>
       </section>
 
       <section>
         <label style="color:var(--hud-fg)">ESP / Aim Assist (always active — dampens yaw/pitch near the lead indicator)</label>
-        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Circle Size</label><span class="value" id="ctrl-esp-circle-size-val"></span></div>
-        <input type="range" id="ctrl-esp-circle-size" min="15" max="120" step="5" style="width:100%">
-        <div class="row" style="margin-top:8px"><label style="margin-bottom:0">Dampening Strength</label><span class="value" id="ctrl-esp-dampening-val"></span></div>
-        <input type="range" id="ctrl-esp-dampening" min="0" max="0.95" step="0.05" style="width:100%">
+        <label style="margin-top:8px">Circle Size (px)</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-esp-circle-size" min="15" max="120" step="5">
+          <input type="number" class="ctrl-num" id="ctrl-esp-circle-size-num" min="15" max="120" step="5">
+        </div>
+        <div class="ctrl-warn" id="ctrl-esp-circle-size-warn"></div>
+        <label style="margin-top:8px">Dampening Strength</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-esp-dampening" min="0" max="0.95" step="0.05">
+          <input type="number" class="ctrl-num" id="ctrl-esp-dampening-num" min="0" max="0.95" step="0.05">
+        </div>
+        <div class="ctrl-warn" id="ctrl-esp-dampening-warn"></div>
       </section>
 
       <section>

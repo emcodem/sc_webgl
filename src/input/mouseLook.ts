@@ -1,5 +1,5 @@
 import { registerConfig } from './configRegistry';
-import { shapeAxis } from './axisCurve';
+import { shapeAxis, getMouseDeadzone } from './axisCurve';
 
 // ============================================================================================
 // MouseLook — the "full vjoy" the flight model wants: models Star Citizen's default ABSOLUTE
@@ -24,8 +24,8 @@ let captured = false;
 let offsetX = 0, offsetY = 0; // persistent virtual-stick deflection, in pixels
 let sensitivity = 1.5;
 let invertY = true;
-let deadzone = 0.0445; // 4.45% — matches SC's VJoyCombinedDeadZone default (see capture/MEASUREMENTS.md); fraction of the range (getMaxOffsetPx) ignored near center
 let range = 10; // degrees of screen visual angle the mouse must cross for full deflection
+// Mouse deadzone lives in input/axisCurve.ts (separate from the joystick's own deadzone).
 const listeners: Array<(captured: boolean) => void> = [];
 
 // Vertical FOV of the real three.js camera (render/renderer.ts's `new THREE.PerspectiveCamera(70, ...)`)
@@ -67,13 +67,22 @@ export function recenter(): void {
   offsetX = 0; offsetY = 0;
 }
 
+// Inject remote mouse deltas (e.g., from a capture server) into the virtual stick.
+export function injectDelta(dx: number, dy: number): void {
+  if (!captured) return; // only apply when pointer-lock is active
+  const maxOffset = getMaxOffsetPx();
+  offsetX = Math.max(-maxOffset, Math.min(maxOffset, offsetX + dx));
+  offsetY = Math.max(-maxOffset, Math.min(maxOffset, offsetY + dy));
+}
+
 // Reads the CURRENT stick deflection — does not reset it, since the deflection should keep
 // driving rotation until the mouse is physically moved back or recenter() is called.
 export function consume(): MouseLookInput {
   const maxOffset = getMaxOffsetPx();
-  // rescaled deadzone + shared convex expo curve (SC-matching, see axisCurve.ts), then sensitivity.
-  const xRatio = shapeAxis(offsetX / maxOffset, deadzone);
-  const yRatio = shapeAxis(offsetY / maxOffset, deadzone);
+  // rescaled mouse deadzone + shared expo curve (SC-matching, see axisCurve.ts), then sensitivity.
+  const dz = getMouseDeadzone();
+  const xRatio = shapeAxis(offsetX / maxOffset, dz);
+  const yRatio = shapeAxis(offsetY / maxOffset, dz);
   const yaw = Math.max(-1, Math.min(1, xRatio * sensitivity));
   let pitch = Math.max(-1, Math.min(1, yRatio * sensitivity));
   if (invertY) pitch = -pitch;
@@ -93,26 +102,22 @@ export function getSensitivity(): number { return sensitivity; }
 export function setSensitivity(v: number): void { sensitivity = v; }
 export function getInvertY(): boolean { return invertY; }
 export function setInvertY(v: boolean): void { invertY = v; }
-export function getDeadzone(): number { return deadzone; }
-export function setDeadzone(v: number): void { deadzone = v; }
 export function getRange(): number { return range; }
 export function setRange(v: number): void { range = v; }
 
 interface MouseLookConfig {
   sensitivity: number;
   invertY: boolean;
-  deadzone: number;
   range: number;
 }
 registerConfig({
   key: 'mouseLook',
-  serialize: (): MouseLookConfig => ({ sensitivity, invertY, deadzone, range }),
+  serialize: (): MouseLookConfig => ({ sensitivity, invertY, range }),
   deserialize: (data) => {
     const d = data as Partial<MouseLookConfig> | null | undefined;
     if (!d) return;
     if (typeof d.sensitivity === 'number') sensitivity = d.sensitivity;
     if (typeof d.invertY === 'boolean') invertY = d.invertY;
-    if (typeof d.deadzone === 'number') deadzone = d.deadzone;
     if (typeof d.range === 'number') range = d.range;
   }
 });

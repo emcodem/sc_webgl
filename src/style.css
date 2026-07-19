@@ -74,10 +74,11 @@ html, body {
   pointer-events: none;
   z-index: 5;
 }
-#esp-circle { stroke: rgba(255, 122, 69, 0.35); stroke-width: 1; visibility: hidden; }
-#vjoy-outer { stroke: rgba(143, 211, 199, 0.3); stroke-width: 1; visibility: hidden; }
+#esp-circle { stroke: #ff7a45; stroke-width: 1; opacity: 0.5; visibility: hidden; }
 #vjoy-line { stroke: var(--hud-accent); stroke-width: 1.5; visibility: hidden; }
 #vjoy-dot { stroke: var(--hud-accent); stroke-width: 1.5; visibility: hidden; }
+/* ESP label — same colour as the circle's stroke, same 50% opacity, sits below the circle. */
+#esp-label { fill: #ff7a45; opacity: 0.5; font: 10px 'Courier New', monospace; letter-spacing: 1px; visibility: hidden; }
 
 #damage-flash {
   position: fixed;
@@ -357,6 +358,41 @@ html, body {
 #ctrl-panel input[type='file'] { font-size: 11px; color: rgba(143, 211, 199, 0.8); margin-bottom: 6px; }
 .ctrl-checkbox-row { display: flex !important; align-items: center; gap: 6px; }
 .ctrl-checkbox-row input { width: auto; margin: 0; }
+
+/* A slider and its editable value box, side by side on one line (see numericControl.ts). The slider
+   flexes to fill; the box is fixed-width on the right. */
+.ctrl-slider-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ctrl-slider-row input[type='range'] { flex: 1 1 auto; width: auto; margin-bottom: 0; }
+
+/* Compact editable value box shown next to a slider. The native up/down spin buttons are hidden
+   (they render inconsistently across browsers and can't be reliably spaced — Firefox especially),
+   so padding gives a consistent inner margin on both sides. Use the slider or type to change values. */
+#ctrl-panel input[type='number'].ctrl-num {
+  width: 72px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(143, 211, 199, 0.3);
+  color: var(--hud-fg);
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+#ctrl-panel input[type='number'].ctrl-num::-webkit-inner-spin-button,
+#ctrl-panel input[type='number'].ctrl-num::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+#ctrl-panel input[type='number'].ctrl-num.invalid {
+  border-color: var(--hud-danger);
+  color: var(--hud-danger);
+}
+/* Per-slider out-of-range warning; collapses to nothing when empty. */
+.ctrl-warn { color: var(--hud-danger); font-size: 11px; margin: -6px 0 8px; }
+.ctrl-warn:empty { display: none; }
 
 #ctrl-panel button {
   background: rgba(255, 255, 255, 0.06);

@@ -19,6 +19,8 @@ import * as AxisCurve from './input/axisCurve';
 import * as Recorder from './replay/recorder';
 import * as ReplayPlayer from './replay/player';
 import * as FreeCamera from './control/freeCamera';
+import * as RemoteMouseInput from './input/remoteMouseInput';
+import { injectDelta } from './input/mouseLook';
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -56,6 +58,18 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
 (window as unknown as { __startPipTrainer: (opts?: Partial<typeof PIP_TRAINER_DEFAULTS>) => void }).__startPipTrainer = (opts) => {
   world.enemies = [];
   world.pipTrainer = startPipTrainer(world.player.ship, { ...PIP_TRAINER_DEFAULTS, ...opts });
+};
+
+// Enable/disable remote mouse input from capture server (e.g., __remoteMouseInput(true)).
+// Requires the capture server to be running (node scripts/mouse-capture-server.mjs).
+(window as unknown as { __remoteMouseInput: (enable: boolean) => void }).__remoteMouseInput = (enable: boolean) => {
+  if (enable) {
+    RemoteMouseInput.connect(injectDelta);
+    console.log('[CONSOLE] Remote mouse input enabled. Start the capture server with: npm run capture');
+  } else {
+    RemoteMouseInput.disconnect();
+    console.log('[CONSOLE] Remote mouse input disabled');
+  }
 };
 
 let last = performance.now();

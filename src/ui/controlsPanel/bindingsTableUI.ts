@@ -3,6 +3,7 @@ import * as Keybinds from '../../input/keybinds';
 import * as Gamepad from '../../input/gamepad';
 import * as Joystick from '../../input/joystickMap';
 import * as MouseButtons from '../../input/mouseButtons';
+import * as MouseLook from '../../input/mouseLook';
 import { onConfigApplied } from '../../input/configRegistry';
 
 // Ported from the original project's ui/controlsPanel/bindingsTableUI.ts, adapted to this
@@ -262,7 +263,14 @@ export function renderBindings(): void {
 
     let mouseCell: string;
     if (MOUSE_LOOK_FIXED_ACTIONS.includes(action)) {
-      mouseCell = '<span class="ctrl-found">Mouse Look (fixed)</span>';
+      if (action === 'pitchUp' || action === 'pitchDown') {
+        const inverted = MouseLook.getInvertY();
+        mouseCell = '<div><span class="ctrl-found">Mouse Look (fixed)</span></div>' +
+          '<div style="margin-top:4px"><label style="display:inline-flex; align-items:center; gap:4px; color:rgba(143,211,199,0.6)">' +
+          `<input type="checkbox" class="ctrl-mouse-invert-checkbox" ${inverted ? 'checked' : ''} style="width:auto"> invert</label></div>`;
+      } else {
+        mouseCell = '<span class="ctrl-found">Mouse Look (fixed)</span>';
+      }
     } else if (MOUSE_BUTTON_BINDABLE_ACTIONS.includes(action)) {
       const isListening = pendingMouseRebindAction === action;
       const binding = mouseButtonMap[action];
@@ -432,6 +440,14 @@ export function renderBindings(): void {
     cb.addEventListener('change', () => {
       const checkbox = cb as HTMLInputElement;
       Joystick.setInvert(checkbox.getAttribute('data-concept') as AxisConcept, checkbox.checked);
+      renderBindings();
+    });
+  });
+
+  // mouse invert Y checkbox, shared between pitchUp/pitchDown rows — same sync pattern
+  bindingsList.querySelectorAll('.ctrl-mouse-invert-checkbox').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      MouseLook.setInvertY((cb as HTMLInputElement).checked);
       renderBindings();
     });
   });

@@ -1,41 +1,27 @@
 import * as EspAssist from '../../combat/espAssist';
 import { onConfigApplied } from '../../input/configRegistry';
+import { wireNumericControl, syncNumericControl, type NumericControlConfig } from './numericControl';
 
-// Ported from the original project's ui/espSettingsUI.ts.
+// Ported from the original project's ui/espSettingsUI.ts. Each slider is paired with an editable
+// number box + inline out-of-range warning (see numericControl.ts).
 
-function setValueText(id: string, text: string): void {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
-
-function syncEspSettingsUI(): void {
-  const sizeSlider = document.getElementById('ctrl-esp-circle-size') as HTMLInputElement | null;
-  if (sizeSlider) sizeSlider.value = String(EspAssist.getCircleRadius());
-  setValueText('ctrl-esp-circle-size-val', `${EspAssist.getCircleRadius()}px`);
-
-  const dampeningSlider = document.getElementById('ctrl-esp-dampening') as HTMLInputElement | null;
-  if (dampeningSlider) dampeningSlider.value = String(EspAssist.getDampeningStrength());
-  setValueText('ctrl-esp-dampening-val', EspAssist.getDampeningStrength().toFixed(2));
-}
+const CONTROLS: NumericControlConfig[] = [
+  {
+    sliderId: 'ctrl-esp-circle-size', numId: 'ctrl-esp-circle-size-num', warnId: 'ctrl-esp-circle-size-warn',
+    min: 15, max: 120, decimals: 0,
+    get: EspAssist.getCircleRadius, set: EspAssist.setCircleRadius
+  },
+  {
+    sliderId: 'ctrl-esp-dampening', numId: 'ctrl-esp-dampening-num', warnId: 'ctrl-esp-dampening-warn',
+    min: 0, max: 0.95, decimals: 2,
+    get: EspAssist.getDampeningStrength, set: EspAssist.setDampeningStrength
+  }
+];
 
 // Keeps the sliders in sync whenever a control preset is loaded/imported/restored, without the
 // preset UI needing to know ESP settings exist.
-onConfigApplied(syncEspSettingsUI);
+onConfigApplied(() => { for (const c of CONTROLS) syncNumericControl(c); });
 
 export function initEspSettingsUI(): void {
-  syncEspSettingsUI();
-
-  const sizeSlider = document.getElementById('ctrl-esp-circle-size') as HTMLInputElement;
-  sizeSlider.addEventListener('input', (e) => {
-    const v = parseFloat((e.target as HTMLInputElement).value);
-    EspAssist.setCircleRadius(v);
-    setValueText('ctrl-esp-circle-size-val', `${v}px`);
-  });
-
-  const dampeningSlider = document.getElementById('ctrl-esp-dampening') as HTMLInputElement;
-  dampeningSlider.addEventListener('input', (e) => {
-    const v = parseFloat((e.target as HTMLInputElement).value);
-    EspAssist.setDampeningStrength(v);
-    setValueText('ctrl-esp-dampening-val', v.toFixed(2));
-  });
+  for (const c of CONTROLS) wireNumericControl(c);
 }
