@@ -4,6 +4,9 @@ A Newtonian, Star Citizen–inspired space sim rebuilt on **three.js / WebGL**, 
 start to grow into a whole explorable universe: fly your ship, **get out and walk** on a moon,
 seamlessly, over one shared world.
 
+**▶ Play the live build: https://emcodem.github.io/sc_webgl/** (auto-deployed from `master` — see
+`.github/workflows/deploy.yml`). Requires a WebGL2 browser.
+
 This is the WebGL successor to the original 2D-canvas project at
 **`C:\dev\starcitizen_flightsim`** (referred to below as "the original"). It **reuses the original's
 frame-counted, real-measured Gladius flight model** but is otherwise a ground-up universe-scale
