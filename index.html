@@ -41,6 +41,10 @@
     <!-- Click-to-capture hint / mode banner -->
     <div id="capture-hint">Click to capture mouse — WASD/arrows fly, <b>F</b> to exit ship</div>
 
+    <!-- Flashed by input/input.ts when Ctrl is pressed while the mouse isn't captured — Ctrl is
+         withheld from game input (and browser Ctrl+combos left alone) until capture engages. -->
+    <div id="ctrl-flash-warning">&#9888; Ctrl is disabled — capture the mouse to use it</div>
+
     <!-- Manual-recording indicator — see replay/recorder.ts, hud/hud.ts's updateRecordingIndicator -->
     <div id="rec-indicator" style="display:none">&#9679; REC <span id="rec-indicator-time">0:00</span></div>
 

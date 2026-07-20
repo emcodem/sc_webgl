@@ -114,6 +114,27 @@ html, body {
 #capture-hint b { color: var(--hud-accent); }
 #capture-hint.hidden { opacity: 0; }
 
+/* Flashed briefly over the crosshair when Ctrl is pressed while uncaptured (see
+   input/input.ts) — opacity is toggled by JS, not by a CSS animation, so repeated presses
+   restart the same fade rather than stacking. */
+#ctrl-flash-warning {
+  position: fixed;
+  top: 18%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 77, 77, 0.15);
+  border: 1px solid var(--hud-danger);
+  color: var(--hud-danger);
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  padding: 10px 18px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
 /* Manual-recording indicator (see replay/recorder.ts) — top-center, below #title */
 #rec-indicator {
   position: fixed;
