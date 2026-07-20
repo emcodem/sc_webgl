@@ -67,8 +67,12 @@ export function recenter(): void {
   offsetX = 0; offsetY = 0;
 }
 
-// Inject remote mouse deltas (e.g., from a capture server) into the virtual stick.
-// Applied regardless of pointer-lock state since it comes from an external source (e.g., SC).
+// Inject remote mouse deltas (raw relative pixels from the capture pipeline — see
+// input/remoteMouseInput.ts) into the persistent virtual stick, mirroring how SC integrates
+// mouse motion into its own stick deflection. Applied regardless of pointer-lock state, since it
+// comes from an external window (the real SC), not this canvas's own pointer lock. The clamp is
+// the vjoy's full-deflection cap (same as the local mousemove path) — NOT the source of the old
+// "stuck partway" bug; that was the capture script saturating on absolute cursor coords.
 export function injectDelta(dx: number, dy: number): void {
   const maxOffset = getMaxOffsetPx();
   offsetX = Math.max(-maxOffset, Math.min(maxOffset, offsetX + dx));

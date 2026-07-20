@@ -16,11 +16,11 @@ import { initUI, isPaused } from './ui';
 import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
 import * as AxisCurve from './input/axisCurve';
+import * as MouseLook from './input/mouseLook';
 import * as Recorder from './replay/recorder';
 import * as ReplayPlayer from './replay/player';
 import * as FreeCamera from './control/freeCamera';
 import * as RemoteMouseInput from './input/remoteMouseInput';
-import { injectDelta } from './input/mouseLook';
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -60,12 +60,11 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
   world.pipTrainer = startPipTrainer(world.player.ship, { ...PIP_TRAINER_DEFAULTS, ...opts });
 };
 
-// Enable/disable remote mouse input from capture server (e.g., __remoteMouseInput(true)).
-// Requires the capture server to be running (node scripts/mouse-capture-server.mjs).
+// Enable/disable remote mouse input from capture server.
 (window as unknown as { __remoteMouseInput: (enable: boolean) => void }).__remoteMouseInput = (enable: boolean) => {
   if (enable) {
-    RemoteMouseInput.connect(injectDelta);
-    console.log('[CONSOLE] Remote mouse input enabled. Start the capture server with: npm run capture');
+    RemoteMouseInput.connect();
+    console.log('[CONSOLE] Remote mouse input enabled. Run: npm run capture');
   } else {
     RemoteMouseInput.disconnect();
     console.log('[CONSOLE] Remote mouse input disabled');
@@ -92,6 +91,13 @@ function loop(now: number): void {
         // bar's "Free Camera" toggle enabled it; steerable independent of play/pause state.
         FreeCamera.step(dt);
       } else {
+        // Remote mouse (captured from real SC — see input/remoteMouseInput.ts) drives the same
+        // virtual stick as the local pointer-lock mouse. Drain the accumulated raw delta once per
+        // frame and integrate it, mirroring SC's own mouse->stick accumulation.
+        if (RemoteMouseInput.isConnected()) {
+          const rd = RemoteMouseInput.consumeDelta();
+          if (rd.dx !== 0 || rd.dy !== 0) MouseLook.injectDelta(rd.dx, rd.dy);
+        }
         // controls freeze while the ship is destroyed and waiting to respawn, or once a scenario's
         // outcome has left 'active' (won/lost) — the result screen takes over from there. The F/C
         // edge actions (enter/exit, decouple) are gated too: firing them mid-respawn would park and
