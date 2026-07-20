@@ -252,6 +252,12 @@
           <input type="number" class="ctrl-num" id="ctrl-mouse-expo-num" min="0.4" max="2.5" step="0.01">
         </div>
         <div class="ctrl-warn" id="ctrl-mouse-expo-warn"></div>
+        <!-- Dev-only: unhidden by mouseSettingsUI.ts's initRemoteMouseToggle() when
+             import.meta.env.DEV, and tree-shaken out of production builds entirely otherwise. -->
+        <div class="ctrl-slider-row" id="ctrl-remote-mouse-row" style="display:none">
+          <button id="ctrl-remote-mouse-toggle" class="toggle-btn">Remote Mouse: OFF</button>
+          <span class="ctrl-status" id="ctrl-remote-mouse-status">disconnected</span>
+        </div>
       </section>
 
       <section>

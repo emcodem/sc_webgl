@@ -1,5 +1,6 @@
 import * as MouseLook from '../../input/mouseLook';
 import * as AxisCurve from '../../input/axisCurve';
+import * as RemoteMouseInput from '../../input/remoteMouseInput';
 import { onConfigApplied } from '../../input/configRegistry';
 import { wireNumericControl, syncNumericControl, type NumericControlConfig } from './numericControl';
 
@@ -40,9 +41,35 @@ function syncMouseSettingsUI(): void {
 
 onConfigApplied(syncMouseSettingsUI);
 
+// Remote mouse capture (real-SC -> vjoy comparison tool, see input/remoteMouseInput.ts and
+// scripts/mouse-capture.py) is a dev/tuning aid, not a player-facing feature — mirrors the
+// __remoteMouseInput(true) console hook (main.ts) as a clickable toggle, but only when this is
+// actually served by the Vite dev server. import.meta.env.DEV is a compile-time constant, so the
+// whole row (and this wiring) is dead code eliminated out of `npm run build` production bundles.
+function initRemoteMouseToggle(): void {
+  if (!import.meta.env.DEV) return;
+  const row = document.getElementById('ctrl-remote-mouse-row') as HTMLElement;
+  const btn = document.getElementById('ctrl-remote-mouse-toggle') as HTMLButtonElement;
+  const status = document.getElementById('ctrl-remote-mouse-status') as HTMLElement;
+  row.style.display = '';
+
+  function sync(connected: boolean): void {
+    btn.classList.toggle('on', connected);
+    btn.textContent = connected ? 'Remote Mouse: ON' : 'Remote Mouse: OFF';
+    status.textContent = connected ? 'connected' : 'disconnected — run: npm run capture';
+  }
+  btn.addEventListener('click', () => {
+    if (RemoteMouseInput.isConnected()) RemoteMouseInput.disconnect();
+    else RemoteMouseInput.connect();
+  });
+  RemoteMouseInput.onChange(sync);
+  sync(RemoteMouseInput.isConnected());
+}
+
 export function initMouseSettingsUI(): void {
   for (const c of CONTROLS) wireNumericControl(c);
   syncMouseSettingsUI();
+  initRemoteMouseToggle();
 
   // Press V to recenter the mouse virtual stick mid-flight (zeroes the persistent deflection so the
   // ship stops rotating). The absolute mouse-flight stick holds its deflection until moved back.
