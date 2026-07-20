@@ -14,7 +14,8 @@ Why raw input (and NOT mouse.get_position()):
     movement in real SC is mirrored 1:1 with no boundary cap.
 
 Usage:
-    python scripts/mouse-capture.py [port]
+    npm run capture                       (auto-starts this alongside the relay)
+    python scripts/mouse-capture.py [port] (standalone, e.g. against `npm run capture:relay`)
 
 Dependencies:
     pip install websocket-client

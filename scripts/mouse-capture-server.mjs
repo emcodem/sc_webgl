@@ -7,7 +7,9 @@
  * Capture script connects to: ws://localhost:8765/client
  *
  * Usage:
- *   npm run capture          (Node relay server)
+ *   npm run capture          (starts this + mouse-capture.py together — see capture-all.mjs)
+ * or, to run just this relay on its own:
+ *   npm run capture:relay
  *   python scripts/mouse-capture.py   (in another terminal)
  */
 
@@ -84,7 +86,9 @@ httpServer.listen(port, () => {
   console.log(`[SERVER] Usage:`);
   console.log(`[SERVER]   1. npm run dev                (start game)`);
   console.log(`[SERVER]   2. __remoteMouseInput(true)   (in game console)`);
-  console.log(`[SERVER]   3. python scripts/mouse-capture.py  (in another terminal)`);
+  console.log(`[SERVER]   3. mouse-capture.py — auto-started if this was launched via`);
+  console.log(`[SERVER]      npm run capture; run it yourself in another terminal if`);
+  console.log(`[SERVER]      this is npm run capture:relay instead.`);
   console.log(`[SERVER]`);
 });
 
