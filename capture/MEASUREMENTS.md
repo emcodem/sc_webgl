@@ -20,8 +20,11 @@ every raw clip catalogued in `data/MANIFEST.md`):
 - **Linear (every axis+direction):** fwd 134/coast 42, back 42/134, lateral 98/98, up 98/49,
   down 49/98, max 225–226; **coast decel = opposing-thruster/mass per direction**; decoupled drops
   the linear auto-brake (drift); boosted lateral/vertical ≈ 127 accel / ~385 cap.
-- **Mouse vjoy settings:** `VJoyAnglePilots` visual-only, `VJoyCombinedDeadZone` = D% deadzone,
-  convex/expo input curve (≈1.48), full mouse range ≈1500 counts.
+- **Mouse vjoy settings:** `VJoyAnglePilots` visual-only for flight, but IS a literal FOV angle for
+  the on-screen indicator's pixel travel (confirmed 2026-07-21, `f*tan(degrees)` pinhole projection —
+  see "indicator pixel travel" below), `VJoyCombinedDeadZone` = D% deadzone, near-linear input curve
+  (exponent ≈1.04, revised 2026-07-21 — see "RESOLVED" below, supersedes an earlier ≈1.48 estimate
+  that lacked a saturation anchor), full mouse range ≈1500 counts (confirmed).
 - **Cross-validation:** all matches coded `shipTypes.ts` (±2% for absolutes) AND the star-citizen.wiki
   API dump in `reference/ships/aegs-gladius.json`.
 
@@ -42,6 +45,50 @@ Results sections here.
 **Optional captures still on the menu:** NAV/cruise mode (max 1193 + SCM↔NAV transition), the G-safe
 (GSAF) regime, **Taurus/Arrow** (2nd/3rd ship → unlocks cross-ship mass-scaling + the deadzone
 rescale-vs-hard-cut question), and the roll drag-vs-governor transient settle.
+
+**RESOLVED (2026-07-21): the input curve's real shape, fitted from a dense sweep.** Filling in
+1200-2100 counts for yaw (`curve_sweep_capture.py`, one-directional probes, Kareah standoff, corrected
+`hold_rate.py` arctan projection) showed the curve **saturates by ~1500 counts at ~51.4 °/s** —
+nowhere near the 168 °/s a naive extrapolation of the old 150-600-only fit predicted (a 3.4× gap). The
+old exponent (1.48) was an artifact of fitting a rising curve with no ceiling in the data: forcing a
+steep exponent to explain the 150-600 rise while implicitly extrapolating a much higher ceiling than
+the ship actually has. Joint fit across 150-2100 counts (`dz_frac=0.0445`, matching the session's live
+`VJoyCombinedDeadZone`):
+
+| model | full_range (counts) | shape params | max_rate | RMS (deg/s) |
+|---|---|---|---|---|
+| power (current model shape) | 1462 | exponent=1.04 | 51.1 | 0.14 |
+| Kumaraswamy (saturating) | 1500 | a=1.07, b=1.09 | 51.1 | 0.08 |
+
+Both fits are excellent and nearly identical in shape (a,b≈1 for Kumaraswamy is itself close to
+linear) — **the real curve is close to a straight ramp from the deadzone edge to ~1500 counts, then
+flat**, not the pronounced convex curve `axisCurve.ts` previously modeled. Applied:
+`src/input/axisCurve.ts`'s `DEFAULT_EXPONENT` 1.48 → **1.04**.
+
+**Pitch's own 1200-2100 sweep was contaminated and excluded, but pitch didn't need it anyway.** The
+landmark (a beacon on Kareah's station mast) sits on the station's own structure — sweeping it
+vertically (pitch) dragged it through the mast/truss instead of clean space the way sweeping it
+horizontally (yaw) did, causing a real lost-lock bounce (peak brightness 255 → ~200 exactly when the
+fast motion starts, tracked position reversing direction — a tracking-hijack artifact, not real ship
+behavior; see `curve_sweep_capture.py`'s own module docstring for the landmark-choice fix needed for a
+future re-shoot). Instead: since the mouse→deflection input mapping is already established as
+ship/axis-independent (just a different per-axis max rate downstream in `flightModel.ts`), the yaw
+shape rescaled by pitch's own known max (unboosted full-deflection 61.3 °/s, ratio 61.3/51.4=1.193)
+predicts pitch's plateau at 1500 counts ≈ **61.4 °/s** — matching the independently-measured 61.3
+almost exactly. That agreement is itself evidence for "same curve shape, different max," not just a
+convenient assumption. **No pitch-specific tuning needed** — `axisCurve.ts`'s single shared
+exponent/deadzone already applies to both axes; only the per-axis max rate (already handled by
+`shipTypes.ts`/`flightModel.ts`) differs.
+
+**Also fixed, same session: the gain, not just the curve shape.** `mouseLook.ts`'s `range` was
+previously "degrees of screen visual angle for full deflection" (FOV/viewport-derived) — a
+resolution-dependent model real SC doesn't have at all (its mouse vjoy accumulates raw, resolution
+-independent mouse counts directly). That model needed only ~136-272px of physical mouse travel for
+full deflection (depending on resolution) vs. the ~1500 counts measured here — a 5-18× gain mismatch,
+independent of curve shape, meaning small mouse nudges always over-rotated the ship relative to real
+SC regardless of how well the exponent was tuned. `mouseLook.ts`'s `range` is now a direct raw-count
+constant (default 1500, matching the fit), with the F4 "VJoy Range" slider relabeled/rebounded
+(300-3000 counts) to match.
 
 **Method gotchas (see Gotchas + per-section notes):** pointer accel pinned for MOUSE work only ·
 SC must be foreground · roll/linear focus is click-free & pre-OBS (no menu/fire) · motion blur can't
@@ -135,6 +182,31 @@ on-screen indicator's visual travel/angle **but not the input→ship response** 
 recreating flight feel.** (A ±1400 check was also consistent under a cruder metric, but those clips
 had large-excursion tracking trouble so ±600 is the trustworthy comparison.)
 
+### `VJoyAnglePilots` — indicator pixel travel IS a literal FOV angle — 2026-07-21
+
+Above confirms zero *flight* effect, but sc_webgl's own cosmetic indicator-size slider (F4 panel)
+still needs to visually match SC's, and until now that mapping was an unverified guess (a fixed
+150px radius linearly scaled by value/25). Two real measurements (harald, full yaw-right deflection,
+FOV 116, UHD/3840px-wide monitor) close that gap:
+
+| VJoyAnglePilots | indicator length |
+|---|---|
+| 25 | 570 px |
+| 10 | 222 px |
+
+Fit as `px = f * tan(degrees)` (the same pinhole projection `analysis/angle_convert.py` already uses
+for landmark tracking): `f = 570 / tan(25°) ≈ 1222px`, which predicts VJA=10 → `1222 * tan(10°) ≈
+215px` (measured 222px, ~3% off). That fitted focal length independently matches the *theoretical*
+pinhole focal length for FOV_h=116°/width=3840 — `f = (width/2)/tan(FOV_h/2) = 1920/tan(58°) ≈
+1200px` — within ~2%, without having been fit to these two points at all. That agreement (not just
+a 2-point curve-fit) confirms **"degrees" is a literal horizontal FOV angle**: SC renders the vjoy
+indicator's tip as if it were a fixed 3D point that many degrees off boresight, then projects it
+onto the 2D screen through the same camera-perspective math used for everything else it renders.
+
+**Applied:** `sc_webgl`'s indicator radius (`hud.ts`) now computes `f = (window.innerWidth/2) /
+tan(116°/2)`, `radius = f * tan(vjoyRangeDegrees)`, replacing the old fixed-150px linear guess —
+scales correctly to any window width, not just the 3840px reference capture.
+
 ### Input-curve shape — CONVEX / expo — 2026-07-19 (confirmed)
 
 Gladius, steady-plateau yaw rate, proper arctan projection, deadzone at default 4.45:
@@ -153,6 +225,12 @@ Gladius, steady-plateau yaw rate, proper arctan projection, deadzone at default 
   mouse→deflection mapping — SC applies an expo curve to mouse virtual-joystick input. Echoes the
   vJoy-*device* nonlinearity in BLUEPRINT.md (½ deflection ≈ ⅔ rate). **This is the shape to
   reproduce in `sc_webgl`'s mouse mode.**
+
+  **⚠ This fit alone overshoots badly when extrapolated to full deflection (see "OPEN, ACTIVE
+  (2026-07-21)" in STATUS above) — a single exponent isn't the whole story; treat the 1.48 value as
+  descriptive of the 150-600 range only, not yet as the value to hardcode.** Also, this dataset was
+  read with `analysis/hold_rate.py`'s old crude linear pixel→angle conversion (now fixed) — the
+  absolute numbers above weren't recomputed with the arctan fix, only the extrapolation check was.
 
 ### Cross-ship gain — 2026-07-19
 

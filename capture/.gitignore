@@ -9,6 +9,7 @@ data/indicator/
 data/linear/
 data/roll/
 data/yaw_reversal/
+data/curve/
 data/*.png
 data/*.json
 

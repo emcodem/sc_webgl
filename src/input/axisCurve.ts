@@ -4,17 +4,23 @@ import { registerConfig } from './configRegistry';
 // Input-axis shaping: a rescaled near-center deadzone + an "expo" response curve. It is an INPUT-layer
 // concern only — the flight model (flightModel.ts) still receives a normalized -1..1 and is untouched.
 //
-// The expo curve is MOUSE-ONLY. Star Citizen applies a convex curve to the MOUSE virtual joystick
-// (MEASUREMENTS.md "Input-curve shape — CONVEX / expo", exponent ~1.48) but the physical/vJoy
-// joystick axes are LINEAR in-game — confirmed matching the game at exponent 1. So mouseLook.ts uses
-// the tunable `exponent` below, while joystickMap.ts calls shapeAxis with exp=1 (deadzone only).
+// The expo curve is MOUSE-ONLY. The physical/vJoy joystick axes are LINEAR in-game — confirmed
+// matching the game at exponent 1 — so joystickMap.ts calls shapeAxis with exp=1 (deadzone only).
+// mouseLook.ts uses the tunable `exponent` below for its own axis.
 //
 // `exponent` is the live-tunable knob (F4 "Input Curve" slider + window.__setInputExpo), dialed in
 // against real SC. 1.0 == linear; <1 == concave (sharper near center); >1 == convex (softer near
 // center). Persisted via the control-preset system (registerConfig below).
+//
+// The default is close to 1 (nearly linear), NOT the ~1.48 an earlier, sparser capture (150-600
+// counts only, no saturation anchor) suggested. Once a dense sweep (150-2100 counts) included where
+// the real curve actually saturates (~1500 counts, see mouseLook.ts's `range`), the true shape fit at
+// exponent ~1.04 -- the 1.48 figure was an artifact of fitting a rising curve with no ceiling in the
+// data, which forces a steeper exponent to explain the same rise while implicitly extrapolating a
+// much higher (wrong) ceiling. See MEASUREMENTS.md "Input-curve shape" for the fitted numbers.
 // ============================================================================================
 
-const DEFAULT_EXPONENT = 1.48; // MOUSE curve: convex, matches MEASUREMENTS.md "Input-curve shape — CONVEX / expo"
+const DEFAULT_EXPONENT = 1.04; // MOUSE curve: nearly linear, matches MEASUREMENTS.md's dense-sweep fit
 let exponent = DEFAULT_EXPONENT;
 
 export function getExponent(): number { return exponent; }

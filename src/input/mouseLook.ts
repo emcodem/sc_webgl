@@ -21,23 +21,39 @@ export interface MouseLookInput {
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 
 let captured = false;
-let offsetX = 0, offsetY = 0; // persistent virtual-stick deflection, in pixels
-let sensitivity = 1.5;
+let offsetX = 0, offsetY = 0; // persistent virtual-stick deflection, in raw mouse counts (movementX/Y units)
 let invertY = true;
-let range = 10; // degrees of screen visual angle the mouse must cross for full deflection
+// Raw mouse counts (movementX/Y units, i.e. SendInput/WM_INPUT-equivalent deltas) needed for full
+// deflection. NOT the same thing as SC's own "VJoy Range" (`VJoyAnglePilots`) setting -- that one is
+// confirmed cosmetic-only (MEASUREMENTS.md: changes the on-screen indicator's travel/appearance, zero
+// effect on flight, tested 4 vs 25). This constant models a DIFFERENT thing: SC's actual, apparently
+// non-adjustable mouse->stick gain, which isn't exposed as any named setting in SC at all -- we just
+// measured it directly (capture/MEASUREMENTS.md's dense yaw sweep fits full_range ~1500 counts,
+// resolution-independent). Previously this was modeled as "degrees of screen visual angle for full
+// deflection" (an FOV/viewport-derived guess with no such SC equivalent at all), needing 5-18x LESS
+// physical mouse travel than real SC actually does for the same deflection -- that mismatch, not the
+// curve shape, was the main reason small mouse nudges over-rotated the ship relative to real SC.
+let fullDeflectionCounts = 1500;
 // Mouse deadzone lives in input/axisCurve.ts (separate from the joystick's own deadzone).
 const listeners: Array<(captured: boolean) => void> = [];
 
-// Vertical FOV of the real three.js camera (render/renderer.ts's `new THREE.PerspectiveCamera(70, ...)`)
-// — kept in sync here (duplicated the same way combat/projection.ts and combat/weapons.ts do) so
-// "range" reads as an actual on-screen visual angle rather than a raw, resolution-dependent pixel count.
-const CAMERA_FOV_DEG = 70;
+// PURELY COSMETIC — SC's own "VJoy Range" (`VJoyAnglePilots`) slider, confirmed to only change the
+// on-screen vjoy indicator's travel/appearance, not flight (MEASUREMENTS.md: 4 vs 25 gave identical
+// yaw rate; see `fullDeflectionCounts` above for the thing that actually IS the flight-relevant
+// gain). "Degrees" is literal, not an arbitrary UI unit: it's a horizontal FOV-relative visual angle
+// -- SC renders the indicator tip as if it were a fixed point that many degrees off boresight,
+// projected onto the 2D screen via the same pinhole-camera math (f = (width/2)/tan(FOV_h/2), then
+// f*tan(degrees)) this project's own capture/analysis/angle_convert.py already uses for landmark
+// tracking. Confirmed against two real measurements (FOV116, 3840px-wide monitor): VJA=25 -> 570px,
+// VJA=10 -> 222px indicator travel -- the fitted focal length (~1222px) matches the theoretical
+// f=1200px for that FOV/width within ~2%, an independent cross-check, not just a 2-point curve-fit.
+// See hud.ts's indicator draw for the actual formula.
+let vjoyRangeDegrees = 10;
+export function getVjoyRangeDegrees(): number { return vjoyRangeDegrees; }
+export function setVjoyRangeDegrees(v: number): void { vjoyRangeDegrees = v; }
 
-// Pixels of mouse travel for full deflection, derived from `range` (degrees) and the current
-// viewport height — resolution/FOV-independent, unlike a fixed pixel constant would be.
 function getMaxOffsetPx(): number {
-  const focalLength = window.innerHeight / (2 * Math.tan((CAMERA_FOV_DEG * Math.PI) / 180 / 2));
-  return focalLength * Math.tan((range * Math.PI) / 180);
+  return fullDeflectionCounts;
 }
 
 function notify(): void {
@@ -83,12 +99,12 @@ export function injectDelta(dx: number, dy: number): void {
 // driving rotation until the mouse is physically moved back or recenter() is called.
 export function consume(): MouseLookInput {
   const maxOffset = getMaxOffsetPx();
-  // rescaled mouse deadzone + shared expo curve (SC-matching, see axisCurve.ts), then sensitivity.
+  // rescaled mouse deadzone + shared expo curve (SC-matching, see axisCurve.ts). No separate
+  // "sensitivity" multiplier: in real SC that setting only scales OS pointer speed, it never
+  // touches the vjoy stick curve — deflection is governed purely by range/deadzone/curve.
   const dz = getMouseDeadzone();
-  const xRatio = shapeAxis(offsetX / maxOffset, dz);
-  const yRatio = shapeAxis(offsetY / maxOffset, dz);
-  const yaw = Math.max(-1, Math.min(1, xRatio * sensitivity));
-  let pitch = Math.max(-1, Math.min(1, yRatio * sensitivity));
+  const yaw = shapeAxis(offsetX / maxOffset, dz);
+  let pitch = shapeAxis(offsetY / maxOffset, dz);
   if (invertY) pitch = -pitch;
   return { pitch, yaw };
 }
@@ -102,26 +118,27 @@ export function getOffset(): { x: number; y: number; max: number } {
 export function onChange(fn: (captured: boolean) => void): void {
   listeners.push(fn);
 }
-export function getSensitivity(): number { return sensitivity; }
-export function setSensitivity(v: number): void { sensitivity = v; }
 export function getInvertY(): boolean { return invertY; }
 export function setInvertY(v: boolean): void { invertY = v; }
-export function getRange(): number { return range; }
-export function setRange(v: number): void { range = v; }
+export function getFullDeflectionCounts(): number { return fullDeflectionCounts; }
+export function setFullDeflectionCounts(v: number): void { fullDeflectionCounts = v; }
 
 interface MouseLookConfig {
-  sensitivity: number;
   invertY: boolean;
-  range: number;
+  fullDeflectionCounts: number;
+  vjoyRangeDegrees: number;
 }
 registerConfig({
   key: 'mouseLook',
-  serialize: (): MouseLookConfig => ({ sensitivity, invertY, range }),
+  serialize: (): MouseLookConfig => ({ invertY, fullDeflectionCounts, vjoyRangeDegrees }),
   deserialize: (data) => {
-    const d = data as Partial<MouseLookConfig> | null | undefined;
+    const d = data as Partial<MouseLookConfig> & { range?: number; indicatorSizePercent?: number } | null | undefined;
     if (!d) return;
-    if (typeof d.sensitivity === 'number') sensitivity = d.sensitivity;
     if (typeof d.invertY === 'boolean') invertY = d.invertY;
-    if (typeof d.range === 'number') range = d.range;
+    if (typeof d.fullDeflectionCounts === 'number') fullDeflectionCounts = d.fullDeflectionCounts;
+    else if (typeof d.range === 'number') fullDeflectionCounts = d.range; // legacy preset field name
+    if (typeof d.vjoyRangeDegrees === 'number') vjoyRangeDegrees = d.vjoyRangeDegrees;
+    // legacy preset field name/units (0-100%, pre-degrees) — not equivalent, but keeps old presets loadable
+    else if (typeof d.indicatorSizePercent === 'number') vjoyRangeDegrees = d.indicatorSizePercent;
   }
 });

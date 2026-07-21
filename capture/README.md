@@ -211,6 +211,17 @@ analysis/angle_convert.py <trajectory.csv> --fov <deg> --resolution <WxH>   # ->
 analysis/fit_model.py <omega.csv> <meta.json> <maneuver.json> --mass --thrust0 --drag0
 ```
 
+**Mouse-curve pipeline (separate from the above — see MEASUREMENTS.md):**
+```
+mouse_hold_capture.py --offsets <list> --axis {yaw,pitch}   # one clip, a staircase of held offsets
+curve_sweep_capture.py --axes yaw,pitch --magnitudes <list> --repeats N   # many single-magnitude
+    clips in one run, for a denser offset->rate curve (fills the gaps mouse_hold_capture leaves)
+analysis/hold_rate.py <trial_dir> --axis {x,y} --fov <deg> --resolution <WxH>   # -> per-hold rate
+analysis/fit_curve.py {yaw,pitch} --trials <glob> --seed-x --seed-y --anchor OFFSET:RATE
+    # aggregates hold_rate results across trials, fits current power-law model vs a saturating
+    # (Kumaraswamy) model side by side
+```
+
 `orchestrate.py` is the normal entry point for a single trial (settles capture, fires the sync
 flash, runs the maneuver, stops capture, analyzes automatically); the individual scripts are exposed
 separately so each stage can be re-run/debugged on its own (e.g. re-analyzing an existing clip with

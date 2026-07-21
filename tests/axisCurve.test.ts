@@ -81,9 +81,9 @@ describe('axisCurve — shapeAxis (deadzone then expo)', () => {
     expect(getExponent()).toBe(original);
   });
 
-  it('ships the SC mouse-curve default exponent (convex, MEASUREMENTS.md) — mouse only, joystick is linear', () => {
-    expect(getDefaultExponent()).toBeCloseTo(1.48, 10);
-    expect(getExponent()).toBeCloseTo(1.48, 10); // default until changed
+  it('ships the SC mouse-curve default exponent (near-linear, MEASUREMENTS.md dense-sweep fit) — mouse only, joystick is linear', () => {
+    expect(getDefaultExponent()).toBeCloseTo(1.04, 10);
+    expect(getExponent()).toBeCloseTo(1.04, 10); // default until changed
   });
 
   it('applies the explicit per-device deadzone passed to it', () => {

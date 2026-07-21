@@ -11,7 +11,7 @@ import { initEspSettingsUI } from './espSettingsUI';
 // keyboard rebinding, actionmaps.xml import, named preset save/load/export/import, joystick/HOTAS
 // detection (with vJoy/Chromium diagnostics), mouse-look tuning, and ESP aim-assist settings.
 // Opening it does NOT pause the sim (see ui/index.ts's isPaused()) — the ship keeps flying so you
-// can feel a rebind/sensitivity/deadzone change take effect immediately. It does release pointer
+// can feel a rebind/deadzone/curve change take effect immediately. It does release pointer
 // lock so the cursor is free to click around the panel.
 // ============================================================================================
 

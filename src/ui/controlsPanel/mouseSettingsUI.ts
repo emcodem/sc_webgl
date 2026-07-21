@@ -4,21 +4,20 @@ import * as RemoteMouseInput from '../../input/remoteMouseInput';
 import { onConfigApplied } from '../../input/configRegistry';
 import { wireNumericControl, syncNumericControl, type NumericControlConfig } from './numericControl';
 
-// The F4 panel's flight-input tuning section — sensitivity / vjoy range / deadzone / input-curve
-// sliders, each paired with an editable number box (see numericControl.ts), plus a recenter button.
+// The F4 panel's flight-input tuning section — vjoy range / deadzone / input-curve sliders, each
+// paired with an editable number box (see numericControl.ts), plus a recenter button. No separate
+// "sensitivity" slider: in real SC that setting only scales OS pointer speed, it never touches the
+// vjoy stick curve, so there's nothing here for it to drive (see input/mouseLook.ts's consume()).
 // Mouse deadzone and the expo input-curve are mouse-only; the joystick has its own deadzone and is
 // linear (see input/joystickDeadzone.ts, input/joystickMap.ts).
 
 const CONTROLS: NumericControlConfig[] = [
   {
-    sliderId: 'ctrl-mouse-sens', numId: 'ctrl-mouse-sens-num', warnId: 'ctrl-mouse-sens-warn',
-    min: 0.5, max: 4, decimals: 1,
-    get: MouseLook.getSensitivity, set: MouseLook.setSensitivity
-  },
-  {
+    // Raw mouse counts (movementX/Y units) needed for full deflection -- NOT the same thing as SC's
+    // own "VJoy Range" setting (confirmed cosmetic-only, see mouseLook.ts's `fullDeflectionCounts` doc).
     sliderId: 'ctrl-mouse-range', numId: 'ctrl-mouse-range-num', warnId: 'ctrl-mouse-range-warn',
-    min: 4, max: 25, decimals: 1,
-    get: MouseLook.getRange, set: MouseLook.setRange
+    min: 300, max: 3000, decimals: 0,
+    get: MouseLook.getFullDeflectionCounts, set: MouseLook.setFullDeflectionCounts
   },
   {
     // mouse deadzone: stored as a 0-1 fraction, shown as a 0-20 percentage (joystick has its own — see joystickSettingsUI.ts)
@@ -32,6 +31,15 @@ const CONTROLS: NumericControlConfig[] = [
     sliderId: 'ctrl-mouse-expo', numId: 'ctrl-mouse-expo-num', warnId: 'ctrl-mouse-expo-warn',
     min: 0.4, max: 2.5, decimals: 2,
     get: AxisCurve.getExponent, set: AxisCurve.setExponent
+  },
+  {
+    // SC's own "VJoy Range" (`VJoyAnglePilots`) slider, same ~4-25 units -- confirmed zero flight
+    // effect (MEASUREMENTS.md: 4 vs 25 gave identical yaw rate), purely cosmetic on-screen indicator
+    // size here. Lets the indicator be dialed to visually match real SC's for side-by-side
+    // comparison. Not the same thing as the Full-Deflection Mouse Travel control above.
+    sliderId: 'ctrl-vjoy-range-deg', numId: 'ctrl-vjoy-range-deg-num', warnId: 'ctrl-vjoy-range-deg-warn',
+    min: 4, max: 25, decimals: 1,
+    get: MouseLook.getVjoyRangeDegrees, set: MouseLook.setVjoyRangeDegrees
   }
 ];
 

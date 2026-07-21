@@ -332,9 +332,24 @@ function updateFlightRings(world: World): void {
   vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   vjoyTriangleEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   if (showVjoy) {
-    const { x, y } = MouseLook.getOffset();
-    const scale = 0.55; // keep the reticle's travel visually inside the crosshair area
-    const rx = cx + x * scale, ry = cy + y * scale;
+    // Normalize by `max` and scale to an on-screen radius -- `max` (mouseLook.ts's
+    // `fullDeflectionCounts`) is a raw mouse-COUNT gain constant (can be in the thousands, see
+    // capture/MEASUREMENTS.md), not a pixel cap, so drawing x/y as literal screen pixels would send
+    // the marker arbitrarily far off-screen at a large gain. The radius itself mirrors SC's own on-
+    // screen indicator, driven by `vjoyRangeDegrees` (F4 panel, SC's own "VJoy Range" slider units).
+    // VJoyAnglePilots is a literal FOV-relative visual angle -- SC renders the indicator tip as if it
+    // were a fixed point that many degrees off boresight, projected through the same pinhole-camera
+    // math capture/analysis/angle_convert.py already uses for real landmark tracking (f = (width/2) /
+    // tan(FOV_h/2), radius = f * tan(degrees)). Calibrated against two real measurements (FOV116,
+    // 3840px-wide monitor): VJA=25 -> 570px, VJA=10 -> 222px; the fitted focal length (~1222px)
+    // matches the theoretical f=1200px for FOV116/width=3840 within ~2%, confirming the model (not
+    // just curve-fit on 2 points) -- reuses `window.innerWidth` so it scales to any window size.
+    const SC_VJOY_FOV_H_DEG = 116;
+    const focalLengthPx = (window.innerWidth / 2) / Math.tan((SC_VJOY_FOV_H_DEG * Math.PI / 180) / 2);
+    const indicatorRadius = focalLengthPx * Math.tan(MouseLook.getVjoyRangeDegrees() * Math.PI / 180);
+    const { x, y, max } = MouseLook.getOffset();
+    const rx = cx + (max > 0 ? (x / max) * indicatorRadius : 0);
+    const ry = cy + (max > 0 ? (y / max) * indicatorRadius : 0);
 
     vjoyLineEl.setAttribute('x1', String(cx));
     vjoyLineEl.setAttribute('y1', String(cy));
