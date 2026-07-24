@@ -234,9 +234,9 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
       body.vel.y -= body.vel.y * drag * dt;
       body.vel.z -= body.vel.z * drag * dt;
     } else {
-      // Per-(axis,direction) flat coast decel = opposing thruster's own accel (thrust/mass), NOT an
+      // Per-(axis,direction) coast decel = opposing thruster's own accel (thrust/mass), NOT an
       // isotropic scalar speed decay — real Gladius sheds forward/back/lateral/vertical drift at
-      // whichever local thruster would be firing to counter it, each at its own flat rate (measured,
+      // whichever local thruster would be firing to counter it, each at its own rate (measured,
       // see physics/ships/gladius.ts's applied perAxisCoastDecel note): forward coasts down via retro
       // (42 m/s^2), back via main (134), lateral via strafe (~97 both ways), up via verticalDown (49),
       // down via verticalUp (98) — the flat ShipType.coastDecel scalar (~matches forward's 42) is no
@@ -244,13 +244,21 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
       // frame (same right/up/forward basis the brake block above uses) since each rate is tied to a
       // specific local-axis thruster, not to the ship's actual direction of travel — unlike the brake,
       // this does NOT preserve heading; each local axis decelerates independently.
+      //
+      // Near-zero taper: per user go-ahead 2026-07-25 (measured coast is flat all the way per
+      // MEASUREMENTS.md — this is a deliberate, acknowledged deviation from that capture, not a
+      // re-fit) each axis's flat rate above is now also capped by the brake's own brakeGain*speed
+      // proportional term, same as the brake block above, so the last stretch to a dead stop eases
+      // off exactly like the brake does instead of snapping to zero — full authority still applies
+      // above the brakeGain/rate crossover, matching measured behavior there.
       const localVel = {
         x: body.vel.x * right.x + body.vel.y * right.y + body.vel.z * right.z,
         y: body.vel.x * up.x + body.vel.y * up.y + body.vel.z * up.z,
         z: body.vel.x * forward.x + body.vel.y * forward.y + body.vel.z * forward.z
       };
-      const decelTowardZero = (v: number, decelPerSec: number): number => {
-        const step = decelPerSec * dt;
+      const decelTowardZero = (v: number, maxDecelPerSec: number): number => {
+        const rate = Math.min(maxDecelPerSec, t.brakeGain * Math.abs(v));
+        const step = rate * dt;
         return Math.abs(v) <= step ? 0 : v - Math.sign(v) * step;
       };
       const lateralDecel = t.linearThrust.strafe / t.mass;
