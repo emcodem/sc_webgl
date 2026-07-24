@@ -9,7 +9,8 @@ const TYPE = getShipType('Gladius');
 function makeShip(pos = { x: 0, y: 0, z: 0 }): ShipBody {
   return {
     type: TYPE, pos, vel: { x: 0, y: 0, z: 0 }, quat: { x: 0, y: 0, z: 0, w: 1 },
-    angVel: { pitch: 0, yaw: 0, roll: 0 }, throttle: 0, decoupled: false, spaceBrakeOn: false,
+    angVel: { pitch: 0, yaw: 0, roll: 0 }, angAccel: { pitch: 0, yaw: 0, roll: 0 },
+    throttle: 0, decoupled: false, spaceBrakeOn: false,
     boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0, throttleSpoolTime: 0, verticalSpoolTime: 0,
     health: createHealth(10), hitFlash: 0, fireCooldown: 0, respawnTimer: 0
   };
@@ -18,7 +19,8 @@ function makeShip(pos = { x: 0, y: 0, z: 0 }): ShipBody {
 function makeEnemy(pos = { x: 0, y: 0, z: 0 }, overrides: Partial<EnemyShip> = {}): EnemyShip {
   return {
     type: TYPE, pos, vel: { x: 0, y: 0, z: 0 }, quat: { x: 0, y: 0, z: 0, w: 1 },
-    angVel: { pitch: 0, yaw: 0, roll: 0 }, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
+    angVel: { pitch: 0, yaw: 0, roll: 0 }, angAccel: { pitch: 0, yaw: 0, roll: 0 },
+    boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), behavior: 'cruiser',
     fireCooldown: 0, respawnTimer: 0, spawnPos: pos, spawnQuat: { x: 0, y: 0, z: 0, w: 1 }, ...overrides
   };

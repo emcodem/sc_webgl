@@ -6,3 +6,4 @@ dist/
 test-results/
 __pycache__/
 capture/data/scratch/
+.aider*

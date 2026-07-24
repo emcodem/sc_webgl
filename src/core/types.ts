@@ -133,22 +133,36 @@ export interface ShipType {
   mass: number;    // gameplay-tuning mass, doubles as rotational inertia
   massKg: number;  // real-world reference mass, informational only
   linearThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
-  angularThrust: AngularState;      // == maxAngVel * angularDrag per axis
+  // angularThrust/angularDrag: == maxAngVel * angularDrag per axis (angularThrust), by construction.
+  // Still fully live for ROLL's spin-up. For PITCH/YAW they're vestigial as of 2026-07-24 — flightModel
+  // no longer uses them to drive the rotation integrator (superseded by angularSpoolOmega/Zeta below,
+  // a 2nd-order model) — kept because the structural invariant test (tests/shipTuning.test.ts) and
+  // angularDrag's role in roll still reference these fields; don't delete.
+  angularThrust: AngularState;
   mainSpoolDelay: number;
   retroSpoolDelay: number;
   verticalSpoolDelay: number;
   linearDrag: number;               // negligible for the Gladius — governor-cap does the limiting
   boostLinearDrag: number;
-  coastDecel: number;               // flat m/s^2 coast brake (no input, coupled)
+  coastDecel: number;               // informational/legacy only — flightModel.ts's coast branch derives
+                                     // the real per-(axis,direction) decel from linearThrust/mass instead
+                                     // (see physics/ships/gladius.ts's coastDecel doc comment)
   brakeGain: number;                // 1/s space-brake velocity-controller gain
-  angularDrag: AngularState;        // per-axis
+  angularDrag: AngularState;        // per-axis — still live for roll; vestigial for pitch/yaw (see above)
   maxAngVel: AngularState;
+  // Natural frequency (rad/s) and damping ratio of the 2nd-order underdamped step response that models
+  // PITCH/YAW rotation spool-up AND release/reversal (roll keeps its own separate spin-up + governor-
+  // release model, no equivalent here) — see physics/flightModel.ts's rotation integrator and
+  // physics/ships/gladius.ts's dated comment citing capture/MEASUREMENTS.md's "Spool-up transient is a
+  // 2nd-order underdamped step response" section. No roll component: roll isn't modeled this way.
+  angularSpoolOmega: { pitch: number; yaw: number };
+  angularSpoolZeta: { pitch: number; yaw: number };
   // Roll-release governor: on releasing roll input, real Gladius stops with a hard, roughly-constant
-  // deceleration (rad/s^2) rather than the proportional/exponential drag used for spin-up and for
-  // pitch/yaw's release — measured ~40deg roll-out from full rate (200deg/s) vs the exponential
-  // model's ~56deg tail (see capture/BLUEPRINT.md's roll-reversal findings: fitted drag pins at
-  // exactly 0 during release). Pitch/yaw keep the exponential-decay release model (their own
-  // release-transient evidence is weaker/noisier) — see physics/flightModel.ts.
+  // deceleration (rad/s^2), distinct from roll's own spin-up model and from pitch/yaw's 2nd-order
+  // spool model (angularSpoolOmega/Zeta above), which covers both their spin-up AND release/reversal
+  // in one continuous equation — measured ~40deg roll-out from full rate (200deg/s) vs the old
+  // exponential model's ~56deg tail (see capture/BLUEPRINT.md's roll-reversal findings: fitted drag
+  // pins at exactly 0 during release). See physics/flightModel.ts.
   rollReleaseDecel: number;
   scmSpeed: number;
   scmSpeedBack: number;
@@ -164,6 +178,10 @@ export interface ShipType {
   boostRechargeDelaySec: number;     // s after boost ends before recharge begins
   boostMaxAngVel: AngularState;
   boostAngularThrust: AngularState;
+  // Boosted variant of angularSpoolOmega/Zeta above — boost changes the pitch/yaw spool transient's
+  // damping (measured, not just the steady-state rate), so these are independent values, not derived.
+  boostAngularSpoolOmega: { pitch: number; yaw: number };
+  boostAngularSpoolZeta: { pitch: number; yaw: number };
   boostLinearThrust: { main: number; retro: number };
   hullRadius: number;
 }

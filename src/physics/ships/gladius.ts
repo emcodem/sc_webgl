@@ -27,12 +27,14 @@ import type { RawShipMeasurement } from './rawShipType';
 // higher top speed. It's GOVERNOR-limited: thrust EXCEEDS boostSpeed * boostLinearDrag * mass, so the
 // speed>speedCap governor (not drag) caps boost (guarded by tests/shipTuning.test.ts).
 //
-// coastDecel is a separate, constant (not velocity-proportional) deceleration applied only when
-// there's no throttle/strafe input at all in coupled mode (see physics/flightModel.ts) — real
-// Gladius sheds speed at a flat rate when you let go of the stick, not a decaying one, so this
-// can't be modeled by just cranking up linearDrag (which would taper off approaching zero).
-// (See candidateRefinements.perAxisCoastDecel below — capture found this is really per-axis; the flat
-// scalar is kept live pending a gated flightModel.ts change.)
+// coastDecel: real Gladius sheds speed at a flat rate when you let go of the stick, not a decaying
+// one, so this can't be modeled by just cranking up linearDrag (which would taper off approaching
+// zero). This flat scalar itself is NO LONGER what flightModel.ts's coast branch reads, though —
+// capture found coast decel is really per-(axis,direction) = opposing-thruster-authority / mass
+// (forward via retro, back via main, lateral via strafe, up via verticalDown, down via verticalUp),
+// applied 2026-07-24 (see physics/flightModel.ts's coast branch). This field is kept only as an
+// informational/legacy value (close to forward-coast's real 42) for any other code that might want a
+// single representative number.
 //
 // massKg (real mass, 48,552 kg) isn't wired into the physics — `mass` below is a separately tuned
 // gameplay value used for both linear thrust-to-accel and rotational inertia (see
@@ -204,16 +206,41 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   // capture/BLUEPRINT.md's roll-reversal findings (fitted drag pins at exactly 0 during release/
   // reversal, both symmetric and asymmetric models, across 5 independent trials) and
   // capture/MEASUREMENTS.md's "Gladius ROLL" section ("Roll-end (release -> stop) | 192 -> 0 in
-  // ~0.5s"). Applied to flightModel.ts's roll release branch only — pitch/yaw's own release-transient
-  // evidence is weaker/noisier, so they keep the proportional-drag model (see flightModel.ts).
+  // ~0.5s"). Applied to flightModel.ts's roll release branch only — pitch/yaw instead get their own
+  // 2nd-order spool model below, which covers their release/reversal transient too (see flightModel.ts).
   rollReleaseDecel: 8.7234,
+  // Pitch/yaw rotation spool-up + release/reversal, 2nd-order underdamped step response (2026-07-23
+  // capture, "Spool-up transient is a 2nd-order underdamped step response" in MEASUREMENTS.md) —
+  // fits the real rate-vs-time rise curve 2-4x better than the old 1st-order exponential-lag model in
+  // all 4 measured conditions. Fit via least-squares against `rate_ss * (1 - e^(-zeta*omega*t) *
+  // (cos(omega_d*t) + (zeta*omega/omega_d)*sin(omega_d*t)))`, omega_d = omega*sqrt(1-zeta^2):
+  //   pitch non-boosted: omega=8.633 rad/s, zeta=0.807 (RMS 1.54 deg/s vs 1st-order's 3.73)
+  //   pitch boosted:      omega=8.009 rad/s, zeta=0.916 (RMS 1.16 deg/s vs 1st-order's 3.07)
+  //   yaw non-boosted:    omega=8.027 rad/s, zeta=0.729 (RMS 1.66 deg/s vs 1st-order's 4.42)
+  //   yaw boosted:        omega=8.186 rad/s, zeta=0.560 (RMS 1.00 deg/s vs 1st-order's 4.69)
+  // Striking cross-condition consistency in omega (~8.0-8.6 rad/s regardless of axis/boost) suggests a
+  // shared underlying RCS-authority-ramp constant, not per-axis tuning; zeta moves in OPPOSITE
+  // directions under boost per axis (pitch more damped, yaw less) -- real and measured, unexplained.
+  // No roll equivalent: roll's own 2nd-order fit was never attempted this session.
+  angularSpoolOmega: { pitch: 8.633, yaw: 8.027 },
+  angularSpoolZeta: { pitch: 0.807, yaw: 0.729 },
   scmSpeed: 226,
   scmSpeedBack: 225,
   boostSpeedForward: 520,
   boostSpeedBack: 268,
   boostLinearDrag: 0.38,
   boostLinearThrust: { main: 420, retro: 216.5 },
-  boostMaxAngVel: { pitch: 1.431, yaw: 1.082, roll: 4.189 },
+  // boostMaxAngVel.yaw corrected 2026-07-24: the old 1.082 (62deg/s) was a uniform x1.2 assumption
+  // over maxAngVel.yaw (0.91), never independently measured. Three clean reps at the 1920-count clamp
+  // boundary (capture/MEASUREMENTS.md's "Yaw afterburner ratio" section) agree tightly at 53.26/53.29/
+  // 53.22 deg/s -- using the tightest/most-numerous figure, 53.26 deg/s = 0.9294 rad/s. (A separate
+  // 2nd-order spool-curve fit lands lower still, ~48.8 deg/s, but MEASUREMENTS.md flags that fit's
+  // window as possibly contaminated by a short boosted dwell, so the short-hold consensus here is the
+  // safer number to commit to.) Pitch and roll's boosted rates were independently confirmed close to
+  // their own coded values, so only yaw changes here.
+  boostMaxAngVel: { pitch: 1.431, yaw: 0.9294, roll: 4.189 },
+  boostAngularSpoolOmega: { pitch: 8.009, yaw: 8.186 },
+  boostAngularSpoolZeta: { pitch: 0.916, yaw: 0.560 },
   boostCapacity: 100,
   boostRedZonePct: 25,
   boostReactivatePct: 26,
@@ -228,21 +255,6 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   // flightModel.ts — see capture/MEASUREMENTS.md). NOT applied to the compiled ShipType; carried here
   // so the numbers are ready when a flightModel.ts change is signed off. buildShipType never reads this.
   candidateRefinements: {
-    perAxisCoastDecel: {
-      note:
-        'Coast decel is really per-(axis,direction) = opposing-thruster-authority / mass, not the flat ' +
-        'scalar coastDecel=40. Measured: forward brakes retro (42, ~matches the live 40); back brakes ' +
-        'main (134); lateral both ways ~98; up brakes down (49); down brakes up (98). Live model ' +
-        'under-brakes lateral/vertical ~2.4x.',
-      forward: 42, back: 134, strafe: 98, up: 49, down: 98
-    },
-    decoupledDropsAutoBrake: {
-      note:
-        'Decoupled mode drops the LINEAR auto-brake (release -> drift, ~0 decel; SCM cap and thruster ' +
-        'authority unchanged). Rotational auto-stop is UNAFFECTED (roll still hard-stops in decoupled). ' +
-        'flightModel.ts does not model decoupled coast differently today.',
-      recommendedApplies: true
-    },
     boostedLateralVertical: {
       note:
         'Boost raises strafe/vertical too, which the coded boostLinearThrust {main,retro} omits. ' +

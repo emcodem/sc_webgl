@@ -36,6 +36,7 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
     quat: { x: spawn.quat.x, y: spawn.quat.y, z: spawn.quat.z, w: spawn.quat.w },
     vel: spawn.initialVel ? { x: spawn.initialVel.x, y: spawn.initialVel.y, z: spawn.initialVel.z } : { x: 0, y: 0, z: 0 },
     angVel: { pitch: 0, yaw: 0, roll: 0 },
+    angAccel: { pitch: 0, yaw: 0, roll: 0 },
     boostMeter: spawn.type.boostCapacity,
     boosting: false,
     boostCooldownTimer: 0,
@@ -65,6 +66,7 @@ export function startScenario(world: World, config: ScenarioConfig): void {
     ? { x: config.playerInitialVel.x, y: config.playerInitialVel.y, z: config.playerInitialVel.z }
     : { x: 0, y: 0, z: 0 };
   ship.angVel = { pitch: 0, yaw: 0, roll: 0 };
+  ship.angAccel = { pitch: 0, yaw: 0, roll: 0 };
   ship.decoupled = false;
   ship.spaceBrakeOn = false;
   ship.boosting = false;

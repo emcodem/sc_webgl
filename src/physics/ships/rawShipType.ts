@@ -53,18 +53,6 @@ export interface ShipProvenance {
 // an explicit go-ahead (see CLAUDE.md, capture/MEASUREMENTS.md). Carried here so the numbers are
 // discoverable and ready to apply later. buildShipType.ts NEVER reads this block.
 export interface CandidateRefinements {
-  // Measured coast decel is per-(axis,direction) = opposing-thruster-authority / mass, NOT the single
-  // flat scalar `coastDecel`. Values are m/s^2. Today's flat coastDecel matches only forward-coast.
-  perAxisCoastDecel?: {
-    note: string;
-    forward: number; back: number; strafe: number; up: number; down: number;
-  };
-  // Decoupled mode drops the LINEAR auto-brake (release -> drift); rotation's auto-stop is unaffected
-  // in both modes. flightModel.ts does not model this today.
-  decoupledDropsAutoBrake?: {
-    note: string;
-    recommendedApplies: boolean;
-  };
   // Boost raises strafe/vertical too (coded boostLinearThrust only has main/retro). Measured: strafe
   // accel ~x1.3, and a shared boosted-maneuvering speed cap distinct from (and below) boostSpeedForward.
   boostedLateralVertical?: {
@@ -90,12 +78,19 @@ export interface RawShipMeasurement {
   coastDecel: number;
   brakeGain: number;
 
-  angularDrag: AngularState;   // primitive — per-axis RCS damping (tau = mass/drag)
+  angularDrag: AngularState;   // primitive — per-axis RCS damping (tau = mass/drag); roll-only in practice
+                               // now that angularThrust is derived from this for pitch/yaw too but no
+                               // longer drives their live integration — see core/types.ts's ShipType doc
   maxAngVel: AngularState;     // primitive — angularThrust DERIVED from this + angularDrag
 
   // Flat rad/s^2 deceleration applied on roll-release (governor, not proportional drag) — see
   // core/types.ts's ShipType.rollReleaseDecel for the full rationale.
   rollReleaseDecel: number;
+
+  // Natural frequency (rad/s) / damping ratio of pitch/yaw's 2nd-order spool-up+release model — see
+  // core/types.ts's ShipType.angularSpoolOmega doc.
+  angularSpoolOmega: { pitch: number; yaw: number };
+  angularSpoolZeta: { pitch: number; yaw: number };
 
   scmSpeed: number;
   scmSpeedBack: number;
@@ -105,6 +100,8 @@ export interface RawShipMeasurement {
   boostLinearDrag: number;
   boostLinearThrust: { main: number; retro: number };  // no strafe/vertical yet — see candidateRefinements
   boostMaxAngVel: AngularState;                         // primitive — boostAngularThrust DERIVED
+  boostAngularSpoolOmega: { pitch: number; yaw: number };
+  boostAngularSpoolZeta: { pitch: number; yaw: number };
 
   boostCapacity: number;
   boostRedZonePct: number;

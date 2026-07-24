@@ -31,6 +31,8 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     brakeGain: raw.brakeGain,
     angularDrag: { ...raw.angularDrag },
     maxAngVel: { ...raw.maxAngVel },
+    angularSpoolOmega: { ...raw.angularSpoolOmega },
+    angularSpoolZeta: { ...raw.angularSpoolZeta },
     rollReleaseDecel: raw.rollReleaseDecel,
     scmSpeed: raw.scmSpeed,
     scmSpeedBack: raw.scmSpeedBack,
@@ -46,6 +48,8 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     boostRechargeDelaySec: raw.boostRechargeDelaySec,
     boostMaxAngVel: { ...raw.boostMaxAngVel },
     boostAngularThrust,
+    boostAngularSpoolOmega: { ...raw.boostAngularSpoolOmega },
+    boostAngularSpoolZeta: { ...raw.boostAngularSpoolZeta },
     boostLinearThrust: { ...raw.boostLinearThrust },
     hullRadius: raw.hullRadius
   };
@@ -81,6 +85,12 @@ export function validateShipType(t: ShipType, id: string): void {
       if (a[ax] <= 0) throw new Error(`Invalid ShipType '${id}': ${path}.${ax} must be > 0, got ${a[ax]}`);
     }
   };
+  const positivePitchYaw = (a: { pitch: number; yaw: number }, path: string) => {
+    for (const ax of ['pitch', 'yaw'] as const) {
+      finite(a[ax], `${path}.${ax}`);
+      if (a[ax] <= 0) throw new Error(`Invalid ShipType '${id}': ${path}.${ax} must be > 0, got ${a[ax]}`);
+    }
+  };
 
   finite(t.mass, 'mass');
   if (t.mass <= 0) throw new Error(`Invalid ShipType '${id}': mass must be > 0, got ${t.mass}`);
@@ -102,6 +112,10 @@ export function validateShipType(t: ShipType, id: string): void {
   positiveAxes(t.angularThrust, 'angularThrust');       // derived — finiteness/positivity sanity
   positiveAxes(t.boostMaxAngVel, 'boostMaxAngVel');
   positiveAxes(t.boostAngularThrust, 'boostAngularThrust');
+  positivePitchYaw(t.angularSpoolOmega, 'angularSpoolOmega');
+  positivePitchYaw(t.angularSpoolZeta, 'angularSpoolZeta');
+  positivePitchYaw(t.boostAngularSpoolOmega, 'boostAngularSpoolOmega');
+  positivePitchYaw(t.boostAngularSpoolZeta, 'boostAngularSpoolZeta');
   finite(t.rollReleaseDecel, 'rollReleaseDecel');
   if (t.rollReleaseDecel <= 0) throw new Error(`Invalid ShipType '${id}': rollReleaseDecel must be > 0, got ${t.rollReleaseDecel}`);
 

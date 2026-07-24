@@ -49,6 +49,7 @@ export interface ShipBody {
   vel: Vec3;
   quat: Quat;
   angVel: { pitch: number; yaw: number; roll: number };
+  angAccel: { pitch: number; yaw: number; roll: number };
   throttle: number;
   decoupled: boolean;
   spaceBrakeOn: boolean;
@@ -100,6 +101,7 @@ export interface EnemyShip {
   vel: Vec3;
   quat: Quat;
   angVel: { pitch: number; yaw: number; roll: number };
+  angAccel: { pitch: number; yaw: number; roll: number };
   boostMeter: number;
   boosting: boolean;
   boostCooldownTimer: number; // s until boost recharge resumes after a burn (see resolveBoost)

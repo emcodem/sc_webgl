@@ -59,6 +59,7 @@ function exitShip(world: World): void {
   // park the ship: cut thrust and spin so it stays put where you left it
   ship.vel = { x: 0, y: 0, z: 0 };
   ship.angVel = { pitch: 0, yaw: 0, roll: 0 };
+  ship.angAccel = { pitch: 0, yaw: 0, roll: 0 };
   ship.throttle = 0;
   ship.boosting = false;
 

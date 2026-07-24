@@ -182,6 +182,7 @@ interface PlanningBody {
   vel: Vec3;
   quat: Quat;
   angVel: AngularState;
+  angAccel: AngularState;
   boosting: boolean;
   throttleSpoolTime: number;
   verticalSpoolTime: number;
@@ -233,6 +234,7 @@ function simulateJinkCandidate(
     vel: { x: enemy.vel.x, y: enemy.vel.y, z: enemy.vel.z },
     quat: { x: enemy.quat.x, y: enemy.quat.y, z: enemy.quat.z, w: enemy.quat.w },
     angVel: { pitch: 0, yaw: 0, roll: 0 },
+    angAccel: { pitch: 0, yaw: 0, roll: 0 },
     boosting: boost,
     throttleSpoolTime: boost ? 0 : enemy.throttleSpoolTime,
     verticalSpoolTime: enemy.verticalSpoolTime

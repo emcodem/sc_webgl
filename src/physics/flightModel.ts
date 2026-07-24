@@ -10,10 +10,13 @@ import { computeAxes, integrateOrientation } from '../math/quaternion';
 // "clean this up" without re-deriving against real traces — it has been gotten wrong twice before.
 // ============================================================================================
 
-// rad/s — below this, residual angular velocity (e.g. the exponential drag tail after releasing
-// rotation input) is imperceptible, so it's snapped to zero instead of decaying forever. See the
-// usage site for why this exists instead of a shorter/different decay curve.
-const ANGULAR_STOP_THRESHOLD = 0.1;
+// rad/s and rad/s^2 — purely a numerical-hygiene snap (NOT a perceptual one, unlike the old 1st-order
+// model's threshold this replaced): once pitch/yaw's 2nd-order spool tracker (below) has released and
+// settled to within float dust of zero, hard-zero both state variables so a long-idle ship doesn't
+// carry meaningless residue forever. The genuine overshoot/settle wobble the 2nd-order model produces
+// is real (measured) and intentionally NOT truncated early by this — it's orders of magnitude tighter
+// than the perceptual threshold this model needed before.
+const ANGULAR_SETTLE_EPSILON = 1e-4;
 
 // Ship-shaped state this model reads/mutates — a subset both the player ShipBody and an AI-flown
 // EnemyShip satisfy, so the exact same Newtonian flight model drives both (see combat/enemyAI.ts).
@@ -23,6 +26,10 @@ export interface FlightBody {
   vel: Vec3;
   quat: Quat;
   angVel: AngularState;
+  // Angular acceleration state for pitch/yaw's 2nd-order spool-up/release tracker (see
+  // integrateFlight's rotation block) — roll doesn't use this (its own spin-up/release model needs
+  // only angVel), so its component is always 0.
+  angAccel: AngularState;
   boosting: boolean;
   throttleSpoolTime: number;
   verticalSpoolTime: number;
@@ -66,24 +73,38 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   const angularThrust = body.boosting ? t.boostAngularThrust : t.angularThrust;
   const maxAngVel = body.boosting ? t.boostMaxAngVel : t.maxAngVel;
 
-  // angular drag (dampening — simulates RCS auto-dampening like SC's flight computer) — per axis,
-  // since the real ship spins down at a different rate per axis (see shipTypes.ts). Drag is
-  // computed from the angVel this tick STARTED with, not the value after thrust is added — doing
-  // it the other order (thrust first, drag off the already-updated value) biases the discrete
-  // steady state to maxAngVel*(1 - angularDrag/mass*dt) instead of maxAngVel itself, permanently
-  // short of the ceiling by an amount that depends on frame rate (was ~11% low at 60fps for pitch)
-  // — the angularThrust == maxAngVel * angularDrag invariant (shipTypes.ts) assumes the continuous
-  // fixed point, so full input should actually reach maxAngVel regardless of frame rate.
   const prevAngVel = { pitch: body.angVel.pitch, yaw: body.angVel.yaw, roll: body.angVel.roll };
-  body.angVel.pitch += (pitchInput * angularThrust.pitch / t.mass) * dt - (prevAngVel.pitch * t.angularDrag.pitch / t.mass) * dt;
-  body.angVel.yaw   += (yawInput   * angularThrust.yaw   / t.mass) * dt - (prevAngVel.yaw   * t.angularDrag.yaw   / t.mass) * dt;
+
+  // PITCH/YAW rotation: 2nd-order underdamped step-response tracker (mass-spring-damper-like),
+  // covering BOTH spool-up (input applied) AND release/reversal (input dropped/reversed) with one
+  // continuous equation — real Gladius's rate-vs-time curve for both is a genuine overshoot-and-
+  // settle wobble, not the old two-part scheme (proportional forcing while held + an exponential-
+  // decay-with-snap-to-zero approximation on release) this replaced. See gladius.ts's
+  // angularSpoolOmega/Zeta doc for the fitted values and capture/MEASUREMENTS.md's "Spool-up
+  // transient is a 2nd-order underdamped step response" section for the full derivation.
+  // State-space form (standard driven mass-spring-damper): target is the commanded steady-state rate
+  // (using the already budget-shared pitchInput/yawInput above); `body.angAccel` is the new state
+  // this needs (the old model only tracked angVel).
+  //   angAccel += (-2*zeta*omega*angAccel - omega^2*(angVel - target)) * dt
+  //   angVel   += angAccel * dt
+  // Release/reversal need no separate branch: they're just this same equation with a lower/negated
+  // target, which is exactly why release showed the same wobble as spool-up in the capture data.
+  const spoolOmega = body.boosting ? t.boostAngularSpoolOmega : t.angularSpoolOmega;
+  const spoolZeta = body.boosting ? t.boostAngularSpoolZeta : t.angularSpoolZeta;
+  const pitchTarget = pitchInput * maxAngVel.pitch;
+  const yawTarget = yawInput * maxAngVel.yaw;
+  body.angAccel.pitch += (-2 * spoolZeta.pitch * spoolOmega.pitch * body.angAccel.pitch
+    - spoolOmega.pitch * spoolOmega.pitch * (prevAngVel.pitch - pitchTarget)) * dt;
+  body.angAccel.yaw += (-2 * spoolZeta.yaw * spoolOmega.yaw * body.angAccel.yaw
+    - spoolOmega.yaw * spoolOmega.yaw * (prevAngVel.yaw - yawTarget)) * dt;
+  body.angVel.pitch = prevAngVel.pitch + body.angAccel.pitch * dt;
+  body.angVel.yaw = prevAngVel.yaw + body.angAccel.yaw * dt;
 
   // Roll release is a hard, roughly-constant-deceleration GOVERNOR stop (measured ~40deg roll-out
   // from full rate in ~0.5s), NOT the proportional/exponential drag used for spin-up (unchanged below)
-  // and for pitch/yaw's own release — see shipTypes.rollReleaseDecel and capture/BLUEPRINT.md's
-  // roll-reversal findings (fitted drag pins at exactly 0 during release, across 5 independent
-  // trials). Pitch/yaw's release-transient evidence is weaker/noisier, so they keep the proportional-
-  // drag model + snap-to-zero-floor approximation below.
+  // — see shipTypes.rollReleaseDecel and capture/BLUEPRINT.md's roll-reversal findings (fitted drag
+  // pins at exactly 0 during release, across 5 independent trials). Roll keeps this separate model —
+  // no 2nd-order roll data exists (see gladius.ts's angularSpoolOmega doc).
   if (rollInput !== 0) {
     body.angVel.roll += (rollInput * angularThrust.roll / t.mass) * dt - (prevAngVel.roll * t.angularDrag.roll / t.mass) * dt;
   } else {
@@ -93,22 +114,22 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
       : prevAngVel.roll - Math.sign(prevAngVel.roll) * decelStep;
   }
 
-  // This drag is proportional (exponential decay), so on release it only asymptotically
-  // approaches zero and never actually arrives — the real ship's RCS reads as stopping a little
-  // more abruptly than that infinite tail. No frame-counted release trace is available to fit the
-  // real curve (no in-game indicator marks the moment input is released), so approximate it with a
-  // snap-to-zero floor once residual angVel is imperceptible, rather than guessing at a different
-  // decay shape. Gated on that axis having zero input — otherwise this stomps small in-progress
-  // rotation (a gentle mouse-look nudge, or even full keyboard input at a high enough frame rate
-  // that one tick's accel is still under the threshold), which reads as a large deadzone that has
-  // nothing to do with any actual input deadzone setting. (Roll's release is handled by the governor
-  // branch above instead — it snaps to exactly zero by construction, no threshold needed.)
-  if (pitchInput === 0 && Math.abs(body.angVel.pitch) < ANGULAR_STOP_THRESHOLD) body.angVel.pitch = 0;
-  if (yawInput === 0 && Math.abs(body.angVel.yaw) < ANGULAR_STOP_THRESHOLD) body.angVel.yaw = 0;
+  // Numerical-only hygiene snap once fully released and settled (see ANGULAR_SETTLE_EPSILON's doc) —
+  // gated on the axis's own target being zero so it never stomps genuine in-progress rotation.
+  if (pitchTarget === 0 && Math.abs(body.angVel.pitch) < ANGULAR_SETTLE_EPSILON && Math.abs(body.angAccel.pitch) < ANGULAR_SETTLE_EPSILON) {
+    body.angVel.pitch = 0; body.angAccel.pitch = 0;
+  }
+  if (yawTarget === 0 && Math.abs(body.angVel.yaw) < ANGULAR_SETTLE_EPSILON && Math.abs(body.angAccel.yaw) < ANGULAR_SETTLE_EPSILON) {
+    body.angVel.yaw = 0; body.angAccel.yaw = 0;
+  }
 
-  body.angVel.pitch = clamp(body.angVel.pitch, -maxAngVel.pitch, maxAngVel.pitch);
-  body.angVel.yaw   = clamp(body.angVel.yaw,   -maxAngVel.yaw,   maxAngVel.yaw);
-  body.angVel.roll  = clamp(body.angVel.roll,  -maxAngVel.roll,  maxAngVel.roll);
+  // NOTE: pitch/yaw are deliberately NOT clamped to maxAngVel here (unlike roll) — the whole point of
+  // the 2nd-order model above is that real SC's rotation transiently OVERSHOOTS the steady-state rate
+  // before settling (zeta < 1 in all 4 measured conditions); a hard ceiling would clip that genuine
+  // wobble AND corrupt the tracker's own state (next tick's forcing term reads body.angVel.pitch/yaw
+  // straight back as prevAngVel). The spring-damper equation's target IS maxAngVel/boostMaxAngVel, so
+  // steady-state still converges there on its own — this omission is intentional, not a leftover gap.
+  body.angVel.roll = clamp(body.angVel.roll, -maxAngVel.roll, maxAngVel.roll);
 
   body.quat = integrateOrientation(body.quat, body.angVel, dt);
 
@@ -213,16 +234,35 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
       body.vel.y -= body.vel.y * drag * dt;
       body.vel.z -= body.vel.z * drag * dt;
     } else {
-      // No input: flat-rate coast brake (measured constant, not decaying), direction-preserving and
-      // clamped so it can't overshoot past zero.
-      const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
-      if (speed > 0) {
-        const newSpeed = Math.max(0, speed - t.coastDecel * dt);
-        const scale = newSpeed / speed;
-        body.vel.x *= scale;
-        body.vel.y *= scale;
-        body.vel.z *= scale;
-      }
+      // Per-(axis,direction) flat coast decel = opposing thruster's own accel (thrust/mass), NOT an
+      // isotropic scalar speed decay — real Gladius sheds forward/back/lateral/vertical drift at
+      // whichever local thruster would be firing to counter it, each at its own flat rate (measured,
+      // see physics/ships/gladius.ts's applied perAxisCoastDecel note): forward coasts down via retro
+      // (42 m/s^2), back via main (134), lateral via strafe (~97 both ways), up via verticalDown (49),
+      // down via verticalUp (98) — the flat ShipType.coastDecel scalar (~matches forward's 42) is no
+      // longer read here, kept only as an informational/legacy field. Decomposed into the ship's local
+      // frame (same right/up/forward basis the brake block above uses) since each rate is tied to a
+      // specific local-axis thruster, not to the ship's actual direction of travel — unlike the brake,
+      // this does NOT preserve heading; each local axis decelerates independently.
+      const localVel = {
+        x: body.vel.x * right.x + body.vel.y * right.y + body.vel.z * right.z,
+        y: body.vel.x * up.x + body.vel.y * up.y + body.vel.z * up.z,
+        z: body.vel.x * forward.x + body.vel.y * forward.y + body.vel.z * forward.z
+      };
+      const decelTowardZero = (v: number, decelPerSec: number): number => {
+        const step = decelPerSec * dt;
+        return Math.abs(v) <= step ? 0 : v - Math.sign(v) * step;
+      };
+      const lateralDecel = t.linearThrust.strafe / t.mass;
+      const verticalDecel = localVel.y > 0 ? t.linearThrust.verticalDown / t.mass : t.linearThrust.verticalUp / t.mass;
+      const longitudinalDecel = localVel.z > 0 ? t.linearThrust.retro / t.mass : t.linearThrust.main / t.mass;
+      localVel.x = decelTowardZero(localVel.x, lateralDecel);
+      localVel.y = decelTowardZero(localVel.y, verticalDecel);
+      localVel.z = decelTowardZero(localVel.z, longitudinalDecel);
+
+      body.vel.x = right.x * localVel.x + up.x * localVel.y + forward.x * localVel.z;
+      body.vel.y = right.y * localVel.x + up.y * localVel.y + forward.y * localVel.z;
+      body.vel.z = right.z * localVel.x + up.z * localVel.y + forward.z * localVel.z;
     }
   }
 
