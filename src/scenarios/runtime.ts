@@ -11,6 +11,7 @@ import {
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
 import { spawnProjectileFrom, updateProjectiles, FIRE_COOLDOWN_SEC } from '../combat/weapons';
+import { findActivePip } from '../combat/pipTargeting';
 import { computeAxes, lookAtQuat, rotateTowards } from '../math/quaternion';
 import { integrateFlight, resolveBoost } from '../physics/flightModel';
 import { evaluateGateCrossing } from './gatePath';
@@ -136,7 +137,18 @@ export function updateScenario(world: World, dt: number): void {
   runtime.elapsedSec += dt;
 
   const player = world.player.ship;
-  if (firePlayerWeaponIfRequested(world, dt)) runtime.stats.shotsFired++;
+  const playerFiredThisTick = firePlayerWeaponIfRequested(world, dt);
+  if (playerFiredThisTick) runtime.stats.shotsFired++;
+
+  // The single soft-locked target (see findActivePip's doc comment) — used below to gate the
+  // drifter's aggressive roll escalation onto the ONE enemy the player is actually tracking/about to
+  // hit, rather than any nearby enemy that happens to satisfy a looser proximity check. Without this,
+  // several drones in a dense swarm could all "randomly" escalate off the same shot, reading as
+  // arbitrary/unmotivated roll changes instead of a clear reaction to being aimed at.
+  const activePip = findActivePip(
+    player.pos, player.vel, { pos: player.pos, axes: computeAxes(player.quat) },
+    world.enemies, window.innerWidth, window.innerHeight
+  );
 
   for (const enemy of world.enemies) {
     // 'orbiter'/'drifter' handle their own dead-state below (countdown + respawn) — everything else
@@ -269,9 +281,8 @@ export function updateScenario(world: World, dt: number): void {
               enemy.vel = s.vel;
               enemy.quat = lookAtQuat(s.vel);
               enemy.drift.respawnTimer = 0;
-              enemy.drift.rollTimer = 0;
-              enemy.drift.rollCooldown = 0;
               enemy.drift.turn = undefined; // in case it died mid turn-around
+              enemy.drift.helix = undefined; // fresh helix matched to the new post-respawn heading
             }
           }
           break;
@@ -279,7 +290,8 @@ export function updateScenario(world: World, dt: number): void {
         // no out-of-range teleport here — driftThink itself banks into a turn-around once it's
         // flown too far (see DRIFTER_TUNING.turnDist), so the same drone keeps making passes
         // indefinitely
-        driftThink(enemy, player, dt, runtime.config.droneAggressiveness ?? 0.5);
+        const isBeingFiredAt = playerFiredThisTick && activePip !== null && activePip.enemy === enemy && activePip.wouldHit;
+        driftThink(enemy, player, dt, runtime.config.droneAggressiveness ?? 0.5, isBeingFiredAt);
         break;
       }
 

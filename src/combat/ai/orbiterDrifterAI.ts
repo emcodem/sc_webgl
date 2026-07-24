@@ -1,4 +1,4 @@
-import type { DriftTurnState, Quat, Vec3 } from '../../core/types';
+import type { DriftTurnState, HelixState, Quat, Vec3 } from '../../core/types';
 import type { EnemyShip, ShipBody } from '../../core/world';
 import { computeAxes, lookAtQuat, quatMultiply } from '../../math/quaternion';
 import { clamp, cross, dot, normalize, rotateAboutAxis } from '../../math/vec';
@@ -57,8 +57,8 @@ function randRange(min: number, max: number): number {
 // into and out of the base flight path with no positional pop. Shared by orbiterThink/driftThink
 // via their respective (structurally identical) roll fields.
 const BARREL_ROLL_DURATION = 1.1;              // seconds for a full 360
-const BARREL_ROLL_TRIGGER_CHANCE_PER_SEC = 0.08; // ~once every dozen-ish seconds of eligible flight
-const BARREL_ROLL_COOLDOWN = 4;                // seconds before another roll may trigger
+const BARREL_ROLL_TRIGGER_CHANCE_PER_SEC = 0.3; // ~once every few seconds of eligible flight
+const BARREL_ROLL_COOLDOWN = 2;                // seconds before another roll may trigger
 const BARREL_ROLL_RADIUS = 15;                 // meters — lateral sweep of the corkscrew
 
 interface BarrelRollState {
@@ -217,6 +217,91 @@ function pickMissAimedFlightDir(fromPos: Vec3, player: ShipBody, aggressiveness:
   return normalize({ x: aimPoint.x - fromPos.x, y: aimPoint.y - fromPos.y, z: aimPoint.z - fromPos.z });
 }
 
+// A drifter's cruise segment is never a straight line — it's ALWAYS a continuous corkscrew around
+// its base heading (constant roll, "holding a constant up-strafe while rolling" — see the old
+// BARREL_ROLL doc comment above, same physical idea, just continuous instead of an occasional
+// triggered flourish). Roll rate is a fraction of a fixed max rate: a gentle 25% normally, escalating
+// to a hard 75% only while genuinely under threat (see isAggressiveEscalation) — it never reaches a
+// full 100% snap-roll. Forward speed and the corkscrew's own lateral/vertical STRAFE SPEED are NOT
+// scaled by that fraction: "100% upstrafe/forward acceleration/boost while rolling" is always-on
+// regardless of tier, since rolling itself is now continuous rather than a discrete on/off event.
+const DRIFT_ROLL_TUNING = {
+  fullRollPeriodSec: 4.0,     // seconds per full 360 AT 100% roll rate (never actually used at 100%,
+                              // just the reference rate the two fractions below scale down from) —
+                              // gives a ~5.3s full rotation at the 75% aggressive rate and a slow
+                              // ~16s lazy bank at the 25% cruise rate. Kept slow deliberately: this is
+                              // meant to read as a drone gently/aggressively banking, never a fast spin.
+  normalFraction: 0.25,       // default continuous roll rate, as a fraction of the 100% reference
+  aggressiveFraction: 0.75,   // roll rate while the escalation conditions below hold (or recently did)
+                              // — the ONLY two values rollFraction ever targets; it never reaches 1.0
+  rollFractionEaseRate: 0.7,  // 1/s — how fast the CURRENT roll fraction chases its target (see
+                              // HelixState.rollFraction's doc comment). Switching rate instantly
+                              // between 0.25 and 0.75 read as a jarring one-tick "whip roll"; this
+                              // eases the transition over a couple of seconds instead
+  helixStrafeSpeedMps: 85,    // m/s of lateral/vertical velocity the corkscrew contributes — a FIXED
+                              // speed, deliberately NOT derived from radius*rollRate. Tying strafe
+                              // speed to a fixed radius (the old approach) meant slowing the roll rate
+                              // to fix its duration silently weakened the strafe to near-imperceptible
+                              // levels too — a real regression this decouples: "100% upstrafe" now
+                              // means this same solid sideways/up speed regardless of how fast the
+                              // corkscrew is currently cycling through it (implied radius = this
+                              // speed / the current angular rate, so it's naturally wider at the lazy
+                              // 25% rate and tighter at the fast 75% one)
+  boostSpeedMult: 1.6,        // constant forward-speed multiplier over the spawned cruise speed —
+                              // "100% forward acceleration and boost", always-on
+  aggressiveHoldSec: 1.0,     // seconds the aggressive roll rate lingers after the escalation
+                              // conditions last held, so it doesn't flicker frame-to-frame with the
+                              // player's own fire-rate cadence
+  aggressiveRangeM: 1000,     // meters — escalation only considered this close to the player
+  aggressiveAimCos: 0.9063    // cos(25deg) — how tightly the drone's OWN heading must point at the
+                              // player to count as "flying directly to the player" (condition B below)
+};
+
+function rollRateMax(): number {
+  return (Math.PI * 2) / DRIFT_ROLL_TUNING.fullRollPeriodSec;
+}
+
+function spawnHelix(baseDir: Vec3, baseSpeed: number): HelixState {
+  let right = cross(baseDir, { x: 0, y: 1, z: 0 });
+  if (Math.hypot(right.x, right.y, right.z) < 1e-6) right = cross(baseDir, { x: 1, y: 0, z: 0 });
+  right = normalize(right);
+  const up = normalize(cross(baseDir, right));
+  return { baseDir, baseSpeed, right, up, angle: 0, aggressiveTimer: 0, rollFraction: DRIFT_ROLL_TUNING.normalFraction };
+}
+
+// True only once ALL three of the user-specified escalation conditions hold this tick: (A) this
+// drone specifically is the player's ONE active soft-locked target (see combat/pipTargeting.ts's
+// findActivePip) AND the player actually fired AND that shot would land within its hull radius right
+// now — computed once per frame by the caller (scenarios/runtime.ts) so at most a single drone in
+// the whole swarm can ever satisfy this at a time, never several at once off the same shot; (B) this
+// drone's own base heading points essentially straight at the player (a genuine attack-run pass, not
+// just any inbound leg); (C) within aggressiveRangeM. Any one missing keeps the roll at its gentle
+// default — see driftThink's aggressiveTimer hysteresis for how this translates into a smooth (not
+// flickery) rate change.
+function isAggressiveEscalation(helix: HelixState, enemy: EnemyShip, player: ShipBody, isBeingFiredAt: boolean): boolean {
+  if (!isBeingFiredAt) return false; // (A)
+  const toPlayer: Vec3 = { x: player.pos.x - enemy.pos.x, y: player.pos.y - enemy.pos.y, z: player.pos.z - enemy.pos.z };
+  const dist = Math.hypot(toPlayer.x, toPlayer.y, toPlayer.z);
+  if (dist > DRIFT_ROLL_TUNING.aggressiveRangeM || dist < 1e-6) return false; // (C)
+  const towardPlayer = { x: toPlayer.x / dist, y: toPlayer.y / dist, z: toPlayer.z / dist };
+  return dot(helix.baseDir, towardPlayer) >= DRIFT_ROLL_TUNING.aggressiveAimCos; // (B)
+}
+
+// Returns the full cruise velocity (boosted base heading + the corkscrew's own tangential velocity,
+// i.e. the derivative of its circular offset) for the CURRENT roll angle — mutating nothing;
+// driftThink advances helix.angle itself so the turn-around branch can leave it alone entirely.
+function computeHelixVelocity(helix: HelixState): Vec3 {
+  const tangential = DRIFT_ROLL_TUNING.helixStrafeSpeedMps;
+  const boostedSpeed = helix.baseSpeed * DRIFT_ROLL_TUNING.boostSpeedMult;
+  const cosA = Math.cos(helix.angle), sinA = Math.sin(helix.angle);
+  const { right, up, baseDir } = helix;
+  return {
+    x: baseDir.x * boostedSpeed + tangential * (-sinA * up.x + cosA * right.x),
+    y: baseDir.y * boostedSpeed + tangential * (-sinA * up.y + cosA * right.y),
+    z: baseDir.z * boostedSpeed + tangential * (-sinA * up.z + cosA * right.z)
+  };
+}
+
 export function spawnDriftState(player: ShipBody, aggressiveness: number = 0.5): { pos: Vec3; vel: Vec3 } {
   const dir = normalize({ x: Math.random() - 0.5, y: Math.random() - 0.5, z: Math.random() - 0.5 });
   const spawnDist = randRange(DRIFTER_TUNING.minSpawnDist, DRIFTER_TUNING.maxSpawnDist);
@@ -242,8 +327,8 @@ function smoothstep(t: number): number {
 // position (same targeting logic as a fresh spawn — see pickMissAimedFlightDir) and records the
 // great-circle arc from its current heading to that new one, to be swept over TURN_TUNING.duration.
 function startDriftTurn(enemy: EnemyShip, drift: NonNullable<EnemyShip['drift']>, player: ShipBody, aggressiveness: number): void {
-  const speed = Math.hypot(enemy.vel.x, enemy.vel.y, enemy.vel.z) || 1;
-  const fromDir = { x: enemy.vel.x / speed, y: enemy.vel.y / speed, z: enemy.vel.z / speed };
+  const flightSpeed = Math.hypot(enemy.vel.x, enemy.vel.y, enemy.vel.z) || 1;
+  const fromDir = { x: enemy.vel.x / flightSpeed, y: enemy.vel.y / flightSpeed, z: enemy.vel.z / flightSpeed };
   const toDir = pickMissAimedFlightDir(enemy.pos, player, aggressiveness);
 
   const angleTotal = Math.acos(clamp(dot(fromDir, toDir), -1, 1));
@@ -258,30 +343,30 @@ function startDriftTurn(enemy: EnemyShip, drift: NonNullable<EnemyShip['drift']>
   }
   axis = normalize(axis);
 
+  // baseSpeed MUST be the raw cruise speed, not read off flightSpeed (enemy.vel's current magnitude
+  // already has DRIFT_ROLL_TUNING.boostSpeedMult baked in from computeHelixVelocity) — see
+  // DriftTurnState.baseSpeed's doc comment for why re-deriving it from a boosted value compounds.
+  const baseSpeed = drift.helix?.baseSpeed ?? flightSpeed;
   const turn: DriftTurnState = {
-    axis, angleTotal, fromDir, speed,
+    axis, angleTotal, fromDir,
+    speed: baseSpeed * DRIFT_ROLL_TUNING.boostSpeedMult,
+    baseSpeed,
     elapsed: 0,
     duration: TURN_TUNING.duration,
     rollTurns: randRange(TURN_TUNING.minRollTurns, TURN_TUNING.maxRollTurns)
   };
   drift.turn = turn;
-  // the incidental cosmetic roll (advanceBarrelRoll) is superseded by the turn's own continuous
-  // roll below — clear it so the two don't stack once the turn finishes. rollOffsetPrev is the
-  // corkscrew displacement currently baked into enemy.pos (applied incrementally tick-to-tick), so
-  // unwind it first — otherwise interrupting a mid-roll turn strands the drone up to
-  // BARREL_ROLL_RADIUS off its true flight path for good.
-  if (drift.rollOffsetPrev) {
-    enemy.pos.x -= drift.rollOffsetPrev.x;
-    enemy.pos.y -= drift.rollOffsetPrev.y;
-    enemy.pos.z -= drift.rollOffsetPrev.z;
-  }
-  drift.rollTimer = 0;
-  drift.rollOffsetPrev = undefined;
+  // the cruise corkscrew (helix) is superseded by the turn's own continuous roll below (turn.rollTurns)
+  // — clear it so a stale angle/frame doesn't carry into the next cruise segment once the turn finishes.
+  drift.helix = undefined;
 }
 
 // Advances an in-progress turn-around by dt: sweeps the heading along its recorded great-circle arc
 // (eased) while continuously spinning the hull (linear in time, for a steady roll rate) — then
-// integrates position along the current (curving) heading, same as normal ballistic flight.
+// integrates position along the current (curving) heading, same as normal ballistic flight. Also
+// applies the SAME full up-strafe corkscrew the cruise segment uses (see DRIFT_ROLL_TUNING.
+// helixStrafeSpeedMps) against the CURRENT (sweeping) heading's own right/up frame — rolling never
+// goes without upstrafe, not even during the reversal, no exceptions.
 function advanceDriftTurn(enemy: EnemyShip, drift: NonNullable<EnemyShip['drift']>, dt: number): void {
   const turn = drift.turn;
   if (!turn) return;
@@ -289,28 +374,69 @@ function advanceDriftTurn(enemy: EnemyShip, drift: NonNullable<EnemyShip['drift'
   const t = turn.elapsed / turn.duration;
 
   const heading = rotateAboutAxis(turn.fromDir, turn.axis, turn.angleTotal * smoothstep(t));
-  enemy.vel = { x: heading.x * turn.speed, y: heading.y * turn.speed, z: heading.z * turn.speed };
+  const rollAngle = turn.rollTurns * Math.PI * 2 * t;
+
+  let right = cross(heading, { x: 0, y: 1, z: 0 });
+  if (Math.hypot(right.x, right.y, right.z) < 1e-6) right = cross(heading, { x: 1, y: 0, z: 0 });
+  right = normalize(right);
+  const up = normalize(cross(heading, right));
+  const tangential = DRIFT_ROLL_TUNING.helixStrafeSpeedMps;
+  const cosR = Math.cos(rollAngle), sinR = Math.sin(rollAngle);
+  enemy.vel = {
+    x: heading.x * turn.speed + tangential * (-sinR * up.x + cosR * right.x),
+    y: heading.y * turn.speed + tangential * (-sinR * up.y + cosR * right.y),
+    z: heading.z * turn.speed + tangential * (-sinR * up.z + cosR * right.z)
+  };
   enemy.pos.x += enemy.vel.x * dt;
   enemy.pos.y += enemy.vel.y * dt;
   enemy.pos.z += enemy.vel.z * dt;
 
-  const rollAngle = turn.rollTurns * Math.PI * 2 * t;
   enemy.quat = quatMultiply(lookAtQuat(heading), rollQuat(rollAngle));
 
   if (turn.elapsed >= turn.duration) {
     drift.turn = undefined;
-    drift.rollCooldown = BARREL_ROLL_COOLDOWN; // pause the incidental roll right after this big one
+    // Build the next cruise segment's helix directly from the preserved RAW baseSpeed (not from
+    // enemy.vel, which is turn.speed = baseSpeed*boostSpeedMult) — see DriftTurnState.baseSpeed's
+    // doc comment for why deriving it from the boosted value here would compound the boost.
+    drift.helix = spawnHelix(heading, turn.baseSpeed);
   }
 }
 
-// Ballistic straight-line flight, no steering — orientation just faces the direction of travel.
-// Once it's flown turnDist past the player it banks into a long reversal (see startDriftTurn)
-// instead of despawning, so the same drone keeps making passes rather than popping in and out.
-export function driftThink(enemy: EnemyShip, player: ShipBody, dt: number, aggressiveness: number = 0.5): void {
+// Continuous corkscrew flight (see DRIFT_ROLL_TUNING) — never a straight line, orientation banks to
+// follow the curve. Once it's flown turnDist past the player it banks into a long reversal (see
+// startDriftTurn) instead of despawning, so the same drone keeps making passes rather than popping
+// in and out. `isBeingFiredAt` is precomputed once per frame by the caller (scenarios/runtime.ts) —
+// true only for the single drone that is BOTH the player's active soft-locked target and would
+// actually be hit if the player's shot (fired this exact tick) landed — the gate for the aggressive
+// roll escalation (see isAggressiveEscalation).
+export function driftThink(
+  enemy: EnemyShip, player: ShipBody, dt: number, aggressiveness: number = 0.5, isBeingFiredAt: boolean = false
+): void {
   const drift = enemy.drift;
   if (drift?.turn) {
     advanceDriftTurn(enemy, drift, dt);
     return;
+  }
+
+  if (drift) {
+    if (!drift.helix) {
+      const speed = Math.hypot(enemy.vel.x, enemy.vel.y, enemy.vel.z) || 1;
+      const baseDir = { x: enemy.vel.x / speed, y: enemy.vel.y / speed, z: enemy.vel.z / speed };
+      drift.helix = spawnHelix(baseDir, speed);
+    }
+    const helix = drift.helix;
+    const escalated = isAggressiveEscalation(helix, enemy, player, isBeingFiredAt);
+    helix.aggressiveTimer = escalated
+      ? DRIFT_ROLL_TUNING.aggressiveHoldSec
+      : Math.max(0, helix.aggressiveTimer - dt);
+    const targetFraction = helix.aggressiveTimer > 0
+      ? DRIFT_ROLL_TUNING.aggressiveFraction
+      : DRIFT_ROLL_TUNING.normalFraction;
+    // ease toward the target rate rather than snapping — see rollFractionEaseRate's doc comment
+    const ease = 1 - Math.exp(-DRIFT_ROLL_TUNING.rollFractionEaseRate * dt);
+    helix.rollFraction += (targetFraction - helix.rollFraction) * ease;
+    helix.angle = (helix.angle + rollRateMax() * helix.rollFraction * dt) % (Math.PI * 2);
+    enemy.vel = computeHelixVelocity(helix);
   }
 
   enemy.pos = {
@@ -318,23 +444,13 @@ export function driftThink(enemy: EnemyShip, player: ShipBody, dt: number, aggre
     y: enemy.pos.y + enemy.vel.y * dt,
     z: enemy.pos.z + enemy.vel.z * dt
   };
-  enemy.quat = lookAtQuat(enemy.vel);
-  if (drift) {
-    const roll = advanceBarrelRoll(drift, computeAxes(enemy.quat), dt);
-    if (roll.angle > 0) {
-      // pos here is integrated incrementally tick-to-tick (unlike the orbiter's from-scratch
-      // recompute), so last tick's offset is already baked in — apply only the delta so the
-      // corkscrew doesn't compound on top of itself
-      const prev = drift.rollOffsetPrev ?? { x: 0, y: 0, z: 0 };
-      enemy.pos.x += roll.offset.x - prev.x;
-      enemy.pos.y += roll.offset.y - prev.y;
-      enemy.pos.z += roll.offset.z - prev.z;
-      drift.rollOffsetPrev = roll.offset;
-      enemy.quat = quatMultiply(enemy.quat, rollQuat(roll.angle));
-    } else {
-      drift.rollOffsetPrev = undefined;
-    }
-  }
+  // nose stays on the segment's fixed base heading (NOT the instantaneous velocity, which also
+  // includes the strafe/tangential component) — a real strafe keeps the nose roughly forward while
+  // the hull rolls and slides sideways, rather than banking the nose to chase the drift; this is also
+  // what makes the corkscrew read as genuine upstrafe instead of just "the flight path curves a bit"
+  enemy.quat = drift?.helix
+    ? quatMultiply(lookAtQuat(drift.helix.baseDir), rollQuat(drift.helix.angle))
+    : lookAtQuat(enemy.vel);
 
   const toDrone = { x: enemy.pos.x - player.pos.x, y: enemy.pos.y - player.pos.y, z: enemy.pos.z - player.pos.z };
   const dist = Math.hypot(toDrone.x, toDrone.y, toDrone.z);

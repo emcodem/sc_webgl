@@ -89,22 +89,42 @@ export interface DriftTurnState {
   fromDir: Vec3;
   axis: Vec3;
   angleTotal: number;
-  speed: number;
+  speed: number;      // actual travel speed during the reversal (raw cruise speed, boosted once)
+  baseSpeed: number;  // the RAW (unboosted) cruise speed to resume the next helix at — do not derive
+                      // this from `speed`/enemy.vel after the turn, since both already carry the
+                      // boost multiplier; re-deriving from a boosted value would compound it further
+                      // every reversal (a real bug this field exists to prevent)
   elapsed: number;
   duration: number;
   rollTurns: number;
+}
+
+// Continuous corkscrew for a 'drifter' flying its straight cruise segment (i.e. not mid
+// turn-around) — see combat/ai/orbiterDrifterAI.ts's spawnHelix/computeHelixVelocity. `right`/`up`
+// are a perpendicular frame and `baseDir`/`baseSpeed` the cruise heading/speed, all fixed at the
+// moment the current segment began (spawn, respawn, or the end of a turn-around) so the corkscrew
+// curves a stable heading rather than chasing itself. `angle` accumulates continuously (mod 2π) at
+// a rate set by `rollFraction` — the drone is always rolling, just harder when actively threatened.
+// `aggressiveTimer` is a hysteresis hold: >0 while the escalation conditions held recently enough to
+// still count as "under fire". `rollFraction` is the CURRENT, eased roll-rate fraction (0.25..0.75) —
+// it chases whatever aggressiveTimer implies at a limited rate rather than snapping instantly, so an
+// escalation ramps the roll rate up/down smoothly instead of a jarring one-tick "whip".
+export interface HelixState {
+  baseDir: Vec3;
+  baseSpeed: number;
+  right: Vec3;
+  up: Vec3;
+  angle: number;
+  aggressiveTimer: number;
+  rollFraction: number;
 }
 
 // 'drifter' behavior memory — a drone that streaks past on a straight miss-aimed line, banks
 // around once it's flown too far, and repeats. respawnTimer counts UP, same convention as OrbitState.
 export interface DriftState {
   respawnTimer: number;
-  rollTimer?: number;
-  rollCooldown?: number;
-  rollAxisRight?: Vec3;
-  rollAxisUp?: Vec3;
-  rollOffsetPrev?: Vec3;
   turn?: DriftTurnState;
+  helix?: HelixState;
 }
 
 // 'evasive' behavior memory — the receding-horizon MPC dodge planner's persistent state (see
