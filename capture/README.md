@@ -287,3 +287,13 @@ as any HOTAS or macro-capable input hardware, not a memory read/write or injecti
 toolchain deliberately stops at that boundary: it does **not** read Star Citizen's process memory
 for ground-truth telemetry (which would be more precise but risks the account under RSI's EULA).
 Run captures in a private Arena Commander / free-flight instance, not the shared live PU.
+
+## Known hazard: vJoy device interaction bluescreens this machine
+
+On this project's dev machine, actually driving/acquiring the real vJoy device (any script under
+`feeder/` that opens the device — `vjoy_feeder.py`, `bind_helper.py`, `mouse_feeder.py`, or anything
+invoked through `orchestrate.py` without `--dry-run`) has caused a full bluescreen (BSOD), not just a
+process crash. Treat every vJoy-touching script here as requiring the user to run it themselves (or
+give explicit go-ahead in the moment) — never invoke one autonomously. `--dry-run` on `orchestrate.py`
+and any purely-analysis script (`analysis/*.py`, `selftest_synthetic.py`) don't touch the device and
+are unaffected.
