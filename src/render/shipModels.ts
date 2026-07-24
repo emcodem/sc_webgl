@@ -42,10 +42,10 @@ const MODELS: Record<ShipModelName, ShipModelConfig> = {
   // AJF-12 Dvergr: this export's longest axis (nose-to-tail) is already local +Z and its shortest is
   // local +Y (matching "local +Y = up"); the tapered nose points at +Z (confirmed by cross-section
   // profiling — the wide winged body sits at -Z, the slim nose spar at +Z), so no yaw is needed.
-  dvergr: { url: '/models/dvergr.glb', noseYaw: 0 },
+  dvergr: { url: `${import.meta.env.BASE_URL}models/dvergr.glb`, noseYaw: 0 },
   // SpaceShip Fighter: this export's longest axis is local X with the pointed nose at -X and Y
   // already the smallest (up) axis. A +90° yaw brings local -X onto local +Z (forward).
-  arrow: { url: '/models/arrow.glb', noseYaw: Math.PI / 2 }
+  arrow: { url: `${import.meta.env.BASE_URL}models/arrow.glb`, noseYaw: Math.PI / 2 }
 };
 
 const templates: Partial<Record<ShipModelName, Promise<THREE.Object3D>>> = {};

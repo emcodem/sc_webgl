@@ -17,7 +17,7 @@ import { EUROPA, METEORITE } from '../world/celestial';
 // model page if that becomes load-bearing (e.g. before any public release).
 // ============================================================================================
 
-const METEORITE_MODEL_URL = '/models/meteorite.glb';
+const METEORITE_MODEL_URL = `${import.meta.env.BASE_URL}models/meteorite.glb`;
 // Largest dimension (diameter) the scanned model is scaled to. Derived from the world-data collision
 // radius so the visual can't silently drift from what gravity/collision use — see world/celestial.ts.
 const METEORITE_TARGET_SIZE = METEORITE.radius * 2; // metres — an explorable asteroid-scale rock
@@ -75,7 +75,7 @@ export function loadMeteoriteTemplate(): Promise<THREE.Object3D> {
 // shipModels.ts's Arrow credit block. See also downloads/planets/europa_terraformed_credits.txt.
 // ============================================================================================
 
-const EUROPA_MODEL_URL = '/models/europa.glb';
+const EUROPA_MODEL_URL = `${import.meta.env.BASE_URL}models/europa.glb`;
 const EUROPA_TARGET_SIZE = EUROPA.radius * 2; // metres — see METEORITE_TARGET_SIZE's doc comment above
 
 let europaPromise: Promise<THREE.Object3D> | null = null;
