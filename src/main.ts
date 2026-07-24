@@ -21,6 +21,8 @@ import * as Recorder from './replay/recorder';
 import * as ReplayPlayer from './replay/player';
 import * as FreeCamera from './control/freeCamera';
 import * as RemoteMouseInput from './input/remoteMouseInput';
+import * as VjoyRecorder from './debug/vjoyRecorder';
+import * as YawRateRecorder from './debug/yawRateRecorder';
 
 // ============================================================================================
 // Bootstrap + main loop. The world is renderer-agnostic sim state; each frame we run one control
@@ -71,6 +73,16 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
   }
 };
 
+// Same convention -- records the raw vjoy accumulator over time for comparing against real SC's
+// indicator (tracked on video via capture/analysis/track_vjoy_indicator.py). See debug/vjoyRecorder.ts.
+// Usage: __vjoyLog.start(), run the mouse maneuver, __vjoyLog.stop() (downloads a CSV).
+(window as unknown as { __vjoyLog: typeof VjoyRecorder }).__vjoyLog = VjoyRecorder;
+
+// Same convention -- records the ship's computed yaw/pitch rate over time, for comparing against
+// real SC's yaw rate at the same held raw mouse counts (capture/YAWCAPTURE.md procedure B). See
+// debug/yawRateRecorder.ts. Usage: __yawLog.start(), run the maneuver, __yawLog.stop() (downloads a CSV).
+(window as unknown as { __yawLog: typeof YawRateRecorder }).__yawLog = YawRateRecorder;
+
 let last = performance.now();
 function loop(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
@@ -79,6 +91,12 @@ function loop(now: number): void {
     // polled unconditionally (even while paused) so the controls panel's device list and
     // wiggle-to-bind capture keep working while the sim itself is frozen
     Gamepad.poll();
+
+    // Unconditional (even while paused), same reasoning as Gamepad.poll() above -- a no-op unless
+    // __vjoyLog.start() was called, and offsetX/offsetY can change via the local mousemove listener
+    // regardless of pause state, so sampling needs to run every frame to not miss anything.
+    VjoyRecorder.sample();
+    YawRateRecorder.sample(world.player.ship.angVel);
 
     // sim fully freezes (but keeps rendering) while a menu/panel overlay is open
     if (!isPaused()) {

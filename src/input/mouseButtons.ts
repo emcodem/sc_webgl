@@ -15,7 +15,8 @@ registerConfig({
   serialize: () => mouseButtonMap,
   // A config saved before this feature existed has no 'mouseButtonMap' key at all — fall back to
   // the default rather than leaving fire unbound.
-  deserialize: (data) => { mouseButtonMap = (data as MouseButtonMap) || defaultMouseButtonMap(); }
+  deserialize: (data) => { mouseButtonMap = (data as MouseButtonMap) || defaultMouseButtonMap(); },
+  resetToDefault: () => resetToDefault() // hoisted function declaration below, not a self-reference
 });
 
 const pressed: Record<number, boolean> = {};

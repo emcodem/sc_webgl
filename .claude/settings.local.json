@@ -14,7 +14,13 @@
       "PowerShell(python -m py_compile C:\\\\dev\\\\sc_webgl\\\\scripts\\\\mouse-capture.py; if \\($LASTEXITCODE -eq 0\\) { \"OK - compiles\" } else { \"compile failed\" })",
       "PowerShell(& \"C:\\\\dev\\\\sc_webgl\\\\node_modules\\\\.bin\\\\tsc.cmd\" -p C:\\\\dev\\\\sc_webgl\\\\tsconfig.json --noEmit)",
       "Bash(python3 -c ' *)",
-      "Bash(py -3 -c ' *)"
+      "Bash(py -3 -c ' *)",
+      "Bash(ffmpeg -f gdigrab -framerate 5 -i desktop -frames:v 1 -update 1 -y data/scratch/check_1300.png)",
+      "Bash(C:\\\\dev\\\\sc_webgl\\\\capture\\\\.venv\\\\Scripts\\\\python.exe *)",
+      "Bash(.venv/Scripts/python.exe *)",
+      "Bash(ffmpeg -f gdigrab -framerate 5 -i desktop -frames:v 1 -update 1 -y data/scratch/check_1600_1800.png)",
+      "Bash(ffmpeg -f gdigrab -i desktop -frames:v 1 -update 1 -y data/scratch/state_after_interrupt.png)",
+      "Bash(python -c ' *)"
     ]
   }
 }

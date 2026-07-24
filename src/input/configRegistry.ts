@@ -24,6 +24,12 @@ export interface ConfigEntry {
   key: string;
   serialize(): unknown;
   deserialize(data: unknown): void;
+  // Optional: resets this module's own state to its built-in defaults. Not every module needs one
+  // (e.g. scDevices is just auto-detected metadata), but any that has a real "default" should
+  // provide it here rather than the "Reset to Sandbox Defaults" button hardcoding a list of
+  // per-module reset calls -- that list silently goes stale every time a new config module is
+  // added (this is exactly how the button ended up only resetting keybinds and nothing else).
+  resetToDefault?(): void;
 }
 
 const registry: ConfigEntry[] = [];
@@ -49,5 +55,13 @@ export function deserializeAllConfig(data: Record<string, unknown> | null | unde
       if (Object.prototype.hasOwnProperty.call(data, entry.key)) entry.deserialize(data[entry.key]);
     }
   }
+  applyListeners.forEach(fn => fn());
+}
+
+// Resets every registered module that provides a resetToDefault (silently skips ones that don't --
+// e.g. joystickMap's scDevices is detected metadata, not a "setting" with a default), then refreshes
+// the UI the same way a preset load does.
+export function resetAllToDefault(): void {
+  for (const entry of registry) entry.resetToDefault?.();
   applyListeners.forEach(fn => fn());
 }

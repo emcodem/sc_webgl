@@ -14,10 +14,18 @@ import { wireNumericControl, syncNumericControl, type NumericControlConfig } fro
 const CONTROLS: NumericControlConfig[] = [
   {
     // Raw mouse counts (movementX/Y units) needed for full deflection -- NOT the same thing as SC's
-    // own "VJoy Range" setting (confirmed cosmetic-only, see mouseLook.ts's `fullDeflectionCounts` doc).
-    sliderId: 'ctrl-mouse-range', numId: 'ctrl-mouse-range-num', warnId: 'ctrl-mouse-range-warn',
+    // own "VJoy Range" setting (confirmed cosmetic-only, see mouseLook.ts's yawFullDeflectionCounts/
+    // pitchFullDeflectionCounts doc). Yaw and pitch are SEPARATE sliders -- real SC's two axes clamp
+    // at different raw-count values (yaw ~1500, pitch ~1080, confirmed by independent sun-tracked
+    // captures; see capture/MEASUREMENTS.md), not one shared gain.
+    sliderId: 'ctrl-mouse-range-yaw', numId: 'ctrl-mouse-range-yaw-num', warnId: 'ctrl-mouse-range-yaw-warn',
     min: 300, max: 3000, decimals: 0,
-    get: MouseLook.getFullDeflectionCounts, set: MouseLook.setFullDeflectionCounts
+    get: MouseLook.getYawFullDeflectionCounts, set: MouseLook.setYawFullDeflectionCounts
+  },
+  {
+    sliderId: 'ctrl-mouse-range-pitch', numId: 'ctrl-mouse-range-pitch-num', warnId: 'ctrl-mouse-range-pitch-warn',
+    min: 300, max: 3000, decimals: 0,
+    get: MouseLook.getPitchFullDeflectionCounts, set: MouseLook.setPitchFullDeflectionCounts
   },
   {
     // mouse deadzone: stored as a 0-1 fraction, shown as a 0-20 percentage (joystick has its own — see joystickSettingsUI.ts)

@@ -222,6 +222,23 @@ analysis/fit_curve.py {yaw,pitch} --trials <glob> --seed-x --seed-y --anchor OFF
     # (Kumaraswamy) model side by side
 ```
 
+**VJoy indicator gain cross-check (sc_webgl vs real SC, independent recordings):**
+```
+feeder/mouse_feeder.py oscillate yaw --period <s> --amplitude <counts>   # drives BOTH SC (if
+    focused) and sc_webgl (via mouse-capture.py's relay) with the identical scripted motion
+analysis/track_vjoy_indicator.py <sc_video> --f0 <1/period>              # SC's indicator, as usual
+window.__vjoyLog.start() / .stop()   (sc_webgl browser console)          # sc_webgl's own raw
+    offsetX/offsetY over time -- exact, no tracking needed (see src/debug/vjoyRecorder.ts);
+    downloads a CSV
+analysis/compare_vjoy_curve.py --ours <vjoy-log.csv> --sc <indicator.csv> --axis {x,y} \
+    --vja <VJoyAnglePilots value used> --fov <deg> --width <px>
+    # aligns the two independently-clocked recordings via detect_motion_onset (reused from
+    # sync_detect.py, no simultaneous capture required), converts SC's pixel trace to a normalized
+    # stick ratio via the pinhole projection, and fits sc_webgl's true full-deflection raw-count
+    # gain by least squares -- validated against synthetic ground-truth data (see this script's own
+    # docstring) before trusting it on a real capture.
+```
+
 `orchestrate.py` is the normal entry point for a single trial (settles capture, fires the sync
 flash, runs the maneuver, stops capture, analyzes automatically); the individual scripts are exposed
 separately so each stage can be re-run/debugged on its own (e.g. re-analyzing an existing clip with

@@ -226,12 +226,18 @@
       <section>
         <h3 style="margin-top:0">Mouse Look (absolute — SC-style virtual joystick)</h3>
         <div class="ctrl-status" id="ctrl-mouse-status">Click the game view to enable.</div>
-        <label style="margin-top:8px">Full-Deflection Mouse Travel (counts)</label>
+        <label style="margin-top:8px">Yaw Full-Deflection Mouse Travel (counts)</label>
         <div class="ctrl-slider-row">
-          <input type="range" id="ctrl-mouse-range" min="300" max="3000" step="10">
-          <input type="number" class="ctrl-num" id="ctrl-mouse-range-num" min="300" max="3000" step="10">
+          <input type="range" id="ctrl-mouse-range-yaw" min="300" max="3000" step="10">
+          <input type="number" class="ctrl-num" id="ctrl-mouse-range-yaw-num" min="300" max="3000" step="10">
         </div>
-        <div class="ctrl-warn" id="ctrl-mouse-range-warn"></div>
+        <div class="ctrl-warn" id="ctrl-mouse-range-yaw-warn"></div>
+        <label style="margin-top:8px">Pitch Full-Deflection Mouse Travel (counts)</label>
+        <div class="ctrl-slider-row">
+          <input type="range" id="ctrl-mouse-range-pitch" min="300" max="3000" step="10">
+          <input type="number" class="ctrl-num" id="ctrl-mouse-range-pitch-num" min="300" max="3000" step="10">
+        </div>
+        <div class="ctrl-warn" id="ctrl-mouse-range-pitch-warn"></div>
         <label style="margin-top:8px">Mouse Deadzone (%)</label>
         <div class="ctrl-slider-row">
           <input type="range" id="ctrl-mouse-deadzone" min="0" max="20" step="0.01">

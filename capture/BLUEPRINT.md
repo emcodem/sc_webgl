@@ -412,6 +412,17 @@ see below for why. Tooling: `feeder/mouse_feeder.py` (relative-mouse injection),
   the **ship yaw rate** (big signal, proven `track_landmark`→`omega` pipeline, immune to all of the
   above) is the better *primary* observable for "what does the setting do to flight"; the indicator
   is a secondary/cross-check readout of the input mapping.
+- **2026-07-21: the f0 lock-in detection above FAILED on a real capture and was replaced.** A bright
+  in-world target-lock/range-readout element shared the tracked X0:X1/Y0:Y1 band and moved coherently
+  with f0 too (because the ship really was yawing at f0), and being far higher-contrast than the faint
+  indicator, dominated the lock-in mask — produced a negative, wrong-magnitude gain fit downstream.
+  `analysis/track_vjoy_indicator.py` now tracks by **color** instead (the documented `#1C2332`→`#8C8AE9`
+  ramp — confirmed real, but drifts: read `#37738B` this session, re-sample per session via
+  `--dump-frame` rather than trusting an old default), restricted to the indicator's actual thin row —
+  measured at **y≈1080.5**, not the full 1050–1110 band — with a min-blob-width filter (rejects
+  single-pixel star noise) and a sanity px ceiling (rejects a separate static false-positive cluster
+  found at y≈1051–1053). Cross-validated against the same capture's onset timing the user independently
+  read off the recording by eye (centered ~26s) — landed on the same instant to within ~0.2s.
 - **`feeder/win_focus.py` focus+click is REQUIRED before every sweep** — injected mouse motion only
   reaches flight if SC is the foreground window; two baseline captures were invalidated by the game
   not being focused. Wired into `mouse_sweep_capture.py`/`mouse_hold_capture.py`. It also presses

@@ -5,3 +5,4 @@ dist/
 .vite/
 test-results/
 __pycache__/
+capture/data/scratch/

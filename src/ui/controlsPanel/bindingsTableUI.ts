@@ -4,7 +4,7 @@ import * as Gamepad from '../../input/gamepad';
 import * as Joystick from '../../input/joystickMap';
 import * as MouseButtons from '../../input/mouseButtons';
 import * as MouseLook from '../../input/mouseLook';
-import { onConfigApplied } from '../../input/configRegistry';
+import { onConfigApplied, resetAllToDefault } from '../../input/configRegistry';
 
 // Ported from the original project's ui/controlsPanel/bindingsTableUI.ts, adapted to this
 // project's split input modules (Keybinds/Gamepad/Joystick/MouseButtons instead of one
@@ -471,8 +471,11 @@ export function initBindingsTableUI(): void {
   }, true); // capture phase so it runs before the main game keydown handler
 
   document.getElementById('ctrl-reset-btn')!.addEventListener('click', () => {
-    Keybinds.resetToDefault();
-    renderBindings();
+    // Resets EVERY registered config module (keybinds, mouse look, axis curve/deadzone, joystick
+    // bindings, ESP), not just keybinds -- see configRegistry.ts's resetAllToDefault. Triggers the
+    // same onConfigApplied listeners a preset load does, so every panel section (including this
+    // one, via the onConfigApplied(renderBindings) subscription below) refreshes on its own.
+    resetAllToDefault();
     rebindStatus.textContent = 'Reset to sandbox defaults.';
   });
 }

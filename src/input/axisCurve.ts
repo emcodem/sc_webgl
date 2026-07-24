@@ -12,15 +12,29 @@ import { registerConfig } from './configRegistry';
 // against real SC. 1.0 == linear; <1 == concave (sharper near center); >1 == convex (softer near
 // center). Persisted via the control-preset system (registerConfig below).
 //
-// The default is close to 1 (nearly linear), NOT the ~1.48 an earlier, sparser capture (150-600
-// counts only, no saturation anchor) suggested. Once a dense sweep (150-2100 counts) included where
-// the real curve actually saturates (~1500 counts, see mouseLook.ts's `range`), the true shape fit at
-// exponent ~1.04 -- the 1.48 figure was an artifact of fitting a rising curve with no ceiling in the
-// data, which forces a steeper exponent to explain the same rise while implicitly extrapolating a
-// much higher (wrong) ceiling. See MEASUREMENTS.md "Input-curve shape" for the fitted numbers.
+// The default is ~1 (linear), NOT the ~1.48 an earlier, sparser capture (150-600 counts only, no
+// saturation anchor) suggested -- that figure was an artifact of fitting a rising curve with no
+// ceiling in the data, forcing a steeper exponent to explain the same rise while implicitly
+// extrapolating a much higher (wrong) ceiling. Refit 2026-07-23 against the full clamp-cleaned dense
+// yaw dataset (deadzone edge through the 1920-count clamp boundary, least-squares against the exact
+// rescaled-deadzone power-law model below): exponent 1.011, full_range 1491 (matches the independently
+// measured ~1500), RMS 0.46 deg/s across a 0-51 deg/s range -- this IS the confirmed fit, not a guess.
+// Practical reading: yaw's per-count sensitivity climbing steeply near the deadzone edge (noted in
+// MEASUREMENTS.md) is almost entirely the deadzone RESCALING, not curve convexity -- once that's
+// accounted for, yaw's actual response is within noise of pure linear. A Kumaraswamy (saturating)
+// model was also tried and did not improve on this (RMS 0.41, a=1.05 b=1.08 -- also ~linear); no
+// need for a different curve family. See MEASUREMENTS.md "Input-curve shape" for the fitted numbers.
+//
+// PITCH is NOT covered by this fit and does not yet have its own confirmed exponent -- its own
+// dataset (100-1080 counts) is noisier (mostly single reps) and the least-squares full_range wants to
+// exceed pitch's independently-confirmed ~1080 saturation point, so no pitch-specific exponent has
+// been committed. `shapeAxis` currently applies ONE shared exponent to both axes (mouseLook.ts
+// normalizes each axis against its own full-deflection count first) -- fine while pitch's own value is
+// unconfirmed, but if a repeat-rep pitch dataset ever fits a meaningfully different exponent, this will
+// need to become per-axis, not shared.
 // ============================================================================================
 
-const DEFAULT_EXPONENT = 1.04; // MOUSE curve: nearly linear, matches MEASUREMENTS.md's dense-sweep fit
+const DEFAULT_EXPONENT = 1.01; // MOUSE curve (yaw-fit; see above): confirmed via least-squares refit, ~linear
 let exponent = DEFAULT_EXPONENT;
 
 export function getExponent(): number { return exponent; }
@@ -68,5 +82,9 @@ registerConfig({
     if (typeof d.exponent === 'number') exponent = d.exponent;
     if (typeof d.mouseDeadzone === 'number') mouseDeadzone = d.mouseDeadzone;
     else if (typeof d.deadzone === 'number') mouseDeadzone = d.deadzone; // legacy single-deadzone preset
+  },
+  resetToDefault: () => {
+    exponent = DEFAULT_EXPONENT;
+    mouseDeadzone = DEFAULT_MOUSE_DEADZONE;
   }
 });

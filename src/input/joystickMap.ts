@@ -47,12 +47,14 @@ export function unbindButton(action: ActionName): void {
 registerConfig({
   key: 'axisMap',
   serialize: () => axisMap,
-  deserialize: (data) => { axisMap = (data as AxisMap) || {}; }
+  deserialize: (data) => { axisMap = (data as AxisMap) || {}; },
+  resetToDefault: () => { axisMap = {}; }
 });
 registerConfig({
   key: 'buttonMap',
   serialize: () => buttonMap,
-  deserialize: (data) => { buttonMap = (data as ButtonMap) || {}; }
+  deserialize: (data) => { buttonMap = (data as ButtonMap) || {}; },
+  resetToDefault: () => { buttonMap = {}; }
 });
 // scDevices looks like session-detected metadata, but it's load-bearing: an XML-derived axis
 // binding only stores an actionmaps.xml `instance` number, and readAxisFor below resolves that to
@@ -61,7 +63,10 @@ registerConfig({
 registerConfig({
   key: 'scDevices',
   serialize: () => scDevices,
-  deserialize: (data) => { scDevices = (data as ScDevice[]) || []; }
+  deserialize: (data) => { scDevices = (data as ScDevice[]) || []; },
+  // Safe to clear alongside axisMap/buttonMap above (not in isolation -- see the load-bearing note
+  // above): with no bindings left either, there's nothing left needing a device to resolve against.
+  resetToDefault: () => { scDevices = []; }
 });
 
 // ---------- Live analog axis resolution ----------

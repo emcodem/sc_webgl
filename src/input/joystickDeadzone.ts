@@ -18,5 +18,6 @@ registerConfig({
   deserialize: (data) => {
     const d = data as { deadzone?: number } | null | undefined;
     if (d && typeof d.deadzone === 'number') joystickDeadzone = d.deadzone;
-  }
+  },
+  resetToDefault: () => { joystickDeadzone = DEFAULT_JOYSTICK_DEADZONE; }
 });

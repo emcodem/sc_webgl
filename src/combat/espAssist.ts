@@ -9,8 +9,10 @@
 
 import { registerConfig } from '../input/configRegistry';
 
-let circleRadiusPx = 45; // px around screen center — smaller than the mouse-look reticle circle
-let dampeningStrength = 0.7; // 0..1 — fraction of input speed removed at dead center
+const DEFAULT_CIRCLE_RADIUS_PX = 45; // px around screen center — smaller than the mouse-look reticle circle
+const DEFAULT_DAMPENING_STRENGTH = 0.7; // 0..1 — fraction of input speed removed at dead center
+let circleRadiusPx = DEFAULT_CIRCLE_RADIUS_PX;
+let dampeningStrength = DEFAULT_DAMPENING_STRENGTH;
 
 export function getCircleRadius(): number {
   return circleRadiusPx;
@@ -57,5 +59,9 @@ registerConfig({
     if (!d) return;
     if (typeof d.circleRadiusPx === 'number') circleRadiusPx = d.circleRadiusPx;
     if (typeof d.dampeningStrength === 'number') dampeningStrength = d.dampeningStrength;
+  },
+  resetToDefault: () => {
+    circleRadiusPx = DEFAULT_CIRCLE_RADIUS_PX;
+    dampeningStrength = DEFAULT_DAMPENING_STRENGTH;
   }
 });

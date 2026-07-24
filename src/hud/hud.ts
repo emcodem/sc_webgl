@@ -332,8 +332,9 @@ function updateFlightRings(world: World): void {
   vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   vjoyTriangleEl.style.visibility = showVjoy ? 'visible' : 'hidden';
   if (showVjoy) {
-    // Normalize by `max` and scale to an on-screen radius -- `max` (mouseLook.ts's
-    // `fullDeflectionCounts`) is a raw mouse-COUNT gain constant (can be in the thousands, see
+    // Normalize by maxX/maxY and scale to an on-screen radius -- maxX/maxY (mouseLook.ts's
+    // yawFullDeflectionCounts/pitchFullDeflectionCounts, DIFFERENT per axis -- see that file's doc
+    // comment) are raw mouse-COUNT gain constants (can be in the thousands, see
     // capture/MEASUREMENTS.md), not a pixel cap, so drawing x/y as literal screen pixels would send
     // the marker arbitrarily far off-screen at a large gain. The radius itself mirrors SC's own on-
     // screen indicator, driven by `vjoyRangeDegrees` (F4 panel, SC's own "VJoy Range" slider units).
@@ -347,9 +348,9 @@ function updateFlightRings(world: World): void {
     const SC_VJOY_FOV_H_DEG = 116;
     const focalLengthPx = (window.innerWidth / 2) / Math.tan((SC_VJOY_FOV_H_DEG * Math.PI / 180) / 2);
     const indicatorRadius = focalLengthPx * Math.tan(MouseLook.getVjoyRangeDegrees() * Math.PI / 180);
-    const { x, y, max } = MouseLook.getOffset();
-    const rx = cx + (max > 0 ? (x / max) * indicatorRadius : 0);
-    const ry = cy + (max > 0 ? (y / max) * indicatorRadius : 0);
+    const { x, y, maxX, maxY } = MouseLook.getOffset();
+    const rx = cx + (maxX > 0 ? (x / maxX) * indicatorRadius : 0);
+    const ry = cy + (maxY > 0 ? (y / maxY) * indicatorRadius : 0);
 
     vjoyLineEl.setAttribute('x1', String(cx));
     vjoyLineEl.setAttribute('y1', String(cy));

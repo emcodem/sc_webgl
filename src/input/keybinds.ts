@@ -16,7 +16,8 @@ registerConfig({
   serialize: () => KEYBINDS,
   // merge over defaults (not replace outright) so a config saved before a new action existed
   // still leaves that action at its default chord instead of undefined
-  deserialize: (data) => { KEYBINDS = { ...defaultKeyBindings(), ...(data as Partial<KeyBindings>) }; }
+  deserialize: (data) => { KEYBINDS = { ...defaultKeyBindings(), ...(data as Partial<KeyBindings>) }; },
+  resetToDefault: () => resetToDefault() // hoisted function declaration below, not a self-reference
 });
 
 export function isActive(action: ActionName): boolean {
