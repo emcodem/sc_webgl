@@ -117,11 +117,14 @@
     </div>
 
     <!-- F3: dimmed full-screen overlay, pauses the sim while open. Also hosts the training
-         scenario picker/results views (see ui/scenarioMenu.ts) below the Resume/Restart row. -->
+         scenario picker/results views (see ui/scenarioMenu.ts) below the Resume/Restart row —
+         that row and the subtitle are hidden on the results view (see
+         scenarioMenu.ts::showScenarioResult/showPipTrainerResult/showPicker), which has its own
+         RETRY/BACK TO MENU buttons and doesn't need them repeated. -->
     <div id="main-menu-overlay">
       <div id="main-menu-box">
         <h2>Vector</h2>
-        <div class="menu-sub">Newtonian flight sim — fly, fight, land, walk.</div>
+        <div class="menu-sub" id="main-menu-subtitle">Newtonian flight sim — fly, fight, land, walk.</div>
         <div id="main-menu-buttons">
           <button id="main-menu-resume">Resume</button>
           <button id="main-menu-restart">Restart Flight</button>
