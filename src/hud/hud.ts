@@ -28,6 +28,7 @@ const espCircleEl = document.getElementById('esp-circle') as unknown as SVGCircl
 const espLabelEl = document.getElementById('esp-label') as unknown as SVGTextElement;
 const vjoyLineEl = document.getElementById('vjoy-line') as unknown as SVGLineElement;
 const vjoyTriangleEl = document.getElementById('vjoy-triangle') as unknown as SVGPolygonElement;
+const vjoyLineGradientEl = document.getElementById('vjoy-line-gradient') as unknown as SVGLinearGradientElement;
 
 const scenarioHudEl = document.getElementById('scenario-hud') as HTMLElement;
 const pipTrainerHudEl = document.getElementById('pip-trainer-hud') as HTMLElement;
@@ -356,6 +357,14 @@ function updateFlightRings(world: World): void {
     vjoyLineEl.setAttribute('y1', String(cy));
     vjoyLineEl.setAttribute('x2', String(rx));
     vjoyLineEl.setAttribute('y2', String(ry));
+
+    // Keep the fade gradient's own coordinate span locked to the line's current endpoints
+    // (gradientUnits="userSpaceOnUse" — see index.html) so the fade-out always happens at the
+    // center and at the triangle tip, regardless of the line's length/angle this frame.
+    vjoyLineGradientEl.setAttribute('x1', String(cx));
+    vjoyLineGradientEl.setAttribute('y1', String(cy));
+    vjoyLineGradientEl.setAttribute('x2', String(rx));
+    vjoyLineGradientEl.setAttribute('y2', String(ry));
 
     // Triangle's local points (in the SVG markup) point along +x; rotate to face the deflection
     // direction (same direction the line points, away from center) and place it at the stick position.

@@ -29,6 +29,17 @@
          updateFlightRings(). Ported from the original project's render/render.ts::drawMouseReticle
          / drawEspCircle, moved from canvas draws to an SVG overlay for this DOM-based HUD. -->
     <svg id="flight-hud-svg">
+      <defs>
+        <!-- Fades the vjoy line out at both ends (center + triangle tip) so only its middle
+             stretch reads as solid; x1/y1/x2/y2 are kept in sync with #vjoy-line's own endpoints
+             each frame in hud.ts::updateFlightRings, since gradientUnits is userSpaceOnUse. -->
+        <linearGradient id="vjoy-line-gradient" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#8c8ae9" stop-opacity="0" />
+          <stop offset="30%" stop-color="#8c8ae9" stop-opacity="1" />
+          <stop offset="70%" stop-color="#8c8ae9" stop-opacity="1" />
+          <stop offset="100%" stop-color="#8c8ae9" stop-opacity="0" />
+        </linearGradient>
+      </defs>
       <circle id="esp-circle" fill="none" />
       <text id="esp-label" text-anchor="middle">ESP</text>
       <line id="vjoy-line" />
