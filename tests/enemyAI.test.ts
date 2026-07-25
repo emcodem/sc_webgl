@@ -33,7 +33,10 @@ function makePlayer(pos: { x: number; y: number; z: number }, quat = IDENTITY): 
 // Fixed seed rather than spawnFighterAI() (which pulls Math.random()) to keep the state machine
 // fully deterministic for these tests.
 function makeAI(overrides: Partial<FighterAIMemory> = {}): FighterAIMemory {
-  return { mode: 'close', modeTimer: 0, clock: 0, jinkSeed: 0, tuning: FIGHTER_TUNING_ACE, ...overrides };
+  return {
+    mode: 'close', modeTimer: 0, clock: 0, jinkSeed: 0, tuning: FIGHTER_TUNING_ACE,
+    evadeBankDir: null, evadeBankTimer: 0, ...overrides
+  };
 }
 
 describe('canFireWithinTolerance', () => {

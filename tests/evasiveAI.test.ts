@@ -29,7 +29,7 @@ function makePlayer(vel = ZERO): ShipBody {
 }
 function makeAI(overrides: Partial<EvasiveAIMemory> = {}): EvasiveAIMemory {
   return {
-    jinkStrafeX: 0, jinkStrafeY: 0, jinkBoost: false, jinkReplanTimer: 999,
+    jinkStrafeX: 0, jinkStrafeY: 0, jinkReplanTimer: 999,
     mode: 'block', modeTimer: 0, wasThreatened: false, chasing: false,
     chaseStruggleTimer: 0, chaseCooldownTimer: 0, ...overrides
   };

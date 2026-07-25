@@ -58,6 +58,11 @@ export interface FighterAIMemory {
   clock: number;     // free-running elapsed seconds, used to phase weave/jink oscillations
   jinkSeed: number;  // randomized per spawn so multiple fighters don't jink in lockstep
   tuning: FighterTuning;
+  // 'evade' mode's committed break direction (world-space, perpendicular to the flee heading — see
+  // combat/enemyAI.ts's pickBreakDir) and how much longer it holds before re-picking. null until the
+  // first tick spent in 'evade'.
+  evadeBankDir: Vec3 | null;
+  evadeBankTimer: number;
 }
 
 // Every scenario-spawnable AI archetype (see combat/enemyAI.ts and combat/ai/*). 'fighter' is the
@@ -128,11 +133,11 @@ export interface DriftState {
 }
 
 // 'evasive' behavior memory — the receding-horizon MPC dodge planner's persistent state (see
-// combat/ai/evasiveAI.ts). Ported from the original project's combat/enemyAI.ts verbatim.
+// combat/ai/evasiveAI.ts). This project's own system, not a verbatim port. Every committed jink is
+// always boosted by design (see EVASIVE_TUNING's doc comment), so there's no separate boost flag.
 export interface EvasiveAIMemory {
   jinkStrafeX: number;
   jinkStrafeY: number;
-  jinkBoost: boolean;
   jinkReplanTimer: number;
   mode: 'block' | 'shootback';
   modeTimer: number;

@@ -11,22 +11,25 @@ import { steeringToward } from '../enemyAI';
 
 // ===========================================================================
 // EvasivePilotAI — the 'evasive' EnemyShip behavior, used only by the Evasive Pilot drill (see
-// scenarios/definitions.ts). Ported verbatim from the original project's combat/enemyAI.ts. Two
-// mostly-independent halves:
+// scenarios/definitions.ts). This project's own receding-horizon MPC dodge planner, not a verbatim
+// port. Two mostly-independent halves:
 //
 // FORWARD AXIS (standoff-holding) — a plain velocity-servo: match the player's own forward speed
 // (feed-forward) plus a correction proportional to the standoffDistance shortfall. Not re-rolled or
 // randomized (the target is just "stay standoffDistance ahead"), so it converges cleanly and doesn't
 // have the achievability problems the lateral/vertical axis used to.
 //
-// LATERAL/VERTICAL AXES (the jink) — receding-horizon MODEL PREDICTIVE CONTROL instead of a
-// hand-tuned reroll-and-servo heuristic. A fixed reroll-a-random-target-then-chase-it approach (what
-// this used to do) is fundamentally reactive: it can't know whether the direction it just picked is
-// actually a good idea, only follow it until a timer says "pick a new one" — which reads as
-// low-effort and, worse, ends up looking close to a straight line whenever the servo's response time
-// doesn't match the reroll cadence (a real, measured failure mode of the old design). MPC instead:
-//   1. Builds several candidate constant strafeX/strafeY/boost commands (8 directions + hold, each
-//      with/without boost).
+// LATERAL/VERTICAL AXES (the break) — receding-horizon MODEL PREDICTIVE CONTROL over exactly one
+// maneuver, always flown the way a real pilot breaks off a gun pass: bank the hull 45° or 90° (either
+// direction — 4 possible bank angles, see MPC_JINK_DIRECTIONS) and push full boosted thrust through
+// the STRONG up-thruster, rather than an unrolled hull splitting thrust across two weaker/independent
+// axes (2026-07-25: previously the candidate set also included a "hold formation" option and a
+// straight, unrolled up/down push, which is exactly what read as a flat, non-evasive slide — see
+// spawnEvasiveState's doc comment). There is no hold option and no unrolled push anymore — the drone
+// is always mid-break. Concretely:
+//   1. Builds the 4 candidate bank angles, each implicitly boosted — real evasive pilots hit the
+//      afterburner mid-break, not as a rare last resort, so boost is no longer a separate searched
+//      dimension.
 //   2. For EACH candidate, clones the drone's current state and forward-simulates it through the
 //      SAME real flight model (physics/flightModel.ts's integrateFlight) the whole game runs on, for
 //      a short horizon — this is "the AI" quite literally driving its own physics sim as a predictor,
@@ -35,13 +38,17 @@ import { steeringToward } from '../enemyAI';
 //      aim to hit (via the same closestApproachIfFiredNow the player's own PIP color uses), reward
 //      ending up with a velocity that's substantially DIFFERENT from its current one (the actual
 //      "jerk"/PIP-defeating quantity), and penalize drifting far from the standoff distance.
-//   4. Commits to the winning candidate's strafeX/strafeY/boost for a short window (re-planning more
-//      often — a receding horizon — rather than committing to a long, unverified maneuver), then
-//      repeats. Reacting to a detected threat forces an immediate replan instead of waiting out the
-//      window, same idea as the old design's "break now" rule.
+//   4. Commits to the winning candidate's bank angle for a short window (re-planning more often — a
+//      receding horizon — rather than committing to a long, unverified maneuver), then repeats.
+//      Reacting to a detected threat forces an immediate replan instead of waiting out the window,
+//      same idea as the old design's "break now" rule.
 // Orientation is held FIXED for the (short, ~1s) planning horizon — a real reorientation takes
 // several seconds at this ship's turn rate (see the chase/watch split below), so freezing it for the
-// much shorter planning window is a reasonable approximation, not a meaningful source of error.
+// much shorter planning window is a reasonable approximation, not a meaningful source of error. It's
+// also a reasonable approximation of the bank itself: strafe and up-thrust are nearly equal in
+// magnitude (145 vs 147), so a full-power single-axis push after rolling and a fractional two-axis
+// push before rolling land at nearly the same resultant velocity — what the roll actually buys is
+// legibility (a deliberate break, not a flat slide), not thrust efficiency.
 //
 // Nose facing is a hysteresis switch between two modes, not a permanent lock:
 //   'watch' (default) — nose on the player (aimDir), so it reads as an opponent fighting you, not a
@@ -56,9 +63,11 @@ import { steeringToward } from '../enemyAI';
 //              read as sluggish/"flies in one straight line" once nose-lock kept it retro-only for its
 //              single largest, most common correction. Hysteresis (separate enter/exit thresholds)
 //              stops it flip-flopping facing every tick right at the boundary.
-// Bank is separately slaved to the player's own via `upHint` on steeringToward regardless of which of
-// the two the nose is doing, so it never appears to roll independently of the player — "always roll
-// matches" from the drill's design brief.
+// Bank is fed to `upHint` on steeringToward regardless of which of the two the nose is doing (2026-
+// 07-25: this used to slave bank to the player's own roll except while correcting a downward jink —
+// "always roll matches the player" — but that's exactly what made every non-down jink read as an
+// unrolled, flat slide; bank now always follows the committed jink's own bank angle instead, per the
+// "roll 45/90 and push up" maneuver above).
 //
 // The AI only ever issues thruster commands through the same realistic flight model as everything
 // else, so the actual G-loading and reversal snap the player sees is bounded by real thrust/speed,
@@ -89,12 +98,6 @@ export const EVASIVE_TUNING = {
                                  // and forcing an immediate break instead — see chaseStruggleTolerance
   chaseCooldownSec: 1.0,         // seconds 'chasing' stays disabled after a forced break, so it
                                  // doesn't immediately re-enter the same losing chase it just gave up
-  boostVelocityThreshold: 20,    // m/s of tracking deficit still needed before it kicks in boost —
-                                 // kept low so afterburner gets used liberally any time main thrust
-                                 // is doing real work, not just as a rare last resort. Boost never
-                                 // helps strafe (real SC's afterburner only affects the main engine),
-                                 // so this only ever fires while genuinely using throttle, but that
-                                 // should be often
   threatMarginMultiplier: 2.5,  // MPC's hit-risk term activates once a candidate's predicted miss
                                  // distance would be within this many hull radii, not only once it
                                  // would already technically connect — lets it react before a shot
@@ -111,11 +114,14 @@ export const EVASIVE_TUNING = {
                                   // compete, and the receding-horizon replanning (mpcReplanSec below)
                                   // is what provides the longer-term correction, not any one horizon.
   mpcStepSec: 0.08,                // physics step size used for that simulation (5 steps/horizon)
-  mpcReplanSec: 0.25,             // baseline cadence for re-running the candidate evaluation — a
-                                   // receding horizon, not a one-shot plan committed to indefinitely
-  mpcThreatReplanSec: 0.08,      // much faster re-evaluation cadence while a candidate's own outcome
+  mpcReplanSec: 0.75,             // baseline cadence for re-running the candidate evaluation — a
+                                   // receding horizon, not a one-shot plan committed to indefinitely.
+                                   // 2026-07-25: 3x'd from 0.25s (200% longer per user report the
+                                   // wiggle read as too fast/twitchy to land as a deliberate break)
+  mpcThreatReplanSec: 0.24,      // much faster re-evaluation cadence while a candidate's own outcome
                                  // is judged risky (see the hit-risk cost term) — a fast, urgent
-                                 // reconsideration instead of the calmer baseline cadence
+                                 // reconsideration instead of the calmer baseline cadence. Also 3x'd
+                                 // from 0.08s 2026-07-25, same reasoning as mpcReplanSec above.
   mpcStandoffWeight: 9.0,        // cost weight — keep the jink from drifting far off the standoff
                                  // POINT (forward distance AND lateral/vertical position both, meters
                                  // — see scoreJinkCandidate's doc comment for why this is linear, not squared)
@@ -129,12 +135,6 @@ export const EVASIVE_TUNING = {
                                  // vertical didn't, relying only on MPC's periodic drift-cost
                                  // judgment, which wasn't enough on its own to prevent runaway drift
                                  // once the standoff point itself was moving fast
-  downStrafePenalty: 70,          // cost weight (see scoreJinkCandidate's doc comment) — biases the
-                                  // planner away from a full straight-down jink by roughly as much as
-                                  // a moderate standoff-drift or a partial direction-change would cost,
-                                  // enough to usually lose to a comparable non-down option without
-                                  // making "down" literally unreachable when it's genuinely the best
-                                  // available move (e.g. the only direction that avoids a predicted hit)
   mpcHitRiskWeight: 2.0,          // cost weight — strongly avoid predicted-hit outcomes
   mpcUnpredictabilityWeight: 150, // reward weight (0..2 scale) — favor candidates that push in a
                                   // DIFFERENT direction than the currently-committed one. This is the
@@ -148,22 +148,32 @@ export const EVASIVE_TUNING = {
   fireLateralTolerance: 6
 };
 
-// 8 compass directions in the (player's) right/up plane, plus holding still — evaluated both with and
-// without boost each replan. Full deflection only: MPC already picks WHICH direction is best, so
-// there's no need to also search partial magnitudes — a hard, complete break is what actually
-// produces jerk.
+// The 4 bank angles the break maneuver ever executes: ±45° and ±90° off vertical (playerUp), in the
+// (player's) right/up plane — (x, y) = (sin(bankAngle), cos(bankAngle)), so evasiveThink's bankHint
+// (always aligned to whichever of these is committed — see its doc comment) rolls the hull by exactly
+// that angle before pushing thrust "up" through it. Deliberately excludes straight up (0°, no roll —
+// the flat slide this whole redesign was fixing), straight down and the two down-leaning diagonals
+// (135°/-135° — the weak half-strength verticalDown thruster), and "hold formation" (never a valid
+// pick — the drone is always mid-break, never a straight line). Full deflection only: MPC already
+// picks WHICH bank angle is best, so there's no need to also search partial magnitudes — a hard,
+// complete break is what actually produces jerk.
 const MPC_JINK_DIRECTIONS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: 0, y: 0 },
-  { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
-  { x: 0.7071, y: 0.7071 }, { x: 0.7071, y: -0.7071 }, { x: -0.7071, y: 0.7071 }, { x: -0.7071, y: -0.7071 }
+  { x: 0.7071, y: 0.7071 },   // +45°
+  { x: -0.7071, y: 0.7071 },  // -45°
+  { x: 1, y: 0 },             // +90°
+  { x: -1, y: 0 }             // -90°
 ];
 
+// Opens the drill already mid-break — a random bank angle committed immediately, held for one full
+// baseline replan window (mpcReplanSec) before the MPC planner takes over — rather than defaulting to
+// a zero/"hold" bias that would read as a flat, unrolled upstrafe the instant the player turns toward
+// it (the exact complaint this redesign fixes; see the top-of-file doc comment).
 export function spawnEvasiveState(): EvasiveAIMemory {
+  const dir = MPC_JINK_DIRECTIONS[Math.floor(Math.random() * MPC_JINK_DIRECTIONS.length)];
   return {
-    jinkStrafeX: 0,
-    jinkStrafeY: 0,
-    jinkBoost: false,
-    jinkReplanTimer: 0,
+    jinkStrafeX: dir.x,
+    jinkStrafeY: dir.y,
+    jinkReplanTimer: EVASIVE_TUNING.mpcReplanSec,
     mode: 'block',
     modeTimer: 0,
     wasThreatened: false,
@@ -218,14 +228,15 @@ function jinkVelocityServo(
   };
 }
 
-// Forward-simulates holding a fixed jink bias direction (PLAYER-frame)/throttle/boost for
+// Forward-simulates holding a fixed jink bias direction (PLAYER-frame)/throttle for
 // EVASIVE_TUNING.mpcHorizonSec, through the real flight model — re-running the velocity-servo above
 // every substep (not just once at the start), so the simulation reacts to its own evolving velocity
 // the same way the real per-tick application does. Orientation is frozen (zero angVel, zero
 // pitch/yaw/roll input) for the duration — see this section's doc comment for why that's a reasonable
-// approximation over a horizon this short.
+// approximation over a horizon this short. Always boosted (see EVASIVE_TUNING's doc comment on why
+// boost is no longer a separate searched candidate dimension).
 function simulateJinkCandidate(
-  enemy: EnemyShip, throttle: number, dirX: number, dirY: number, boost: boolean,
+  enemy: EnemyShip, throttle: number, dirX: number, dirY: number,
   playerRight: Vec3, playerUp: Vec3, baselineLateralVel: number, baselineVerticalVel: number
 ): { pos: Vec3; vel: Vec3 } {
   const body: PlanningBody = {
@@ -235,8 +246,8 @@ function simulateJinkCandidate(
     quat: { x: enemy.quat.x, y: enemy.quat.y, z: enemy.quat.z, w: enemy.quat.w },
     angVel: { pitch: 0, yaw: 0, roll: 0 },
     angAccel: { pitch: 0, yaw: 0, roll: 0 },
-    boosting: boost,
-    throttleSpoolTime: boost ? 0 : enemy.throttleSpoolTime,
+    boosting: true,
+    throttleSpoolTime: 0,
     verticalSpoolTime: enemy.verticalSpoolTime
   };
   const { right: bodyRight, up: bodyUp } = computeAxes(body.quat);
@@ -292,21 +303,13 @@ function scoreJinkCandidate(
   const hitRiskShortfall = Math.max(0, margin - missDistance);
   const hitRiskCost = hitRiskShortfall * hitRiskShortfall;
 
-  // 0 (same push direction as currently committed) .. 2 (fully reversed); both dir vectors are
-  // already unit length (or zero for "hold"), so this is a plain cosine-similarity comparison
+  // 0 (same bank angle as currently committed) .. 2 (fully reversed); both dir vectors are always
+  // unit length (every candidate is one of the 4 bank angles — see MPC_JINK_DIRECTIONS — never zero),
+  // so this is a plain cosine-similarity comparison.
   const directionChangeReward = 1 - (dirX * prevDirX + dirY * prevDirY);
-
-  // Down (-Y) jinks only ever get HALF the real thrust of every other direction on this ship
-  // (ShipType.linearThrust.verticalDown is exactly half verticalUp) — bias the planner away from
-  // routinely relying on "down" as just another equally-good option, even though the roll-to-align
-  // trick in evasiveThink lets the real per-tick execution mostly route around that weakness when
-  // "down" does get chosen. Scaled by how much of the candidate is actually downward, so a mild
-  // down-left diagonal isn't penalized as hard as a pure straight-down push.
-  const downStrafePenalty = dirY < 0 ? -dirY * EVASIVE_TUNING.downStrafePenalty : 0;
 
   return EVASIVE_TUNING.mpcStandoffWeight * standoffCost
     + EVASIVE_TUNING.mpcHitRiskWeight * hitRiskCost
-    + downStrafePenalty
     - EVASIVE_TUNING.mpcUnpredictabilityWeight * directionChangeReward;
 }
 
@@ -435,21 +438,19 @@ export function evasiveThink(
     ai.modeTimer = EVASIVE_TUNING.shootbackDurationSec;
   }
 
-  // Bank normally matches the player's own (real pilots don't roll independently for no reason), but
-  // a committed jink that leans meaningfully DOWNWARD is instead executed by rolling until the
-  // drone's OWN "up" axis points toward the jink's full direction — letting jinkVelocityServo route
-  // the correction through the strong up-thruster instead of eating half thrust on a literal
-  // down-strafe (ShipType.linearThrust.verticalDown is exactly half verticalUp). This is the same
-  // "roll 45-90 degrees and push up" technique a real pilot would use rather than relying on the
-  // weak thruster — see downStrafePenalty's doc comment for the other half of this.
+  // Bank always aligns to the committed jink's own bank angle (never the player's) — rolling the
+  // drone's OWN "up" axis to point along the jink's full world direction, so jinkVelocityServo routes
+  // the break through the strong up-thruster at whatever the committed ±45°/±90° bank angle is,
+  // rather than an unrolled hull splitting thrust across two axes. ai.jinkStrafeX/Y is never (0, 0)
+  // (see MPC_JINK_DIRECTIONS — no "hold" candidate), so jinkWorldDirMag is always well above the
+  // epsilon fallback in practice; the fallback exists purely for numerical safety.
   const jinkWorldDir: Vec3 = {
     x: playerRight.x * ai.jinkStrafeX + playerUp.x * ai.jinkStrafeY,
     y: playerRight.y * ai.jinkStrafeX + playerUp.y * ai.jinkStrafeY,
     z: playerRight.z * ai.jinkStrafeX + playerUp.z * ai.jinkStrafeY
   };
   const jinkWorldDirMag = Math.hypot(jinkWorldDir.x, jinkWorldDir.y, jinkWorldDir.z);
-  const usesWeakDownThrust = ai.jinkStrafeY < -0.3 && jinkWorldDirMag > 1e-3;
-  const bankHint = usesWeakDownThrust
+  const bankHint = jinkWorldDirMag > 1e-3
     ? { x: jinkWorldDir.x / jinkWorldDirMag, y: jinkWorldDir.y / jinkWorldDirMag, z: jinkWorldDir.z / jinkWorldDirMag }
     : playerUp;
 
@@ -471,22 +472,18 @@ export function evasiveThink(
   // ---- MPC jink replan (see this section's doc comment) ----
   ai.jinkReplanTimer -= dt;
   if (ai.jinkReplanTimer <= 0) {
-    let bestCost = Infinity, bestX = 0, bestY = 0, bestBoost = false;
+    let bestCost = Infinity, bestX = MPC_JINK_DIRECTIONS[0].x, bestY = MPC_JINK_DIRECTIONS[0].y;
     for (const dir of MPC_JINK_DIRECTIONS) {
-      for (const boost of [false, true]) {
-        const outcome = simulateJinkCandidate(enemy, throttle, dir.x, dir.y, boost, playerRight, playerUp, playerLateralVel, playerVerticalVel);
-        const cost = scoreJinkCandidate(outcome.pos, outcome.vel, dir.x, dir.y, ai.jinkStrafeX, ai.jinkStrafeY, player, playerForward, playerRight, playerUp, enemy.type.hullRadius);
-        if (cost < bestCost) {
-          bestCost = cost;
-          bestX = dir.x;
-          bestY = dir.y;
-          bestBoost = boost;
-        }
+      const outcome = simulateJinkCandidate(enemy, throttle, dir.x, dir.y, playerRight, playerUp, playerLateralVel, playerVerticalVel);
+      const cost = scoreJinkCandidate(outcome.pos, outcome.vel, dir.x, dir.y, ai.jinkStrafeX, ai.jinkStrafeY, player, playerForward, playerRight, playerUp, enemy.type.hullRadius);
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestX = dir.x;
+        bestY = dir.y;
       }
     }
     ai.jinkStrafeX = bestX;
     ai.jinkStrafeY = bestY;
-    ai.jinkBoost = bestBoost;
     ai.jinkReplanTimer = threatened ? EVASIVE_TUNING.mpcThreatReplanSec : EVASIVE_TUNING.mpcReplanSec;
   }
 
@@ -496,7 +493,9 @@ export function evasiveThink(
   // both the nose keeps slowly re-aiming and the player keeps moving/rotating in the meantime.
   const jink = jinkVelocityServo(ai.jinkStrafeX, ai.jinkStrafeY, playerLateralVel, playerVerticalVel, enemy.vel, playerRight, playerUp, enemyRight, enemyUp);
 
-  const boostRequested = velDeficitMag > EVASIVE_TUNING.boostVelocityThreshold || justThreatened || ai.jinkBoost;
+  // Always boosted: the drone is always mid-break (no "hold" state — see MPC_JINK_DIRECTIONS), and a
+  // real evasive break is flown with the afterburner lit, not requested only as a last resort.
+  const boostRequested = true;
 
   return {
     inputs: {

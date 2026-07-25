@@ -2,7 +2,7 @@ import type { FighterAIMemory, FighterTuning, Quat, Vec3 } from '../core/types';
 import type { EnemyShip, ShipBody } from '../core/world';
 import type { FlightInputs } from '../physics/flightModel';
 import { computeAxes, lookAtQuat, quatMultiply } from '../math/quaternion';
-import { clamp, normalize } from '../math/vec';
+import { clamp, cross, normalize } from '../math/vec';
 import { computeLeadPoint } from './leadIndicator';
 import { WEAPON } from './weapons';
 
@@ -71,7 +71,34 @@ export interface FighterDecision {
 }
 
 export function spawnFighterAI(tuning: FighterTuning = FIGHTER_TUNING_ACE): FighterAIMemory {
-  return { mode: 'close', modeTimer: 0, clock: 0, jinkSeed: Math.random() * 1000, tuning };
+  return { mode: 'close', modeTimer: 0, clock: 0, jinkSeed: Math.random() * 1000, tuning, evadeBankDir: null, evadeBankTimer: 0 };
+}
+
+// The 4 break directions 'evade' mode ever picks: ±45° and ±90° off "up" (in the plane perpendicular
+// to the flee heading), matching combat/ai/evasiveAI.ts's MPC_JINK_DIRECTIONS/bank-and-push-up
+// maneuver — duplicated rather than imported to avoid a circular import (evasiveAI.ts already imports
+// FROM this module). "up" here is whatever's perpendicular to `away`, picked via the same
+// world-up-then-fallback construction combat/ai/orbiterDrifterAI.ts's randomPerpendicularPair uses.
+const EVADE_BREAK_DIRS: ReadonlyArray<{ x: number; y: number }> = [
+  { x: 0.7071, y: 0.7071 }, { x: -0.7071, y: 0.7071 }, { x: 1, y: 0 }, { x: -1, y: 0 }
+];
+
+// Picks a fresh world-space break direction for 'evade' mode: a stable right/up frame perpendicular
+// to the flee heading `away` (frozen for this pick, not re-rotated with the ship's own turning — see
+// combat/ai/orbiterDrifterAI.ts's advanceBarrelRoll for the same "freeze the reference frame" idea),
+// then one of the 4 bank angles within it, so the resulting break always reads as a real ±45°/±90°
+// roll off vertical rather than an arbitrary direction.
+function pickBreakDir(away: Vec3): Vec3 {
+  let right = cross(away, { x: 0, y: 1, z: 0 });
+  if (Math.hypot(right.x, right.y, right.z) < 1e-6) right = cross(away, { x: 1, y: 0, z: 0 });
+  right = normalize(right);
+  const up = normalize(cross(right, away));
+  const pick = EVADE_BREAK_DIRS[Math.floor(Math.random() * EVADE_BREAK_DIRS.length)];
+  return normalize({
+    x: right.x * pick.x + up.x * pick.y,
+    y: right.y * pick.x + up.y * pick.y,
+    z: right.z * pick.x + up.z * pick.y
+  });
 }
 
 export function angleBetween(a: Vec3, b: Vec3): number {
@@ -173,6 +200,7 @@ export function think(enemy: EnemyShip, ai: FighterAIMemory, player: ShipBody, d
   let brake = false;
   let strafeX = 0, strafeY = 0;
   let wantsToFire = false;
+  let bankHint: Vec3 | undefined; // only 'evade' sets this — every other mode banks the default way
 
   switch (ai.mode) {
     case 'close':
@@ -196,18 +224,24 @@ export function think(enemy: EnemyShip, ai: FighterAIMemory, player: ShipBody, d
     }
 
     case 'evade': {
-      const jinkYaw = Math.sin(ai.clock * tuning.weaveFreq + ai.jinkSeed) > 0 ? 1 : -1;
+      // Break off the gun pass: bank 45° or 90° (random, re-picked periodically — see pickBreakDir)
+      // and push full boosted thrust through the strong up-thruster, same maneuver and reasoning as
+      // combat/ai/evasiveAI.ts's redesigned jink (2026-07-25) — a real evasive break rolls hard and
+      // climbs/breaks off-axis, not a flat sideways slide. Hold duration reuses tuning.weaveFreq (the
+      // existing ROOKIE/ACE aggressiveness knob for this mode) so a harder-tuned opponent still
+      // re-picks its break more often, not just a fixed constant.
       const away: Vec3 = { x: -toPlayerDir.x, y: -toPlayerDir.y, z: -toPlayerDir.z };
-      const { right: enemyRight, up: enemyUp } = computeAxes(enemy.quat);
-      steerDir = normalize({
-        x: away.x + enemyRight.x * jinkYaw * 0.6,
-        y: away.y + enemyUp.y * 0.3,
-        z: away.z + enemyRight.z * jinkYaw * 0.6
-      });
+      ai.evadeBankTimer -= dt;
+      if (ai.evadeBankTimer <= 0 || !ai.evadeBankDir) {
+        ai.evadeBankDir = pickBreakDir(away);
+        ai.evadeBankTimer = 1 / tuning.weaveFreq;
+      }
+      steerDir = away;
+      bankHint = ai.evadeBankDir;
       throttle = 1;
       boostRequested = true;
-      strafeX = jinkYaw * Math.sin(ai.clock * tuning.weaveFreq * 1.3 + ai.jinkSeed);
-      strafeY = Math.cos(ai.clock * tuning.weaveFreq * 0.9 + ai.jinkSeed) * 0.6;
+      strafeX = 0;
+      strafeY = 1;
       break;
     }
 
@@ -226,7 +260,7 @@ export function think(enemy: EnemyShip, ai: FighterAIMemory, player: ShipBody, d
     }
   }
 
-  const steer = steeringToward(enemy.quat, steerDir, tuning.steerGain);
+  const steer = steeringToward(enemy.quat, steerDir, tuning.steerGain, bankHint);
 
   return {
     inputs: {
