@@ -85,6 +85,14 @@ import { steeringToward } from '../enemyAI';
 // ===========================================================================
 export const EVASIVE_TUNING = {
   standoffDistance: 50,        // meters directly ahead of the player's nose it tries to hold station at
+  maxRangeM: 200,               // 2026-07-25: hard leash — once actual 3D distance to the player exceeds
+                                // this, evasiveThink overrides chase/passthrough to force nose-on-player
+                                // + full closing throttle until back inside it (see its use below). The
+                                // jink's constant 55 m/s bias (jinkMagnitude, never "hold" anymore — see
+                                // MPC_JINK_DIRECTIONS) plus the occasional pass-through's own full-forward
+                                // override can otherwise random-walk the drone well past a sensible
+                                // fighting range before the (proportional, not hard-capped) standoff/
+                                // centering corrections alone rein it back in.
   steerGain: 7,
   positionCorrectionGain: 1.2,   // 1/s — how much of the standoffDistance shortfall (meters, forward
                                   // axis only) gets added to the player's own velocity as the desired
@@ -358,6 +366,8 @@ export function evasiveThink(
     z: enemy.pos.z - player.pos.z
   };
   const aimDir = normalize({ x: -toEnemy.x, y: -toEnemy.y, z: -toEnemy.z });
+  const distToPlayer = Math.hypot(toEnemy.x, toEnemy.y, toEnemy.z);
+  const overRange = distToPlayer > EVASIVE_TUNING.maxRangeM; // see EVASIVE_TUNING.maxRangeM's doc comment
 
   // how close would the player's shot, fired right now with their current facing/velocity, actually
   // pass RIGHT NOW (not the predictive per-candidate version MPC uses below) — drives replan urgency
@@ -378,7 +388,10 @@ export function evasiveThink(
   if (ai.forcedBreakTimer <= 0) {
     ai.jinkReplanTimer = 0;
     ai.forcedBreakTimer = EVASIVE_TUNING.forcedBreakIntervalSec;
-    if (Math.random() < EVASIVE_TUNING.passThroughChance) ai.passThroughTimer = EVASIVE_TUNING.passThroughDurationSec;
+    // never schedule a NEW pass-through while already beyond maxRangeM — overRange's own throttle
+    // override below already forces full closing thrust, so a pass-through here would be redundant
+    // at best (and along whatever direction the nose happened to be facing at worst).
+    if (!overRange && Math.random() < EVASIVE_TUNING.passThroughChance) ai.passThroughTimer = EVASIVE_TUNING.passThroughDurationSec;
   }
   if (ai.passThroughTimer > 0) ai.passThroughTimer -= dt;
 
@@ -493,15 +506,19 @@ export function evasiveThink(
     z: playerRight.z * ai.jinkStrafeX + playerUp.z * ai.jinkStrafeY
   };
   const jinkWorldDirMag = Math.hypot(jinkWorldDir.x, jinkWorldDir.y, jinkWorldDir.z);
-  const bankHint = jinkWorldDirMag > 1e-3
-    ? { x: jinkWorldDir.x / jinkWorldDirMag, y: jinkWorldDir.y / jinkWorldDirMag, z: jinkWorldDir.z / jinkWorldDirMag }
-    : playerUp;
+  // Beyond maxRangeM there's no jink to bank into (see the strafeX/strafeY override below) — bank
+  // flat (matching the player's own roll) rather than committing to a bank angle for thrust that's
+  // no longer being applied.
+  const bankHint = overRange || jinkWorldDirMag <= 1e-3
+    ? playerUp
+    : { x: jinkWorldDir.x / jinkWorldDirMag, y: jinkWorldDir.y / jinkWorldDirMag, z: jinkWorldDir.z / jinkWorldDirMag };
 
   // nose faces the player by default, swings to face the ACTUAL direction of the combined tracking
   // need while genuinely catching up (see chase/watch doc comment and chaseDir above — not a
   // hardcoded axis), snaps to face the player for a shootback window regardless of chase state (a
-  // shot is more useful than a marginal thrust-efficiency gain)
-  const steerDir = (ai.mode === 'shootback' || !ai.chasing) ? aimDir : chaseDir;
+  // shot is more useful than a marginal thrust-efficiency gain), and snaps back to face the player
+  // whenever beyond maxRangeM too — closing distance takes priority over a losing chase out there.
+  const steerDir = (overRange || ai.mode === 'shootback' || !ai.chasing) ? aimDir : chaseDir;
   const steer = steeringToward(enemy.quat, steerDir, EVASIVE_TUNING.steerGain, bankHint);
 
   // main thrust projected onto the drone's OWN current nose — this still works correctly regardless
@@ -509,13 +526,16 @@ export function evasiveThink(
   // the jink: whatever axis is CURRENTLY available gets whatever fraction of the FULL tracking need
   // it can actually deliver. Using the full 3D deficit (not just its forward-axis component) means
   // main thrust pulls its actual weight even while chase is still turning to fully align. Overridden
-  // to full forward during an active pass-through window (see the forced-break block above) — nose
-  // is normally facing the player ('watch' mode), so this is what actually makes it try to blow past
-  // instead of the standoff servo just continuing to hold/extend range.
+  // to full forward (closing on the player, since steerDir/nose above already snapped to aimDir)
+  // whenever beyond maxRangeM — takes priority over the pass-through override below, which would
+  // otherwise sometimes also force full throttle but along whatever direction the nose already
+  // happened to be facing, doing nothing to guarantee it's actually toward the player.
   const { forward: enemyForward, right: enemyRight, up: enemyUp } = computeAxes(enemy.quat);
-  const throttle = ai.passThroughTimer > 0
+  const throttle = overRange
     ? 1
-    : clamp((velDeficitFull.x * enemyForward.x + velDeficitFull.y * enemyForward.y + velDeficitFull.z * enemyForward.z) / EVASIVE_TUNING.velocityBand, -1, 1);
+    : ai.passThroughTimer > 0
+      ? 1
+      : clamp((velDeficitFull.x * enemyForward.x + velDeficitFull.y * enemyForward.y + velDeficitFull.z * enemyForward.z) / EVASIVE_TUNING.velocityBand, -1, 1);
 
   // ---- MPC jink replan (see this section's doc comment) ----
   ai.jinkReplanTimer -= dt;
@@ -539,7 +559,14 @@ export function evasiveThink(
   // jinkVelocityServo's doc comment) — recomputed into actual strafeX/strafeY every tick, not just at
   // the moment they were chosen, since a committed direction can persist across many replans while
   // both the nose keeps slowly re-aiming and the player keeps moving/rotating in the meantime.
-  const jink = jinkVelocityServo(ai.jinkStrafeX, ai.jinkStrafeY, playerLateralVel, playerVerticalVel, enemy.vel, playerRight, playerUp, enemyRight, enemyUp);
+  // Suppressed entirely beyond maxRangeM: strafe/vertical thrust (145/147) is comparable in magnitude
+  // to main thrust (201), so leaving the jink active while "closing" would have it fighting itself —
+  // nose-on and full main thrust doesn't actually close distance quickly if a near-equally-strong
+  // sideways push is fighting it the whole way, which is exactly what let it wander past maxRangeM
+  // and keep going instead of ever visibly returning.
+  const jink = overRange
+    ? { strafeX: 0, strafeY: 0 }
+    : jinkVelocityServo(ai.jinkStrafeX, ai.jinkStrafeY, playerLateralVel, playerVerticalVel, enemy.vel, playerRight, playerUp, enemyRight, enemyUp);
 
   // Always boosted: the drone is always mid-break (no "hold" state — see MPC_JINK_DIRECTIONS), and a
   // real evasive break is flown with the afterburner lit, not requested only as a last resort.
