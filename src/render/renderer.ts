@@ -124,7 +124,7 @@ export class Renderer {
 
     // speed-reactive ambient dust (see createSpaceDust's doc comment) — piloting-only, updated
     // per frame in render() below
-    this.spaceDust = createSpaceDust();
+    this.spaceDust = createSpaceDust(200, 130);
     this.scene.add(this.spaceDust.mesh);
 
     // celestial bodies

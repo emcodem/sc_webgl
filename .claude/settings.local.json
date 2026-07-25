@@ -20,7 +20,8 @@
       "Bash(.venv/Scripts/python.exe *)",
       "Bash(ffmpeg -f gdigrab -framerate 5 -i desktop -frames:v 1 -update 1 -y data/scratch/check_1600_1800.png)",
       "Bash(ffmpeg -f gdigrab -i desktop -frames:v 1 -update 1 -y data/scratch/state_after_interrupt.png)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(\"./node_modules/.bin/tsc.cmd\" -p tsconfig.json --noEmit+)"
     ]
   }
 }
