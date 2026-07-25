@@ -115,6 +115,21 @@
         <div id="stats-destroyed-rows" style="display:none">
           <div class="row"><span class="label">RESPAWNING</span><span class="value" id="s-respawn">0.0s</span></div>
         </div>
+
+        <!-- Vertical speed gauge (left side, below #stats) -->
+        <div id="speed-gauge" style="display:none">
+          <div class="gauge-track"><div class="gauge-fill" id="speed-fill"></div></div>
+          <div class="gauge-ticks" id="speed-ticks"></div>
+          <span id="speed-val" class="gauge-label">0 m/s</span>
+        </div>
+
+        <!-- Vertical boost gauge (right side, below #stats) -->
+        <div id="boost-gauge" style="display:none">
+          <div class="gauge-track"><div class="gauge-fill" id="boost-fill"></div></div>
+          <div class="gauge-ticks" id="boost-ticks"></div>
+          <span id="boost-val" class="gauge-label">100%</span>
+        </div>
+
       </div>
     </div>
 

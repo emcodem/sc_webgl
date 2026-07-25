@@ -46,7 +46,18 @@ const el = (id: string) => document.getElementById(id) as HTMLElement;
 const hudCanvasEl = document.getElementById('hud-canvas') as HTMLCanvasElement;
 const hudCtx = hudCanvasEl.getContext('2d');
 
+// Vertical gauges (speed left, boost right)
+const speedGaugeEl = document.getElementById('speed-gauge') as HTMLElement;
+const speedFillEl = document.getElementById('speed-fill') as HTMLElement;
+const speedTicksEl = document.getElementById('speed-ticks') as HTMLElement;
+const speedValEl = document.getElementById('speed-val') as HTMLElement;
+const boostGaugeEl = document.getElementById('boost-gauge') as HTMLElement;
+const boostFillEl = document.getElementById('boost-fill') as HTMLElement;
+const boostTicksEl = document.getElementById('boost-ticks') as HTMLElement;
+const boostValEl = document.getElementById('boost-val') as HTMLElement;
+
 let modeFlagWired = false;
+let gaugesInitDone = false;
 
 export function updateHUD(world: World): void {
   const p = world.player;
@@ -86,6 +97,53 @@ export function updateHUD(world: World): void {
       hintEl.classList.add('hidden');
     }
   }
+
+  updateGauges(world);
+}
+
+// Generate tick marks on the vertical gauges (once at first call).
+function initGauges(): void {
+  if (gaugesInitDone) return;
+  gaugesInitDone = true;
+  for (let i = 0; i <= 10; i++) {
+    const pct = `${(i / 10) * 100}%`;
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.style.setProperty('--pct', pct);
+    speedTicksEl.appendChild(tick);
+
+    const boostTick = document.createElement('div');
+    boostTick.className = 'tick';
+    boostTick.style.setProperty('--pct', pct);
+    boostTicksEl.appendChild(boostTick);
+  }
+}
+
+// Update vertical gauges each frame.
+function updateGauges(world: World): void {
+  initGauges();
+  const p = world.player;
+  const ship = p.ship;
+
+  // Hide both when destroyed or in on-foot mode (gauges are pilot-specific).
+  const showPilot = world.player.ship.respawnTimer <= 0 && p.mode === 'pilot';
+  speedGaugeEl.style.display = showPilot ? '' : 'none';
+  boostGaugeEl.style.display = showPilot ? '' : 'none';
+
+  if (!showPilot) return;
+
+  // Speed gauge — fill height = speed / ship.maxSpeed, label below.
+  const speed = length(ship.vel);
+  const maxSpeed = ship.type.boostSpeedForward;
+  const speedFrac = Math.min(1, Math.abs(speed) / maxSpeed) * 100;
+  speedFillEl.style.height = `${speedFrac}%`;
+  speedValEl.textContent = `${Math.abs(Math.round(speed))} m/s`;
+
+  // Boost gauge — fill height = boostMeter / boostCapacity, label below.
+  const boostPct = Math.round((ship.boostMeter / ship.type.boostCapacity) * 100);
+  boostFillEl.style.height = `${boostPct}%`;
+  boostValEl.textContent = `${boostPct}%`;
+  boostFillEl.classList.toggle('active', ship.boosting);
 }
 
 // Bottom-left flight-stats panel: throttle/boost bars, speed, yaw/pitch/turn rate, decoupled/
