@@ -20,7 +20,12 @@ import { REPLAY_SCHEMA_VERSION } from './types';
 const SAMPLE_HZ = 20;
 const SAMPLE_INTERVAL = 1 / SAMPLE_HZ;
 
-let rollingWindowSec = 300;
+// Default 2 min (was 5): this buffer is always-on regardless of whether the F6 panel is ever
+// opened, retaining a pos/quat/vel/angVel/inputs snapshot per enemy at 20Hz — cost scales directly
+// with enemy count and gets steep in high-enemy-count drills (e.g. Drone Swarm at 100 drones). The
+// "save last N seconds" buttons only go up to 60s anyway, so 2 min still comfortably covers them;
+// still user-adjustable up to 10 min in the F6 panel (see ui/replayPanel's WINDOW_OPTIONS).
+let rollingWindowSec = 120;
 let buffer: ReplayFrame[] = [];
 let eventLog: ReplayEvent[] = [];
 let simClock = 0;
