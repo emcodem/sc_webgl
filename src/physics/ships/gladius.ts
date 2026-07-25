@@ -11,14 +11,22 @@ import type { RawShipMeasurement } from './rawShipType';
 // rates above vs. below boostRedZonePct, a reactivation floor, and a recharge delay (see
 // flightModel.ts::resolveBoost).
 //
-// PROVENANCE PARTIALLY DISPUTED (flagged 2026-07-25, see BOOST_FINDINGS.md §9 / MEASUREMENTS.md's
-// "Boost meter red-zone recharge rate"): the parent project's boost-meter numbers were hand-
-// stopwatched/frame-counted against recorded footage, predating this repo's capture/ toolchain (which
-// reads real per-frame timestamps specifically to avoid this) — the parent capture apparently assumed
-// a nominal frame rate the recording never actually achieved. boostRechargeRateRedZone has been
-// RE-MEASURED (~13s for 0%->25%, real SC, stopwatched — see MEASUREMENTS.md) and corrected below;
-// boostDrainRate/boostDrainRateRedZone/boostRechargeRate remain UNVERIFIED and should not be trusted
-// as ground truth until re-captured the same way.
+// PROVENANCE — RESOLVED 2026-07-25 with a frame-timestamped capture (see BOOST_FINDINGS.md item 1 /
+// MEASUREMENTS.md's "Boost meter drain + recharge — frame-accurate capture"), superseding both the
+// parent project's original two-rate numbers AND this repo's earlier stopwatched ~13s red-zone-
+// recharge correction. Reading the AB% HUD readout frame-by-frame across full 100%->0% drains (2
+// reps) and a full 0%->100% recharge (1 rep, dense/clean) found NO red-zone rate asymmetry in either
+// direction — drain measures a uniform ~4.95%/s above AND below boostRedZonePct, recharge a uniform
+// ~2.51%/s above AND below it. The "red zone recharges/drains differently" premise itself looks to
+// have been an artifact of the parent project's original (frame-rate-assumption) miscapture, not a
+// real asymmetry — the stopwatched ~13s reading was plausible human reaction-time error on the same
+// true rate, not evidence of a real 6x-ish difference. boostDrainRate/boostDrainRateRedZone and
+// boostRechargeRate/boostRechargeRateRedZone are set equal below accordingly. The red-zone-gated
+// mechanics that ARE real and unaffected: boostReactivatePct (can't restart a burn at/below the red
+// zone once fully stopped) and boostRechargeDelaySec (recharge doesn't begin the instant boost stops
+// — observed ~0.5-1s dwell at 0%, roughly matching the modeled 0.3s, not re-measured precisely enough
+// to correct). The two-rate FIELDS stay in ShipType (a future ship could genuinely differ) — only
+// Gladius's specific values collapse to match its own data.
 //
 // NOTE ON angularThrust/boostAngularThrust: these are NO LONGER authored here — physics/ships/
 // buildShipType.ts DERIVES each as (maxAngVel|boostMaxAngVel) * angularDrag, per axis, so the
@@ -272,20 +280,19 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   boostCapacity: 100,
   boostRedZonePct: 25,
   boostReactivatePct: 26,
-  // boostDrainRate/boostDrainRateRedZone/boostRechargeRate: provenance DISPUTED as of 2026-07-25 (see
-  // top-of-file note and BOOST_FINDINGS.md §9) — likely a stale frame-rate assumption in the parent
-  // project's original capture, not re-verified here yet.
-  boostDrainRate: 7.5,
-  boostDrainRateRedZone: 13.0208,
-  boostRechargeRate: 2.8846,
-  // RE-MEASURED 2026-07-25 (real SC, stopwatched, single approximate rep — see MEASUREMENTS.md's
-  // "Boost meter red-zone recharge rate"): 0%->25% takes ~13s, not the parent project's 0.4s
-  // (apparently a stale frame-rate assumption in that capture). 25/13 ~= 1.923 %/s, ~32x slower than
-  // the superseded 62.5. This now makes red-zone recharge SLOWER than the (still unverified)
-  // above-red-zone boostRechargeRate (2.8846), inverting the two-rate model's original "red zone is
-  // faster" premise — not yet resolved whether that's a real asymmetry or boostRechargeRate is also
-  // wrong; see the dispute note above.
-  boostRechargeRateRedZone: 1.923,
+  // RE-MEASURED 2026-07-25, frame-timestamped capture, 2 reps agreeing closely (see top-of-file note
+  // / MEASUREMENTS.md "Boost meter drain + recharge — frame-accurate capture"): a uniform ~4.95%/s
+  // drain the whole 100%->0% way, no measurable rate change at boostRedZonePct. Set equal to the
+  // non-red-zone rate, superseding the parent project's 7.5/13.0208 split.
+  boostDrainRate: 4.95,
+  boostDrainRateRedZone: 4.95,
+  // RE-MEASURED 2026-07-25, frame-timestamped capture (1 clean rep, dense-sampled across the whole
+  // 0%->100% range): a uniform ~2.51%/s recharge, no measurable rate change at boostRedZonePct.
+  // Supersedes both the parent project's 2.8846 (above-zone) and this repo's own earlier stopwatched
+  // 1.923 red-zone correction — that stopwatch reading is now believed to have been reaction-time
+  // error on this same true rate, not a real asymmetry. See top-of-file note.
+  boostRechargeRate: 2.51,
+  boostRechargeRateRedZone: 2.51,
   boostRechargeDelaySec: 0.3,
   hullRadius: 10
 };

@@ -1189,3 +1189,40 @@ Single approximate stopwatch reading ("about 13 seconds"), not a frame-counted c
 enough to confirm the old number is wrong by an order of magnitude, but a real capture with this
 project's toolchain (now that `analysis/montage_speed.py`'s timestamp bug is fixed) would tighten this
 and should also cover the other three boost-meter rates.
+
+### Boost meter drain + recharge — frame-accurate capture, 2026-07-25 (supersedes the stopwatch reading above)
+
+Real SC, Gladius, private AC free-flight, meter starting full. New `capture/boost_meter_capture.py`
+(holds boost via a plain mouse-button press — not vJoy, no bluescreen risk — for a fixed drain
+duration, releases, keeps recording through the recharge, all as ONE continuous OBS clip so there's
+no unrecorded gap between drain and recharge) + `analysis/montage_speed.py` pointed at the "AB %"
+readout (a plain HUD number, region `2150,1130,180,100` at 3840x2160) — read by eye off the montage
+tiles (no OCR needed, exactly the workflow the script's docstring describes).
+
+**Drain, 2 reps (100%→0%, boost held continuously):** both reps trace the same curve near-exactly.
+Reading anchor points (t in seconds from boost-press): 99% at t≈1.67, 58% at t≈10.0, 25% at t≈16.67,
+0% at t≈21.67-21.9. Rate above the red zone (100%→25%, t=1.67→16.67): **~4.93 %/s**. Rate inside the
+red zone (25%→0%, t=16.67→21.67): **~5.0 %/s**. **No measurable kink at the red-zone boundary** — the
+whole trace is one line. Point estimate: **boostDrainRate = boostDrainRateRedZone ≈ 4.95 %/s**
+(supersedes the parent project's 7.5 / 13.0208 split).
+
+**Recharge, 1 rep (0%→100%, dense-sampled, ~1 sample/s the whole way):** ~1s dwell at 0% first (the
+recharge-delay mechanic, real and separate from the rate question), then a climb: 26% at t≈33.0s from
+recharge-onset (~t=22.7s), 100% at t≈63.0s. Rate inside the red zone (0%→25%, ~9.8s): **~2.54 %/s**.
+Rate above it (25%→100%, ~30.5s): **~2.46 %/s**. Again **no measurable kink at the boundary**. Point
+estimate: **boostRechargeRate = boostRechargeRateRedZone ≈ 2.51 %/s** (supersedes both the parent
+project's 2.8846-above/no-red-zone-number split AND this doc's own stopwatched 1.923 correction
+above — that stopwatch reading (13s for 0%→25%) was ~30% slower than this frame-measured 9.8s for the
+same segment, consistent with ordinary human stopwatch reaction-time error on the SAME true rate, not
+a real asymmetry).
+
+**Headline finding: the two-rate "red zone" premise itself looks like it was never real** for either
+drain or recharge — both look like a single constant rate end to end. What IS real and confirmed
+separately: `boostReactivatePct` (can't re-engage a stopped burn below it) and a genuine short dwell
+before recharge begins (`boostRechargeDelaySec`, modeled as 0.3s; observed ~0.5-1s here, close enough
+that this single/coarse-sampled read isn't grounds to correct it).
+
+Applied to `gladius.ts` / `tests/shipTuning.test.ts` per user go-ahead. Rep counts: drain 2, recharge
+1 — the recharge rate in particular would benefit from a second rep, though the drain/recharge
+agreement on "no red-zone kink" from 3 combined reps across both directions is already a fairly
+consistent signal.

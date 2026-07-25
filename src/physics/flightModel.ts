@@ -386,14 +386,16 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   body.pos.z += body.vel.z * dt;
 }
 
-// Shared boost-meter bookkeeping — a two-rate ("red zone") model matching real-game measurement
-// (see shipTypes.ts), not a plain linear drain/recharge:
-//   - draining is faster once at/below boostRedZonePct than above it
+// Shared boost-meter bookkeeping — a two-rate ("red zone") model per ShipType, in case a given ship
+// genuinely drains/recharges at different rates above vs. below boostRedZonePct:
 //   - a NEW burn can't START while at/below boostRedZonePct (must climb back to boostReactivatePct
 //     first) — but an ALREADY-ACTIVE burn (wasBoosting) is exempt and keeps draining through to 0
 //   - recharging doesn't begin the instant boosting stops — cooldownTimer holds it at
 //     boostRechargeDelaySec after the last active tick, counting down to 0 before recharge starts
-//   - recharging itself is also two-rate, fast below the red zone and slow above it
+// For Gladius specifically, a 2026-07-25 frame-timestamped capture found NO real red-zone rate
+// asymmetry in either drain or recharge — gladius.ts sets both rate fields equal per pair accordingly
+// (see its top-of-file note / BOOST_FINDINGS.md item 1). The two-rate branching stays here as a
+// per-ship capability, not because Gladius itself needs it.
 export function resolveBoost(
   type: ShipType,
   boostMeter: number,

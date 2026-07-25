@@ -86,12 +86,12 @@ describe('Gladius measured tuning invariants', () => {
       boostSpeedForward: 520,
       boostSpeedBack: 268,
       boostCapacity: 100,
-      boostRechargeRate: 2.8846,
+      boostRechargeRate: 2.51,
       boostRedZonePct: 25,
       boostReactivatePct: 26,
-      boostDrainRate: 7.5,
-      boostDrainRateRedZone: 13.0208,
-      boostRechargeRateRedZone: 1.923,
+      boostDrainRate: 4.95,
+      boostDrainRateRedZone: 4.95,
+      boostRechargeRateRedZone: 2.51,
       boostRechargeDelaySec: 0.3,
       boostMaxAngVel: { pitch: 1.431, yaw: 0.9294, roll: 4.189 },
       boostAngularThrust: { pitch: 14.7021, yaw: 14.3721, roll: 22.4409 },
@@ -372,24 +372,46 @@ describe('pitch/yaw 2nd-order rotational spool model', () => {
   });
 });
 
-// Boost-meter red-zone recharge rate (corrected 2026-07-25, per user-reported real-SC re-measurement
-// — see BOOST_FINDINGS.md §9 / MEASUREMENTS.md's "Boost meter red-zone recharge rate"). The parent
-// project's original 62.5 %/s (0%->25% in 0.4s) was ~32x too fast; real SC takes ~13s. This locks in
-// the corrected rate so it can't silently drift back toward the disputed value.
-describe('boost-meter red-zone recharge (corrected 2026-07-25)', () => {
-  it('recharges from 0% to 25% in approximately the re-measured ~13s, not the disputed ~0.4s', () => {
+// Boost-meter drain/recharge rates (re-measured 2026-07-25 with a frame-timestamped capture — see
+// BOOST_FINDINGS.md item 1 / MEASUREMENTS.md "Boost meter drain + recharge — frame-accurate capture").
+// Supersedes both the parent project's original two-rate numbers and this repo's own earlier
+// stopwatched ~13s red-zone-recharge correction: a real capture found NO red-zone rate asymmetry in
+// either direction, so both rate pairs are equal in gladius.ts. These lock in the uniform rates so
+// they can't silently drift back toward either superseded (asymmetric) model.
+describe('boost-meter drain + recharge (re-measured 2026-07-25, no red-zone asymmetry)', () => {
+  it('drains from 100% to 0% in ~20s uniformly, not a two-rate curve', () => {
+    const g = getShipType('Gladius');
+    let meter = g.boostCapacity;
+    let cooldown = 0;
+    const dt = 1 / 60;
+    let secondsTo25 = -1;
+    let secondsTo0 = -1;
+    for (let i = 0; i < 60 * 25 && meter > 0; i++) {
+      const r = resolveBoost(g, meter, true, cooldown, true, dt);
+      meter = r.boostMeter;
+      cooldown = r.cooldownTimer;
+      if (secondsTo25 < 0 && meter <= 25) secondsTo25 = (i + 1) * dt;
+      if (secondsTo0 < 0 && meter <= 0) secondsTo0 = (i + 1) * dt;
+    }
+    expect(secondsTo25).toBeCloseTo(15.15, 0); // 75% at ~4.95%/s
+    expect(secondsTo0).toBeCloseTo(20.2, 0); // full 100% at ~4.95%/s
+  });
+
+  it('recharges from 0% to 100% in ~40s uniformly, not a two-rate curve', () => {
     const g = getShipType('Gladius');
     let meter = 0;
     let cooldown = 0;
     const dt = 1 / 60;
     let secondsTo25 = -1;
-    for (let i = 0; i < 60 * 20; i++) {
+    let secondsTo100 = -1;
+    for (let i = 0; i < 60 * 50 && meter < g.boostCapacity; i++) {
       const r = resolveBoost(g, meter, false, cooldown, false, dt);
       meter = r.boostMeter;
       cooldown = r.cooldownTimer;
       if (secondsTo25 < 0 && meter >= 25) secondsTo25 = (i + 1) * dt;
+      if (secondsTo100 < 0 && meter >= g.boostCapacity) secondsTo100 = (i + 1) * dt;
     }
-    expect(secondsTo25).toBeGreaterThan(0);
-    expect(secondsTo25).toBeCloseTo(13, 0);
+    expect(secondsTo25).toBeCloseTo(9.96, 0); // 25% at ~2.51%/s
+    expect(secondsTo100).toBeCloseTo(39.84, 0); // full 100% at ~2.51%/s
   });
 });

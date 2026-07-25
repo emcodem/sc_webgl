@@ -11,7 +11,13 @@ unless boost is reactivated. This is a narrower, simpler fix than §0's real-SC-
 redesign (brake-continuously-to-zero at asymmetric per-direction rates) — it targets scmSpeed as the
 floor using the existing naturalBleedRate formula, not the captured (single-rep, unrepeated) real
 decay rates. See §8 for the fix and the boundary-condition bug it took two tries to get right. Gap #1
-(pitch boost rate) remains unapplied — still needs a fresh capture.
+(pitch boost rate) remains unapplied — still needs a fresh capture. **UPDATE 2026-07-25 (3):** §9's
+boost-meter rates — item 1's remaining three (`boostDrainRate`, `boostDrainRateRedZone`,
+`boostRechargeRate`) — got a real frame-timestamped capture (see §9 below / `capture/MEASUREMENTS.md`
+"Boost meter drain + recharge — frame-accurate capture") and applied. Headline: the whole two-rate
+"red zone" premise looks fictional — drain and recharge each measure as a single uniform rate with no
+kink at the red-zone boundary, so `gladius.ts` now sets each pair equal (~4.95%/s drain, ~2.51%/s
+recharge), also superseding the stopwatched 1.923 red-zone-recharge correction from earlier today.
 
 ---
 
@@ -272,7 +278,21 @@ shape/rate ever matters, that's still open per §0/§5 and would need repeat cap
 
 ---
 
-## 9. Boost-meter red-zone recharge rate — provenance now DISPUTED, re-measurement pending
+## 9. Boost-meter drain/recharge rates — RESOLVED 2026-07-25 with a frame-timestamped capture
+
+**Resolution, see full data in `capture/MEASUREMENTS.md`'s "Boost meter drain + recharge —
+frame-accurate capture":** a proper capture (`capture/boost_meter_capture.py`, a continuous
+drain-then-recharge OBS clip, read via `analysis/montage_speed.py` against the "AB %" HUD number)
+found the two-rate "red zone" model doesn't hold for either drain or recharge — both trace a single
+uniform rate end to end, no kink at `boostRedZonePct`. Applied to `gladius.ts`:
+`boostDrainRate = boostDrainRateRedZone ≈ 4.95 %/s`, `boostRechargeRate = boostRechargeRateRedZone ≈
+2.51 %/s`. This also supersedes the stopwatched 1.923 %/s red-zone-recharge correction below (§9's
+original finding) — that stopwatch reading is now believed to have been ordinary reaction-time error
+on the same true ~2.51%/s rate, not a real asymmetry. `boostReactivatePct` and
+`boostRechargeDelaySec` are unaffected (still real, separate mechanics). Rep counts: drain 2 (close
+agreement), recharge 1 (dense-sampled, clean) — the original text below is kept for provenance.
+
+### 9a. Original finding (2026-07-25, superseded by the above) — provenance now DISPUTED, re-measurement pending
 
 User separately reported the boost meter's red-zone recovery (`boostRechargeRateRedZone` / 62.5 %/s
 — climbs 0%→25% in ~0.4s) as feeling wrong in play: from 10%, just holding boost continuously climbs
