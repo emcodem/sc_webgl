@@ -27,7 +27,6 @@ def build(video: Path, region: tuple[int, int, int, int], step: int, cols: int,
     if not cap.isOpened():
         raise RuntimeError(f"could not open {video}")
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 60.0
     end = min(end_frame or total, total)
 
     tiles = []
@@ -37,11 +36,16 @@ def build(video: Path, region: tuple[int, int, int, int], step: int, cols: int,
         ok, frame = cap.read()
         if not ok:
             break
+        # The container's own per-frame timestamp, NOT idx/fps -- some capture backends (e.g.
+        # recorder/ffmpeg_capture.py's ddagrab, which drops duplicate frames rather than padding
+        # gaps with repeats) produce genuinely non-uniform frame spacing even within one clip, so
+        # assuming a constant fps here would silently mislabel every tile (see analysis/track_landmark.py's
+        # identical fix, and capture/README.md's "Capture backend performance" note) -- a real bug
+        # this had until 2026-07-25, caught while re-checking a since-disputed boost-meter timing.
+        t = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
         crop = frame[y:y + h, x:x + w].copy()
         if scale != 1.0:
             crop = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
-        # burn in the timestamp (video seconds) so each tile is self-labelling
-        t = idx / fps
         label = np.zeros((26, crop.shape[1], 3), np.uint8)
         cv2.putText(label, f"t={t:5.2f}", (2, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 1, cv2.LINE_AA)
         tile = np.vstack([label, crop])
