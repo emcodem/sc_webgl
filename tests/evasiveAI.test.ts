@@ -31,7 +31,8 @@ function makeAI(overrides: Partial<EvasiveAIMemory> = {}): EvasiveAIMemory {
   return {
     jinkStrafeX: 0, jinkStrafeY: 0, jinkReplanTimer: 999,
     mode: 'block', modeTimer: 0, wasThreatened: false, chasing: false,
-    chaseStruggleTimer: 0, chaseCooldownTimer: 0, ...overrides
+    chaseStruggleTimer: 0, chaseCooldownTimer: 0,
+    forcedBreakTimer: 999, passThroughTimer: 0, ...overrides
   };
 }
 

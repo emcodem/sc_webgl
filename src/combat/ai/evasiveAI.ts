@@ -50,6 +50,16 @@ import { steeringToward } from '../enemyAI';
 // push before rolling land at nearly the same resultant velocity — what the roll actually buys is
 // legibility (a deliberate break, not a flat slide), not thrust efficiency.
 //
+// 2026-07-25: the jink above only ever governed the LATERAL/VERTICAL axes — the FORWARD axis
+// (standoff-holding, below) is its own smooth, never-randomized velocity-servo with no break of its
+// own, so a player closing very slowly (a gentle sustained turn, never a big enough velocity spike to
+// trip the chase-struggle escape hatch) could hold the drone in one continuous main-thrust-dominated
+// flee indefinitely — the lateral jink alternating underneath doesn't change that the STRONGEST
+// thruster (main, 201) just keeps pushing one way. EVASIVE_TUNING.forcedBreakIntervalSec is a hard,
+// unconditional ceiling on that: every ~1s, regardless of threat/chase state, it forces a fresh jink
+// replan and, some fraction of the time, punches the throttle to full forward for a beat (a real
+// evasive pilot doesn't only ever retreat — sometimes the break is closing distance to blow past).
+//
 // Nose facing is a hysteresis switch between two modes, not a permanent lock:
 //   'watch' (default) — nose on the player (aimDir), so it reads as an opponent fighting you, not a
 //              target flying formation with its back turned, and so it can see you for MPC's threat
@@ -98,6 +108,25 @@ export const EVASIVE_TUNING = {
                                  // and forcing an immediate break instead — see chaseStruggleTolerance
   chaseCooldownSec: 1.0,         // seconds 'chasing' stays disabled after a forced break, so it
                                  // doesn't immediately re-enter the same losing chase it just gave up
+  forcedBreakIntervalSec: 1.0,   // 2026-07-25: hard, unconditional ceiling on sustained one-direction
+                                 // travel, independent of mpcReplanSec/mpcThreatReplanSec above. Those
+                                 // only govern the LATERAL/VERTICAL jink's bank angle — the FORWARD
+                                 // axis (standoff-holding, see its doc comment) is a plain, smooth,
+                                 // never-randomized velocity-servo with no periodic break of its own.
+                                 // A player closing very slowly (a gentle sustained turn, not a big
+                                 // velocity spike) can hold the drone in one continuous main-thrust-
+                                 // dominated flee for as long as the closure lasts, since nothing ever
+                                 // interrupts that axis specifically — the lateral jink alternating
+                                 // underneath it doesn't change the fact that the DOMINANT, strongest
+                                 // thruster (main, 201 vs strafe/up's 145/147) just keeps pushing one
+                                 // way. This timer forces a break regardless of velDeficitMag, chase
+                                 // state, or threat — see its use in evasiveThink.
+  passThroughChance: 0.4,        // fraction of forced breaks (see forcedBreakIntervalSec) that also
+                                 // punch the throttle to full forward for passThroughDurationSec,
+                                 // overriding the standoff servo — a real evasive pilot doesn't only
+                                 // ever retreat; sometimes the break is closing distance and blowing
+                                 // past for a merge instead of running.
+  passThroughDurationSec: 0.6,   // how long a triggered pass-through's forced full-throttle lasts
   threatMarginMultiplier: 2.5,  // MPC's hit-risk term activates once a candidate's predicted miss
                                  // distance would be within this many hull radii, not only once it
                                  // would already technically connect — lets it react before a shot
@@ -179,7 +208,9 @@ export function spawnEvasiveState(): EvasiveAIMemory {
     wasThreatened: false,
     chasing: false,
     chaseStruggleTimer: 0,
-    chaseCooldownTimer: 0
+    chaseCooldownTimer: 0,
+    forcedBreakTimer: EVASIVE_TUNING.forcedBreakIntervalSec,
+    passThroughTimer: 0
   };
 }
 
@@ -339,6 +370,18 @@ export function evasiveThink(
   ai.wasThreatened = threatened;
   if (justThreatened) ai.jinkReplanTimer = 0; // break immediately instead of waiting out the current window
 
+  // ---- forced break (see EVASIVE_TUNING.forcedBreakIntervalSec's doc comment) ----
+  // Unconditional: fires regardless of threatened/chasing/velDeficitMag, since those all gate OTHER
+  // mechanisms that can otherwise leave the forward axis pushing one sustained direction indefinitely
+  // (e.g. a player closing very slowly never trips the large-deficit chase-struggle escape hatch).
+  ai.forcedBreakTimer -= dt;
+  if (ai.forcedBreakTimer <= 0) {
+    ai.jinkReplanTimer = 0;
+    ai.forcedBreakTimer = EVASIVE_TUNING.forcedBreakIntervalSec;
+    if (Math.random() < EVASIVE_TUNING.passThroughChance) ai.passThroughTimer = EVASIVE_TUNING.passThroughDurationSec;
+  }
+  if (ai.passThroughTimer > 0) ai.passThroughTimer -= dt;
+
   // The standoff point isn't carried along by the player's TRANSLATIONAL velocity alone — it also
   // sweeps through an arc purely from the player's own ROTATION (holding a pitch/yaw input while
   // barely moving forward spins the point 50m ahead around the player just as fast as a real orbit
@@ -465,9 +508,14 @@ export function evasiveThink(
   // of which way the nose points (watch vs. chase), same reasoning jinkVelocityServo below needs for
   // the jink: whatever axis is CURRENTLY available gets whatever fraction of the FULL tracking need
   // it can actually deliver. Using the full 3D deficit (not just its forward-axis component) means
-  // main thrust pulls its actual weight even while chase is still turning to fully align.
+  // main thrust pulls its actual weight even while chase is still turning to fully align. Overridden
+  // to full forward during an active pass-through window (see the forced-break block above) — nose
+  // is normally facing the player ('watch' mode), so this is what actually makes it try to blow past
+  // instead of the standoff servo just continuing to hold/extend range.
   const { forward: enemyForward, right: enemyRight, up: enemyUp } = computeAxes(enemy.quat);
-  const throttle = clamp((velDeficitFull.x * enemyForward.x + velDeficitFull.y * enemyForward.y + velDeficitFull.z * enemyForward.z) / EVASIVE_TUNING.velocityBand, -1, 1);
+  const throttle = ai.passThroughTimer > 0
+    ? 1
+    : clamp((velDeficitFull.x * enemyForward.x + velDeficitFull.y * enemyForward.y + velDeficitFull.z * enemyForward.z) / EVASIVE_TUNING.velocityBand, -1, 1);
 
   // ---- MPC jink replan (see this section's doc comment) ----
   ai.jinkReplanTimer -= dt;

@@ -145,6 +145,13 @@ export interface EvasiveAIMemory {
   chasing: boolean;
   chaseStruggleTimer: number;
   chaseCooldownTimer: number;
+  // Hard, unconditional ceiling on how long the forward-axis standoff servo may keep pushing the
+  // same sustained direction before a forced break — see EVASIVE_TUNING.forcedBreakIntervalSec's
+  // doc comment for why this exists independently of the (already sub-1s) jink replan cadence.
+  forcedBreakTimer: number;
+  // >0 while a forced break's occasional "fly forward to pass the player" override is active — see
+  // EVASIVE_TUNING.passThroughChance.
+  passThroughTimer: number;
 }
 
 // Full ship tuning — ported verbatim from the original project's ShipType. Every field carries a
