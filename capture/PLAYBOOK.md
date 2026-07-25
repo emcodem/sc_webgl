@@ -22,8 +22,10 @@ material: `BLUEPRINT.md` ("Roll capture", "Gotchas", "OBS backend setup") for me
 ## What you capture per ship — and what you DON'T
 
 Per ship (scales with agility/mass): **rotational** (roll incl. boosted + a decoupled check; pitch;
-yaw; afterburner mult) and **linear** (forward/back, lateral, vertical — accel, SCM cap, coast decel
-per direction; decoupled drift; boosted strafe/vertical accel+cap).
+yaw; afterburner mult), **linear** (forward/back, lateral, vertical — accel, SCM cap, coast decel
+per direction; decoupled drift; boosted strafe/vertical accel+cap), and **boost meter** (drain rate,
+recharge rate — see A2b below; check for a real red-zone rate asymmetry every time, don't assume the
+Gladius "no kink" finding generalizes).
 
 **Do NOT re-capture the mouse virtual-joystick settings** (`VJoyAnglePilots`, `VJoyCombinedDeadZone`,
 the expo input curve ≈1.48, full-range ≈1500 counts). They're the **ship-independent input mapping**,
@@ -84,6 +86,17 @@ python linear_hold_capture.py --sequence "D:5,_:8"  --boost --out data/$S/linear
 python linear_hold_capture.py --sequence "UP:4,_:8" --boost --out data/$S/linear --tag boost-vert-up
 ```
 
+**A2b · Boost meter — drain + recharge, ONE continuous clip** (keyboard/mouse-button only, no vJoy;
+meter should start full — check the HUD before running):
+```
+python boost_meter_capture.py --drain 25 --recharge-watch 120 --tag boost-meter-cycle --out data/$S/linear
+```
+`--drain`/`--recharge-watch` are margins, not measurements — start generous (drain long enough to be
+confident it bottoms out at 0% well before the timer ends; recharge-watch long enough to reach 100%)
+and re-run wider if the montage below shows the meter still moving at the clip's end. Don't assume
+Gladius's found durations (~22s drain, ~65s to full recharge) transfer to a different ship's
+`boostCapacity`/mass — check this ship's own clip.
+
 **A3 · Linear block — Decoupled** (toggle **C** once, verify CPLD unchecked, then capture; toggle back after):
 ```
 python linear_hold_capture.py --sequence "D:3,_:3,A:5,_:4" --decoupled --out data/$S/linear --tag counter-decoup
@@ -102,7 +115,7 @@ python roll_hold_capture.py --sequence "Q:3.0,_:2.5,E:3.0,_:2.5" --boost        
 python roll_hold_capture.py --sequence "Q:1.0,_:3.0,E:2.0,_:3.0" --out data/$S/roll --tag decoup   # decoupled ON
 ```
 
-**~17 clips, 2 venues, 1 accel pin/restore, 2 C-toggles.** Everything needed is now on disk. The game
+**~18 clips, 2 venues, 1 accel pin/restore, 2 C-toggles.** Everything needed is now on disk. The game
 can be closed for good.
 
 ---
@@ -151,6 +164,31 @@ the ramp), **max** (plateau = SCM cap), **coast decel** (Δspeed/Δt after relea
 (confirmed on Gladius): accel = commanded-dir thrust/mass; coast decel = **opposing**-dir thrust/mass;
 W/S are momentary throttle (release → coast to 0). Verify per-frame brightness that each accel ran at
 full brightness (a GLOC would sag the curve — vert-down is the one at risk, hence the short hold).
+
+## Boost meter → drain rate + recharge rate
+
+```
+python analysis/montage_speed.py "data/$S/linear/boost-meter-cycle-*/raw.mp4" --region <x,y,w,h> --step 20 --cols 8 --scale 3 --out data/$S/linear/boost_montage_part1.png --end-frame <drain_end_frame>
+python analysis/montage_speed.py "data/$S/linear/boost-meter-cycle-*/raw.mp4" --region <x,y,w,h> --step 30 --cols 10 --scale 3 --out data/$S/linear/boost_montage_part2.png --start-frame <drain_end_frame>
+```
+`--region` = the "AB %" HUD readout's bounding box (crop-check one frame; on Gladius at 3840x2160 it
+was `2150,1130,180,100` — re-check per ship/resolution, the boost gauge may sit elsewhere on a
+different ship's cockpit). It's a plain number, no OCR needed — **read the montage tiles by eye**
+(that's what the script's docstring means by "or hand it to a vision model"), noting each tile's
+burned-in `t=` timestamp against its %. One montage call easily covers 20-30s of clip before tiles
+get too numerous to read at a glance; split the full clip into 2+ calls via `--start-frame`/
+`--end-frame` (find the drain→recharge boundary — the meter bottoms at 0% and holds briefly before
+climbing again — from part 1's last few tiles).
+
+Compute rate = Δ% / Δt across the **whole 100%→0%** (drain) and **0%→100%** (recharge) ranges, then
+check specifically for a slope change at `boostRedZonePct` (25 on Gladius) — average the rate above
+and below it separately and compare. **On Gladius, neither drain nor recharge showed any such kink —
+both were single uniform rates end to end** (see `BOOST_FINDINGS.md` item 1 /
+`MEASUREMENTS.md`'s "Boost meter drain + recharge — frame-accurate capture") — but don't assume that
+generalizes; check every new ship's own data before deciding whether its two-rate fields should be
+equal or genuinely different. Also note the dwell at 0% before recharge visibly begins
+(`boostRechargeDelaySec`) and whether `boostReactivatePct` blocks a new burn as expected near the
+red-zone floor.
 
 ---
 
