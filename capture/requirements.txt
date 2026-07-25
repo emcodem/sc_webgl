@@ -3,3 +3,4 @@ opencv-python>=4.9
 numpy>=1.26
 scipy>=1.12
 obsws-python>=1.7
+mss>=9.0

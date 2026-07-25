@@ -296,4 +296,26 @@ invoked through `orchestrate.py` without `--dry-run`) has caused a full bluescre
 process crash. Treat every vJoy-touching script here as requiring the user to run it themselves (or
 give explicit go-ahead in the moment) — never invoke one autonomously. `--dry-run` on `orchestrate.py`
 and any purely-analysis script (`analysis/*.py`, `selftest_synthetic.py`) don't touch the device and
-are unaffected.
+are unaffected. **`recenter.py` (below) calls `feeder/mouse_feeder.py` internally, so the same rule
+applies to it** — its own `--dry-run` prints pulses instead of injecting them and is safe to run
+unattended for tuning.
+
+## Standardized auto-recentering (`recenter.py`)
+
+A closed-loop replacement for hand-calculating a single repositioning pulse from a rate/tau model
+(the approach that overshot badly for pitch — the sun left the frame entirely, see MEASUREMENTS.md).
+Instead it screenshots (via `mss`, kept separate from the OBS/ffmpeg recording pipeline), nudges the
+tracked landmark toward a target position with a small corrective pulse, and repeats off the actual
+resulting error — so an imprecise rate/tau model only costs an extra iteration, never a blind miss.
+Also finds its way back if the landmark is lost entirely (undetectable anywhere on screen): first by
+continuing in the last known correction direction, then via a bounded one-way sweep if that fails.
+
+```
+python recenter.py --seed-x 1920 --seed-y 1080 --resolution 3840x2160 [--target-x --target-y] [--dry-run]
+```
+
+Any `*_hold_capture.py`/`*_sweep_capture.py` script can call `recenter.recenter(...)` between reps
+instead of its own ad hoc repositioning logic — that's the standardization this enables. See the
+module docstring for the full parameter list and the physical-model note on why corrections are
+pulses (ramp/hold/ramp-back-to-zero), not raw mouse deltas — SC's mouse-vjoy holds a stick
+deflection that commands a rotation *rate*, it isn't FPS mouselook.
