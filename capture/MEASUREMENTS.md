@@ -1110,3 +1110,82 @@ full ramp) — the long `DN:5` redded out mid-accel and hid the coast entirely; 
 peak, less accumulated neg-G) stayed readable through the coast. **Method note: keep negative-G-axis
 maneuvers short.** (GSAF/G-safe state was not pinned; irrelevant to validity since values match code
 + API, but a G-limited regime could be captured separately.)
+
+### Boosted forward/retro linear thrust + boost-release decay — 2026-07-25
+
+Real SC, Gladius, Coupled, private AC (INS Jericho map — sun stays behind cloud cover here, good
+contrast without the starfield's clamp/false-positive baggage; noted as this project's best map for
+sun-tracked captures going forward). `linear_hold_capture.py --sequence "W:12,_:15" --boost` (and the
+`S:12,_:15` mirror for retro), speed read via `analysis/montage_speed.py` (region `1560,1140,140,90`
+at 3840x2160), transcribed by eye off the montage — no OCR needed, digits are crisp.
+
+**Top speed, both directions — closely matches coded values:**
+
+| direction | measured plateau | coded (`shipTypes.ts`) |
+|---|---|---|
+| forward (boosted) | **~519-520 m/s** | `boostMaxSpeed` 520 |
+| retro (boosted) | **~267 m/s** | `boostSpeedBack` 268 |
+
+**Forward accel curve (dense sample, 0.1s spacing from accel start):** a clean asymptotic
+approach to the cap — acceleration itself ramps up over the first ~0.3-0.4s (spool-like: ~120 m/s²
+at first sample rising to a ~200-240 m/s² plateau by t+0.4s), holds ~200 m/s² through the early
+climb, then tapers smoothly as speed nears 520 (governor-shaped approach, not a hard clamp) — e.g.
+17 m/s² by the time it's within ~20 m/s of the cap. No data yet on whether the initial ~0.3-0.4s
+ramp is the same 2nd-order underdamped shape already fit for boosted rotation, or a simpler curve
+— worth a follow-up fit if the accel transient specifically (not just the cap) ever matters.
+
+**Boost-release decay — the actual point of this capture, and a real surprise:**
+
+The working assumption going in (`BOOST_FINDINGS.md` §1/§5) was that release decays down to
+`scmSpeed` (226 m/s fwd / 225 back) and then presumably coasts there. **That's wrong.** In Coupled
+mode, a full release (no throttle held at all, boost off) brakes **continuously through the SCM cap
+with no kink or plateau anywhere near it, all the way down to a dead stop at 0 m/s.** This is
+Coupled flight assist actively canceling velocity on zero input, not an overspeed-specific governor
+— the SCM cap turns out to be irrelevant to what happens on a full release; it would only matter for
+whatever happens if throttle is HELD while overspeed (a separate, not-yet-re-tested case).
+
+The decay rate itself is close to constant (not proportional-to-speed/drag-like) after a brief
+faster transient right at release, but **the constant rate is very different per direction**:
+
+| direction | initial transient | settled constant rate | release-to-zero time |
+|---|---|---|---|
+| forward | ~150-170 m/s² for ~0.3s | **~55-60 m/s²** | ~8.5s (520 → 0) |
+| retro | ~120 m/s² for ~0.13s | **~200-210 m/s²** | ~2.0s (267 → 0) |
+
+Retro brakes roughly **3.5x faster** than forward. Forward's settled rate crosses 226 (SCM) at
+**~4.1s** post-release — a real number to replace the two guesses in `BOOST_FINDINGS.md` §5
+(naturalBleedRate's 7.0s, and the buggy double-counted 3.5s) — but the more load-bearing finding is
+the shape: this is coupled-assist brake-to-zero, not a governor that stops mattering below the cap.
+**Not yet acted on in code** — `BOOST_FINDINGS.md`'s proposed fix (clip speed-increasing thrust +
+single governor authority) was solving the wrong shape entirely and needs rethinking against this
+data before any `flightModel.ts` change.
+
+Single reps each direction, not yet repeated — the plateau values and rate numbers agree closely
+with independently-known references (coded top speeds), which is reassuring, but the exact
+transient-vs-settled split and rate constants would benefit from a second rep each before treating
+them as final.
+
+### Boost meter red-zone recharge rate — re-measured 2026-07-25, supersedes the parent project's number
+
+Real SC, Gladius. Stopwatched (not yet frame-verified with this project's own toolchain — see
+`BOOST_FINDINGS.md` §9 for why the original number was distrusted): boost meter recharge from 0% to
+25% (the red-zone floor) takes **~13 seconds**, not the parent project's `shipTypes.ts` figure of 0.4s
+(10 frames at an assumed-but-apparently-wrong 25fps). That's ~32x slower than previously coded —
+`boostRechargeRateRedZone` = 25/13 ≈ **1.923 %/s**, not 62.5.
+
+**This inverts the two-rate model's original rationale.** The model's whole premise (see
+`flightModel.ts::resolveBoost`'s doc comment) was "recharge is fast below the red zone, slow above
+it." With the old numbers that held (62.5 %/s below vs 2.8846 %/s above — below is ~22x faster). With
+this correction, red-zone recharge (1.923 %/s) is now SLOWER than the above-red-zone rate (2.8846
+%/s, itself still unverified) — the opposite ordering. Two possibilities, not yet distinguished:
+either real SC's red zone genuinely recharges slower (a real, if surprising, asymmetry — being caught
+in the red zone is worse in both directions, can't boost AND recharges slowest there), or
+`boostRechargeRate` (the above-red-zone rate) is ALSO wrong from the same flawed parent-project
+capture and just hasn't been re-checked yet. **`boostRechargeRate`, `boostDrainRate`, and
+`boostDrainRateRedZone` all remain unverified** — only the red-zone recharge rate has a real-world
+re-check so far.
+
+Single approximate stopwatch reading ("about 13 seconds"), not a frame-counted capture — precise
+enough to confirm the old number is wrong by an order of magnitude, but a real capture with this
+project's toolchain (now that `analysis/montage_speed.py`'s timestamp bug is fixed) would tighten this
+and should also cover the other three boost-meter rates.

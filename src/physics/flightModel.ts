@@ -161,12 +161,51 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   const mainThrust = body.boosting ? t.boostLinearThrust.main : t.linearThrust.main;
   const retroThrust = body.boosting ? t.boostLinearThrust.retro : t.linearThrust.retro;
   const mainThrustMag = spooledUp ? (throttle >= 0 ? throttle * mainThrust : throttle * retroThrust) : 0;
-  const verticalThrust = strafeY >= 0 ? t.linearThrust.verticalUp : t.linearThrust.verticalDown;
+  // boosting raises strafe/vertical thrust too (applied 2026-07-25, per user go-ahead — see
+  // shipTypes.ts's "Boosted lateral/vertical" note) — without this, boosted lateral/vertical jinks flew
+  // at the unboosted rate despite boostManeuveringSpeedCap below allowing a higher top speed there.
+  const strafeThrust = body.boosting ? t.boostLinearThrust.strafe : t.linearThrust.strafe;
+  const verticalThrust = body.boosting
+    ? (strafeY >= 0 ? t.boostLinearThrust.verticalUp : t.boostLinearThrust.verticalDown)
+    : (strafeY >= 0 ? t.linearThrust.verticalUp : t.linearThrust.verticalDown);
   const verticalThrustMag = verticalSpooledUp ? strafeY * verticalThrust : 0;
   const accel: Vec3 = { x: 0, y: 0, z: 0 };
   addScaled(accel, forward, mainThrustMag / t.mass);
-  addScaled(accel, right, (strafeX * t.linearThrust.strafe) / t.mass);
+  addScaled(accel, right, (strafeX * strafeThrust) / t.mass);
   addScaled(accel, up, verticalThrustMag / t.mass);
+
+  // Flight computer refuses thrust that would push FURTHER over the speed cap (applied 2026-07-25,
+  // per user go-ahead — this is the actual fix for the original reported bug: releasing boost while
+  // still holding throttle/strafe must still decay back toward scmSpeed, not freeze at the overspeed
+  // value). The governor at the end of this function used to try to cancel this after the fact by
+  // matching its bleed rate to whatever thrust was still pushing (Math.max(naturalBleedRate,
+  // accelAlongVel)) — since that rate is chosen to exactly match the thrust, the two nets to ~zero
+  // and speed freezes instead of decaying (see BOOST_FINDINGS.md's root-cause §3a). Clipping the
+  // thrust itself, before it's ever integrated into velocity, is the correct fix instead: only the
+  // component of thrust ALONG the current velocity direction is removed, so off-axis
+  // steering/strafing thrust still works while the ship bleeds speed — the pilot isn't locked out of
+  // maneuvering during the bleed. A fresh boost raises speedCap back up (see below), which is how
+  // re-boosting lets speed climb again despite this clip.
+  const preThrustSpeed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
+  if (preThrustSpeed > 1e-6) {
+    const preForwardSpeed = body.vel.x * forward.x + body.vel.y * forward.y + body.vel.z * forward.z;
+    const preSpeedCap = body.boosting
+      ? (preForwardSpeed >= 0 ? t.boostSpeedForward : t.boostSpeedBack)
+      : (preForwardSpeed >= 0 ? t.scmSpeed : t.scmSpeedBack);
+    // >= , not > : the governor below can clamp speed to EXACTLY preSpeedCap (Math.max floor), and a
+    // strict > here would then let one full tick of unclipped thrust through right at that boundary,
+    // bumping speed back over the cap and re-triggering the governor next tick — an infinite sawtooth
+    // between the cap and a few m/s above it, instead of settling stably at the cap.
+    if (preThrustSpeed >= preSpeedCap) {
+      const velUnit = { x: body.vel.x / preThrustSpeed, y: body.vel.y / preThrustSpeed, z: body.vel.z / preThrustSpeed };
+      const accelAlongVel = accel.x * velUnit.x + accel.y * velUnit.y + accel.z * velUnit.z;
+      if (accelAlongVel > 0) {
+        accel.x -= velUnit.x * accelAlongVel;
+        accel.y -= velUnit.y * accelAlongVel;
+        accel.z -= velUnit.z * accelAlongVel;
+      }
+    }
+  }
 
   if (input.brake) {
     // Space brake: each real thruster only pushes along one local axis, and the flight computer
@@ -223,9 +262,23 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   body.vel.y += accel.y * dt;
   body.vel.z += accel.z * dt;
 
-  // Drag / coast — skipped while braking (brake already counter-thrusts at max) and in decoupled
-  // mode (no auto-damping, coast freely).
-  if (!input.decoupled && !input.brake) {
+  // Hoisted so the coast/drag gate below and the final governor agree on the same cap — see the
+  // governor's own comment further down for what speedCap means and why it depends on body.boosting.
+  const forwardSpeed = body.vel.x * forward.x + body.vel.y * forward.y + body.vel.z * forward.z;
+  const speedCap = body.boosting
+    ? (forwardSpeed >= 0 ? t.boostSpeedForward : t.boostSpeedBack)
+    : (forwardSpeed >= 0 ? t.scmSpeed : t.scmSpeedBack);
+  const speedAfterThrust = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
+
+  // Drag / coast — skipped while braking (brake already counter-thrusts at max), in decoupled mode
+  // (no auto-damping, coast freely), and at/above the speed cap (added 2026-07-25, per user go-ahead):
+  // the governor below is now the SOLE decay authority once overspeed, so coast/drag can't stack with
+  // it and double-count the bleed (see BOOST_FINDINGS.md's root-cause §3b). STRICT less-than, not
+  // <=: at velocity sitting exactly ON the cap this must stay off (matching the pre-thrust clip's own
+  // >= trigger above), or a resting-at-cap ship would get an extra tick of full drag/coast on top of
+  // already-clipped thrust, overshoot back under the cap, let unclipped thrust re-cross it next tick,
+  // and cycle forever instead of settling — reproduced as an infinite oscillation before this fix.
+  if (!input.decoupled && !input.brake && speedAfterThrust < speedCap) {
     if (throttle !== 0 || strafeX !== 0 || strafeY !== 0) {
       // Proportional drag while actively thrusting. Negligible for the Gladius (the governor below
       // does the real limiting); boost uses its own much-lower boostLinearDrag.
@@ -280,28 +333,52 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   // decoupling removes the auto-damping that kills your drift when you let go of the stick, but it
   // does NOT let you exceed SCM/boost speed. When over cap, speed bleeds down at a bounded rate
   // rather than snapping to the cap in a single frame — a boost wearing off should feel like a
-  // deceleration, not a teleport — but that bound must be at least as strong as whatever thrust is
-  // actively still feeding the overspeed (e.g. continuing to hold boost right at
-  // boostSpeedForward), or thrust stronger than the natural bleed rate would just outrun it and
-  // blow through the cap every tick instead of being governed by it. Falls back to the ship's
-  // natural thrust-based decel once nothing is actively pushing against it, e.g. right after a
-  // boost ends with no throttle held.
-  const forwardSpeed = body.vel.x * forward.x + body.vel.y * forward.y + body.vel.z * forward.z;
-  const speedCap = body.boosting
-    ? (forwardSpeed >= 0 ? t.boostSpeedForward : t.boostSpeedBack)
-    : (forwardSpeed >= 0 ? t.scmSpeed : t.scmSpeedBack);
+  // deceleration, not a teleport. This is now the SOLE decay authority while overspeed (2026-07-25,
+  // per user go-ahead): thrust along the velocity direction was already clipped to a no-op above
+  // (see the pre-thrust clip block), and coast/drag is gated off above cap too, so decelRate is
+  // always just the natural bleed rate — no more Math.max(naturalBleedRate, accelAlongVel) letting
+  // still-held thrust cancel its own bleed (BOOST_FINDINGS.md §3a) or coast/drag double-counting it
+  // (§3b). Speed now always decays back to speedCap regardless of what input is held, UNLESS boost is
+  // re-activated, which raises speedCap back up so the ship is no longer "overspeed" against it.
   const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
   if (speed > speedCap) {
-    const velUnit = { x: body.vel.x / speed, y: body.vel.y / speed, z: body.vel.z / speed };
-    const accelAlongVel = accel.x * velUnit.x + accel.y * velUnit.y + accel.z * velUnit.z;
-    const naturalBleedRate = (forwardSpeed >= 0 ? t.linearThrust.retro : t.linearThrust.main) / t.mass;
-    const decelRate = Math.max(naturalBleedRate, accelAlongVel);
+    const decelRate = (forwardSpeed >= 0 ? t.linearThrust.retro : t.linearThrust.main) / t.mass;
     const maxDelta = decelRate * dt;
     const newSpeed = Math.max(speedCap, speed - maxDelta);
     const scale = newSpeed / speed;
     body.vel.x *= scale;
     body.vel.y *= scale;
     body.vel.z *= scale;
+  }
+
+  // Boosted maneuvering cap: the governor above bounds TOTAL speed magnitude, selected by the sign of
+  // the forward component — so it only ever applies boostSpeedForward/Back (520/268), letting pure
+  // sideways/vertical boosted flight reach the same speed as pure forward boost. Real Gladius governs
+  // the lateral+vertical (non-longitudinal) component on its own, lower cap instead (measured ~385 m/s
+  // — see shipTypes.ts's "Boosted lateral/vertical" note). Same bounded-bleed-rate shape as the
+  // governor above (never snaps in a single frame); the natural bleed rate reuses the unboosted strafe
+  // thruster's own accel, same idea as the longitudinal governor falling back to unboosted retro/main.
+  if (body.boosting) {
+    const rightSpeed = body.vel.x * right.x + body.vel.y * right.y + body.vel.z * right.z;
+    const upSpeed = body.vel.x * up.x + body.vel.y * up.y + body.vel.z * up.z;
+    const lateralSpeed = Math.hypot(rightSpeed, upSpeed);
+    if (lateralSpeed > t.boostManeuveringSpeedCap) {
+      const rightUnit = rightSpeed / lateralSpeed;
+      const upUnit = upSpeed / lateralSpeed;
+      const accelRight = accel.x * right.x + accel.y * right.y + accel.z * right.z;
+      const accelUp = accel.x * up.x + accel.y * up.y + accel.z * up.z;
+      const accelAlongLateral = accelRight * rightUnit + accelUp * upUnit;
+      const naturalBleedRate = t.linearThrust.strafe / t.mass;
+      const decelRate = Math.max(naturalBleedRate, accelAlongLateral);
+      const maxDelta = decelRate * dt;
+      const newLateralSpeed = Math.max(t.boostManeuveringSpeedCap, lateralSpeed - maxDelta);
+      const lateralScale = newLateralSpeed / lateralSpeed;
+      const dRight = rightSpeed * (lateralScale - 1);
+      const dUp = upSpeed * (lateralScale - 1);
+      body.vel.x += right.x * dRight + up.x * dUp;
+      body.vel.y += right.y * dRight + up.y * dUp;
+      body.vel.z += right.z * dRight + up.z * dUp;
+    }
   }
 
   body.pos.x += body.vel.x * dt;

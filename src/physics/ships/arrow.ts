@@ -6,9 +6,6 @@ import { GLADIUS_RAW } from './gladius';
 // copies every measured value; only `name`, `model`, and `provenance` differ. The clone status is now
 // a queryable field (provenance.status === 'cloned-placeholder'), not just a comment. Swap in real
 // Arrow specs here if/when they're ever measured (change status to 'measured', drop clonedFrom).
-//
-// candidateRefinements is explicitly cleared: the spread would otherwise copy Gladius's, falsely
-// implying Arrow has its own capture evidence — it has none.
 export const ARROW_RAW: RawShipMeasurement = {
   ...GLADIUS_RAW,
   name: 'Arrow',
@@ -19,6 +16,5 @@ export const ARROW_RAW: RawShipMeasurement = {
       clonedFrom: 'Gladius',
       note: 'No real Arrow flight data yet; flies the Gladius stats verbatim on the Arrow hull until measured.'
     }
-  },
-  candidateRefinements: undefined
+  }
 };

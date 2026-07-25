@@ -51,6 +51,7 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     boostAngularSpoolOmega: { ...raw.boostAngularSpoolOmega },
     boostAngularSpoolZeta: { ...raw.boostAngularSpoolZeta },
     boostLinearThrust: { ...raw.boostLinearThrust },
+    boostManeuveringSpeedCap: raw.boostManeuveringSpeedCap,
     hullRadius: raw.hullRadius
   };
 
@@ -125,6 +126,10 @@ export function validateShipType(t: ShipType, id: string): void {
   finite(t.boostSpeedBack, 'boostSpeedBack');
   finite(t.boostLinearThrust.main, 'boostLinearThrust.main');
   finite(t.boostLinearThrust.retro, 'boostLinearThrust.retro');
+  finite(t.boostLinearThrust.strafe, 'boostLinearThrust.strafe');
+  finite(t.boostLinearThrust.verticalUp, 'boostLinearThrust.verticalUp');
+  finite(t.boostLinearThrust.verticalDown, 'boostLinearThrust.verticalDown');
+  finite(t.boostManeuveringSpeedCap, 'boostManeuveringSpeedCap');
 
   finite(t.boostCapacity, 'boostCapacity');
   finite(t.boostRedZonePct, 'boostRedZonePct');

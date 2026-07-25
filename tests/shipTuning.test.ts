@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SHIP_TYPES, getShipType } from '../src/physics/ships';
-import { integrateFlight, type FlightBody } from '../src/physics/flightModel';
+import { integrateFlight, resolveBoost, type FlightBody } from '../src/physics/flightModel';
 import type { ShipType } from '../src/core/types';
 
 // Guards the load-bearing tuning invariants carried over from the original project. If these break,
@@ -47,6 +47,18 @@ describe('Gladius measured tuning invariants', () => {
     expect(g.linearThrust.verticalDown).toBeCloseTo(g.linearThrust.verticalUp / 2, 5);
   });
 
+  // Boosted lateral/vertical (applied 2026-07-25, per user go-ahead — see shipTypes.ts's "Boosted
+  // lateral/vertical" note): keeps the same measured verticalDown == verticalUp/2 ratio.
+  it('boosted verticalDown thrust is exactly half boosted verticalUp', () => {
+    expect(g.boostLinearThrust.verticalDown).toBeCloseTo(g.boostLinearThrust.verticalUp / 2, 5);
+  });
+
+  // Only measured/claimed relative to boostSpeedForward (see gladius.ts's "Boosted lateral/vertical"
+  // note) — it's actually higher than boostSpeedBack (268), which isn't a claim the finding makes.
+  it('boostManeuveringSpeedCap is lower than boostSpeedForward', () => {
+    expect(g.boostManeuveringSpeedCap).toBeLessThan(g.boostSpeedForward);
+  });
+
   // Regression guard: the raw→ShipType refactor must be numerically identical to the old flat literal
   // that lived in src/physics/shipTypes.ts. If this drifts, the compile step changed a value.
   it('compiles to the exact pre-refactor Gladius stats', () => {
@@ -79,13 +91,14 @@ describe('Gladius measured tuning invariants', () => {
       boostReactivatePct: 26,
       boostDrainRate: 7.5,
       boostDrainRateRedZone: 13.0208,
-      boostRechargeRateRedZone: 62.5,
+      boostRechargeRateRedZone: 1.923,
       boostRechargeDelaySec: 0.3,
       boostMaxAngVel: { pitch: 1.431, yaw: 0.9294, roll: 4.189 },
       boostAngularThrust: { pitch: 14.7021, yaw: 14.3721, roll: 22.4409 },
       boostAngularSpoolOmega: { pitch: 8.009, yaw: 8.186 },
       boostAngularSpoolZeta: { pitch: 0.916, yaw: 0.560 },
-      boostLinearThrust: { main: 420, retro: 216.5 },
+      boostLinearThrust: { main: 420, retro: 216.5, strafe: 190.5, verticalUp: 190.5, verticalDown: 95.25 },
+      boostManeuveringSpeedCap: 385,
       hullRadius: 10
     };
     // angularThrust/boostAngularThrust are derived (maxAngVel * angularDrag); compare those with
@@ -202,6 +215,66 @@ describe('flight model behaviour', () => {
     const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
     expect(speed).toBeCloseTo(g.boostSpeedForward, 0);
   });
+
+  // Post-boost overspeed decay (applied 2026-07-25, per user go-ahead): the ORIGINAL reported bug —
+  // releasing boost while still holding throttle must decay back to scmSpeed regardless, not freeze
+  // at the overspeed value (BOOST_FINDINGS.md §3a: the old governor's Math.max(naturalBleedRate,
+  // accelAlongVel) let held thrust exactly cancel its own bleed).
+  it('releasing boost while still holding full throttle still decays speed down to scmSpeed', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    const dt = 1 / 60;
+    body.boosting = true;
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 1, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false }, dt);
+    }
+    expect(Math.hypot(body.vel.x, body.vel.y, body.vel.z)).toBeCloseTo(g.boostSpeedForward, 0);
+    body.boosting = false; // release boost, but keep holding full forward throttle
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 1, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false }, dt);
+    }
+    expect(Math.hypot(body.vel.x, body.vel.y, body.vel.z)).toBeCloseTo(g.scmSpeed, 0);
+  });
+
+  // Re-boosting mid-decay must still let speed climb back up — the fix must not turn the cap into a
+  // one-way ratchet.
+  it('re-boosting mid-decay lets speed climb back toward boostSpeedForward', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    const dt = 1 / 60;
+    body.boosting = true;
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 1, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false }, dt);
+    }
+    body.boosting = false;
+    for (let i = 0; i < 30; i++) {
+      integrateFlight(body, { throttle: 1, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false }, dt);
+    }
+    const midDecaySpeed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
+    expect(midDecaySpeed).toBeLessThan(g.boostSpeedForward);
+    body.boosting = true;
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 1, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false }, dt);
+    }
+    expect(Math.hypot(body.vel.x, body.vel.y, body.vel.z)).toBeCloseTo(g.boostSpeedForward, 0);
+  });
+
+  // Boosted maneuvering cap (applied 2026-07-25): pure single-axis boosted strafe never even reaches
+  // 385 (boostLinearDrag settles it around ~334 first), so this drives BOTH strafe and vertical at
+  // once — their combined thrust vector exceeds the drag-limited asymptote, so the new governor is
+  // what stops it, not drag. Must land at boostManeuveringSpeedCap (385), nowhere near the much higher
+  // boostSpeedForward (520) the pre-fix total-speed-only governor would have allowed.
+  it('full boost + combined strafe/vertical governs at boostManeuveringSpeedCap, not boostSpeedForward', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    body.boosting = true;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 0, pitch: 0, yaw: 0, roll: 0, strafeX: 1, strafeY: 1, brake: false, decoupled: false }, dt);
+    }
+    const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
+    expect(speed).toBeCloseTo(g.boostManeuveringSpeedCap, 0);
+  });
 });
 
 // 2nd-order pitch/yaw spool model (2026-07-24, applied per user go-ahead — see
@@ -296,5 +369,27 @@ describe('pitch/yaw 2nd-order rotational spool model', () => {
       peak = Math.max(peak, body.angVel.pitch);
     }
     expect(peak).toBeGreaterThan(g.maxAngVel.pitch);
+  });
+});
+
+// Boost-meter red-zone recharge rate (corrected 2026-07-25, per user-reported real-SC re-measurement
+// — see BOOST_FINDINGS.md §9 / MEASUREMENTS.md's "Boost meter red-zone recharge rate"). The parent
+// project's original 62.5 %/s (0%->25% in 0.4s) was ~32x too fast; real SC takes ~13s. This locks in
+// the corrected rate so it can't silently drift back toward the disputed value.
+describe('boost-meter red-zone recharge (corrected 2026-07-25)', () => {
+  it('recharges from 0% to 25% in approximately the re-measured ~13s, not the disputed ~0.4s', () => {
+    const g = getShipType('Gladius');
+    let meter = 0;
+    let cooldown = 0;
+    const dt = 1 / 60;
+    let secondsTo25 = -1;
+    for (let i = 0; i < 60 * 20; i++) {
+      const r = resolveBoost(g, meter, false, cooldown, false, dt);
+      meter = r.boostMeter;
+      cooldown = r.cooldownTimer;
+      if (secondsTo25 < 0 && meter >= 25) secondsTo25 = (i + 1) * dt;
+    }
+    expect(secondsTo25).toBeGreaterThan(0);
+    expect(secondsTo25).toBeCloseTo(13, 0);
   });
 });

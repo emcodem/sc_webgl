@@ -52,14 +52,11 @@ export interface ShipProvenance {
 // each would require an equation change in the ported-verbatim flightModel.ts, which is gated behind
 // an explicit go-ahead (see CLAUDE.md, capture/MEASUREMENTS.md). Carried here so the numbers are
 // discoverable and ready to apply later. buildShipType.ts NEVER reads this block.
+//
+// (boostedLateralVertical was applied 2026-07-25, per user go-ahead — see boostLinearThrust's
+// strafe/verticalUp/verticalDown and boostManeuveringSpeedCap below; this interface is now empty but
+// kept as the documented escape hatch for the next gated finding.)
 export interface CandidateRefinements {
-  // Boost raises strafe/vertical too (coded boostLinearThrust only has main/retro). Measured: strafe
-  // accel ~x1.3, and a shared boosted-maneuvering speed cap distinct from (and below) boostSpeedForward.
-  boostedLateralVertical?: {
-    note: string;
-    strafeAccel: number;          // m/s^2 (~127 measured, ~x1.3 over coupled strafe)
-    maneuveringSpeedCap: number;  // m/s (~385 measured, shared strafe/vertical cap, < boostSpeedForward)
-  };
 }
 
 export interface RawShipMeasurement {
@@ -98,7 +95,10 @@ export interface RawShipMeasurement {
   boostSpeedForward: number;
   boostSpeedBack: number;
   boostLinearDrag: number;
-  boostLinearThrust: { main: number; retro: number };  // no strafe/vertical yet — see candidateRefinements
+  boostLinearThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
+  // Boosted lateral+vertical top speed — separate from, and lower than, boostSpeedForward/Back (see
+  // core/types.ts's ShipType.boostManeuveringSpeedCap doc).
+  boostManeuveringSpeedCap: number;
   boostMaxAngVel: AngularState;                         // primitive — boostAngularThrust DERIVED
   boostAngularSpoolOmega: { pitch: number; yaw: number };
   boostAngularSpoolZeta: { pitch: number; yaw: number };

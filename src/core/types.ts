@@ -214,6 +214,11 @@ export interface ShipType {
   // damping (measured, not just the steady-state rate), so these are independent values, not derived.
   boostAngularSpoolOmega: { pitch: number; yaw: number };
   boostAngularSpoolZeta: { pitch: number; yaw: number };
-  boostLinearThrust: { main: number; retro: number };
+  boostLinearThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
+  // Boosted lateral+vertical (non-longitudinal) top speed — separate from and lower than
+  // boostSpeedForward/Back, which govern only the forward-axis component. Without this, boosted
+  // sideways/vertical flight was ungoverned up to the much higher forward boost cap (see
+  // physics/flightModel.ts's governor block and physics/ships/gladius.ts's measurement note).
+  boostManeuveringSpeedCap: number;
   hullRadius: number;
 }

@@ -11,6 +11,15 @@ import type { RawShipMeasurement } from './rawShipType';
 // rates above vs. below boostRedZonePct, a reactivation floor, and a recharge delay (see
 // flightModel.ts::resolveBoost).
 //
+// PROVENANCE PARTIALLY DISPUTED (flagged 2026-07-25, see BOOST_FINDINGS.md §9 / MEASUREMENTS.md's
+// "Boost meter red-zone recharge rate"): the parent project's boost-meter numbers were hand-
+// stopwatched/frame-counted against recorded footage, predating this repo's capture/ toolchain (which
+// reads real per-frame timestamps specifically to avoid this) — the parent capture apparently assumed
+// a nominal frame rate the recording never actually achieved. boostRechargeRateRedZone has been
+// RE-MEASURED (~13s for 0%->25%, real SC, stopwatched — see MEASUREMENTS.md) and corrected below;
+// boostDrainRate/boostDrainRateRedZone/boostRechargeRate remain UNVERIFIED and should not be trusted
+// as ground truth until re-captured the same way.
+//
 // NOTE ON angularThrust/boostAngularThrust: these are NO LONGER authored here — physics/ships/
 // buildShipType.ts DERIVES each as (maxAngVel|boostMaxAngVel) * angularDrag, per axis, so the
 // invariant below can't drift. The reasoning (kept because it's why the model is shaped this way):
@@ -21,11 +30,14 @@ import type { RawShipMeasurement } from './rawShipType';
 // roughly half of it. (boost reuses the same non-boosted angularDrag, since boost doesn't change RCS
 // dampening, just authority.)
 //
-// boostLinearThrust IS still authored here (main/retro). Real-game measurement (see below) showed
-// boosting is far less damped than plain thrust (lower drag, not just more thrust) — boostLinearDrag
-// is its own value — so boostLinearThrust ends up *lower* than plain linearThrust despite the much
-// higher top speed. It's GOVERNOR-limited: thrust EXCEEDS boostSpeed * boostLinearDrag * mass, so the
-// speed>speedCap governor (not drag) caps boost (guarded by tests/shipTuning.test.ts).
+// boostLinearThrust IS still authored here (main/retro/strafe/verticalUp/verticalDown). Real-game
+// measurement (see below) showed boosting is far less damped than plain thrust (lower drag, not just
+// more thrust) — boostLinearDrag is its own value — so boostLinearThrust.main/retro end up *lower*
+// than plain linearThrust despite the much higher top speed. It's GOVERNOR-limited: thrust EXCEEDS
+// boostSpeed * boostLinearDrag * mass, so the speed>speedCap governor (not drag) caps boost (guarded
+// by tests/shipTuning.test.ts). strafe/verticalUp/verticalDown were applied 2026-07-25 (per user
+// go-ahead) from a previously-gated candidateRefinements finding — see the "Boosted lateral/vertical"
+// note further down for the measurement and boostManeuveringSpeedCap, its own separate speed cap.
 //
 // coastDecel: real Gladius sheds speed at a flat rate when you let go of the stick, not a decaying
 // one, so this can't be modeled by just cranking up linearDrag (which would taper off approaching
@@ -152,6 +164,16 @@ import type { RawShipMeasurement } from './rawShipType';
 //     its own measurement. The unboosted forward and space-brake traces from the same session
 //     matched the existing thrust=201/scmSpeed=226 and brakeGain=1.04/sat~=40 fits within ~1 m/s, so
 //     those are unchanged.
+//   - Boosted lateral/vertical (APPLIED 2026-07-25, per user go-ahead — previously a gated
+//     candidateRefinements finding): boosted strafe/vertical accel measured at ~127 m/s^2 (~x1.3 over
+//     the ~97-98 m/s^2 unboosted strafe/verticalUp accel), alongside a separate boosted-maneuvering
+//     speed cap of ~385 m/s that governs the lateral+vertical (non-longitudinal) velocity component —
+//     distinct from and lower than boostSpeedForward (520), since without it boosted sideways/vertical
+//     flight was ungoverned up to the much higher forward cap. Converted to thrust units (accel *
+//     mass = 127 * 1.5 = 190.5) for boostLinearThrust.strafe/verticalUp; verticalDown keeps the same
+//     half-of-up ratio measured for unboosted thrust (verticalDown = verticalUp / 2 = 95.25) since no
+//     separate boosted-down figure was captured. See flightModel.ts's boosted-maneuvering-cap governor
+//     block and capture/MEASUREMENTS.md / BOOST_FINDINGS.md §6 gap #2/#3.
 //
 // Summary of the invariants that MUST hold (see the original project's CLAUDE.md) — guarded by
 // tests/shipTuning.test.ts (and, for the structural ones, by buildShipType.ts at load time):
@@ -166,7 +188,12 @@ import type { RawShipMeasurement } from './rawShipType';
 //     linearDrag to make it "settle"; that has been tried twice and contradicts the measured data.
 //   - coastDecel is a FLAT m/s^2 rate (measured 40), not proportional drag.
 //   - main/retro/verticalSpoolDelay are three separately-timed thruster startup lags — don't merge.
-//   - verticalDown thrust is exactly half verticalUp (measured).
+//   - verticalDown thrust is exactly half verticalUp (measured) — same ratio kept for the boosted
+//     values, though only the unboosted ratio was directly measured (see boosted lateral/vertical note
+//     above).
+//   - boostManeuveringSpeedCap (385) governs the lateral+vertical velocity component while boosting,
+//     separately from and below boostSpeedForward/Back (520/268), which govern only the forward-axis
+//     component — see flightModel.ts's governor block.
 
 export const GLADIUS_RAW: RawShipMeasurement = {
   name: 'Gladius',
@@ -229,7 +256,8 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   boostSpeedForward: 520,
   boostSpeedBack: 268,
   boostLinearDrag: 0.38,
-  boostLinearThrust: { main: 420, retro: 216.5 },
+  boostLinearThrust: { main: 420, retro: 216.5, strafe: 190.5, verticalUp: 190.5, verticalDown: 95.25 },
+  boostManeuveringSpeedCap: 385,
   // boostMaxAngVel.yaw corrected 2026-07-24: the old 1.082 (62deg/s) was a uniform x1.2 assumption
   // over maxAngVel.yaw (0.91), never independently measured. Three clean reps at the 1920-count clamp
   // boundary (capture/MEASUREMENTS.md's "Yaw afterburner ratio" section) agree tightly at 53.26/53.29/
@@ -244,23 +272,20 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   boostCapacity: 100,
   boostRedZonePct: 25,
   boostReactivatePct: 26,
+  // boostDrainRate/boostDrainRateRedZone/boostRechargeRate: provenance DISPUTED as of 2026-07-25 (see
+  // top-of-file note and BOOST_FINDINGS.md §9) — likely a stale frame-rate assumption in the parent
+  // project's original capture, not re-verified here yet.
   boostDrainRate: 7.5,
   boostDrainRateRedZone: 13.0208,
   boostRechargeRate: 2.8846,
-  boostRechargeRateRedZone: 62.5,
+  // RE-MEASURED 2026-07-25 (real SC, stopwatched, single approximate rep — see MEASUREMENTS.md's
+  // "Boost meter red-zone recharge rate"): 0%->25% takes ~13s, not the parent project's 0.4s
+  // (apparently a stale frame-rate assumption in that capture). 25/13 ~= 1.923 %/s, ~32x slower than
+  // the superseded 62.5. This now makes red-zone recharge SLOWER than the (still unverified)
+  // above-red-zone boostRechargeRate (2.8846), inverting the two-rate model's original "red zone is
+  // faster" premise — not yet resolved whether that's a real asymmetry or boostRechargeRate is also
+  // wrong; see the dispute note above.
+  boostRechargeRateRedZone: 1.923,
   boostRechargeDelaySec: 0.3,
-  hullRadius: 10,
-
-  // Measured-but-GATED findings (would each require an equation change in the ported-verbatim
-  // flightModel.ts — see capture/MEASUREMENTS.md). NOT applied to the compiled ShipType; carried here
-  // so the numbers are ready when a flightModel.ts change is signed off. buildShipType never reads this.
-  candidateRefinements: {
-    boostedLateralVertical: {
-      note:
-        'Boost raises strafe/vertical too, which the coded boostLinearThrust {main,retro} omits. ' +
-        'Measured boosted strafe/vertical accel ~127 m/s^2 (~x1.3 over the 98 unboosted) with a shared ' +
-        'boosted-maneuvering speed cap ~385 m/s — distinct from and below boostSpeedForward (520).',
-      strafeAccel: 127, maneuveringSpeedCap: 385
-    }
-  }
+  hullRadius: 10
 };
