@@ -51,6 +51,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from analysis.track_landmark import centroid_in_window  # noqa: E402
 from feeder.mouse_feeder import move_rel  # noqa: E402
+from feeder.win_focus import focus_no_click  # noqa: E402
 
 # Known static bright HUD element seen at 3840x2160 in prior captures, NOT the sun -- see
 # MEASUREMENTS.md. Fractional (cx, cy, radius) of frame dimensions so it scales with --resolution.
@@ -231,6 +232,11 @@ def main() -> None:
 
     print(f"Recentering ({args.seed_x:.0f}, {args.seed_y:.0f}) -> ({target_x:.0f}, {target_y:.0f})"
           + ("  [DRY RUN]" if args.dry_run else ""))
+    if not args.dry_run:
+        # no reticle click needed (pulses are pure mouse-vjoy motion), and a click here would fire
+        # a shot if armed for no reason -- focus_no_click still shows the "ready?" popup and resets
+        # any residual stick deflection via Esc x2.
+        focus_no_click()
     result = recenter(
         args.seed_x, args.seed_y, target_x, target_y,
         resolution=(width, height), monitor_index=args.monitor, window=args.window,

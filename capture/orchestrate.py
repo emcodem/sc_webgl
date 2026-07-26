@@ -27,6 +27,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
 from feeder.vjoy_feeder import load_maneuver, run as run_feeder  # noqa: E402
+from feeder.win_focus import focus_no_click  # noqa: E402
 from analysis.track_landmark import track  # noqa: E402
 from analysis.angle_convert import convert  # noqa: E402
 from analysis.sync_detect import region_brightness_trace, detect_flash, detect_motion_onset  # noqa: E402
@@ -101,6 +102,12 @@ def run_trial(maneuver_path: Path, backend: str, axis: str, fov: float, resoluti
     trial_dir = out_root / ship / maneuver["name"] / time.strftime("%Y%m%d-%H%M%S")
     trial_dir.mkdir(parents=True, exist_ok=True)
     video_path = trial_dir / "raw.mp4"
+
+    if not dry_run:
+        # vJoy DEVICE input is normally read regardless of window focus, but this still guarantees
+        # SC is foregrounded (not minimized/behind another window) and gives a deliberate "ready?"
+        # confirmation before real input starts flowing, same as every mouse/keyboard-driven script.
+        focus_no_click()
 
     if backend == "obs":
         from recorder.obs_capture import connect, start as obs_start

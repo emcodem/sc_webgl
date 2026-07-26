@@ -3,6 +3,13 @@ actually reaches flight input. REQUIRED before any measurement sweep: if the gam
 window, SendInput mouse motion goes nowhere useful and the indicator never moves (invalidated two
 baseline captures before this existed).
 
+Both `focus_and_click` and `focus_no_click` show a blocking native "ready?" popup (see
+`confirm_switch_to_sc`) before touching the game -- a deliberate confirmation step before a script
+silently grabs the foreground and starts injecting real mouse/keyboard input, added 2026-07-26 after
+a session where the operator's own in-progress mouse movement collided with a capture script's.
+Every capture script should reach the game through one of these two functions (not hand-roll its own
+foreground/focus logic) so this confirmation is never accidentally skipped.
+
 NOTE: the click lands at the window center = the flight reticle, so if weapons are armed it will
 fire a shot. That's accepted as the cost of guaranteeing focus (harald's call). Disarm/holster if a
 stray shot matters for the scene being recorded.
@@ -69,6 +76,22 @@ def _press_esc() -> None:
     _send_scan(ESC_SCAN, True)
 
 
+MB_OK = 0x00000000
+MB_ICONINFORMATION = 0x00000040
+MB_TOPMOST = 0x00040000
+MB_SETFOREGROUND = 0x00010000
+
+
+def confirm_switch_to_sc(message: str = "About to switch to Star Citizen and drive input. Ready?") -> None:
+    """Blocking native Windows popup (an OK-only MessageBox) the operator must dismiss before any
+    capture script touches the game. Gives a deliberate moment to tab over, close anything that
+    might steal focus mid-capture, and consciously confirm before real mouse/keyboard events start
+    flowing into SC -- rather than a script silently grabbing the foreground and injecting input the
+    instant it's launched. Every capture script should get this via `_foreground()` (used by both
+    `focus_and_click` and `focus_no_click` below) rather than calling it directly."""
+    _u.MessageBoxW(0, message, "sc_webgl capture — ready?", MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND)
+
+
 def find_windows(substr: str = "Star Citizen") -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     CB = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
@@ -87,7 +110,9 @@ def find_windows(substr: str = "Star Citizen") -> list[tuple[int, str]]:
     return out
 
 
-def _foreground(substr: str) -> tuple[int, str]:
+def _foreground(substr: str, confirm: bool = True) -> tuple[int, str]:
+    if confirm:
+        confirm_switch_to_sc()
     wins = find_windows(substr)
     if not wins:
         raise RuntimeError(f"no visible window matching {substr!r} -- is Star Citizen running/visible?")
@@ -99,13 +124,15 @@ def _foreground(substr: str) -> tuple[int, str]:
     return hwnd, title
 
 
-def focus_no_click(substr: str = "Star Citizen", esc_reset: bool = True, verbose: bool = True) -> str:
+def focus_no_click(substr: str = "Star Citizen", esc_reset: bool = True, verbose: bool = True,
+                    confirm: bool = True) -> str:
     """Bring SC to the foreground (so injected KEYBOARD input actually lands) WITHOUT clicking the
     reticle -- for keyboard-driven captures (roll = Q/E) near a station where the center-click of
     focus_and_click would fire a shot into it (crimestat at a security post). Keyboard SendInput only
     needs SC foregrounded, not the cursor captured, so no click is required. Esc x2 still resets any
-    residual mouse-look stick deflection (skippable via esc_reset=False)."""
-    hwnd, title = _foreground(substr)
+    residual mouse-look stick deflection (skippable via esc_reset=False). Shows a blocking "ready?"
+    popup first (skippable via confirm=False, e.g. for a tight loop that already confirmed once)."""
+    hwnd, title = _foreground(substr, confirm=confirm)
     if esc_reset:
         _press_esc()
         time.sleep(1.0)
@@ -116,8 +143,11 @@ def focus_no_click(substr: str = "Star Citizen", esc_reset: bool = True, verbose
     return title
 
 
-def focus_and_click(substr: str = "Star Citizen", verbose: bool = True) -> str:
-    hwnd, title = _foreground(substr)
+def focus_and_click(substr: str = "Star Citizen", verbose: bool = True, confirm: bool = True) -> str:
+    """Shows a blocking "ready?" popup first (skippable via confirm=False, e.g. for a tight loop
+    that already confirmed once), then forces SC to the foreground and clicks its center (the
+    reticle -- fires a shot if armed, see module docstring)."""
+    hwnd, title = _foreground(substr, confirm=confirm)
     # Esc x2 resets the mouse virtual joystick to neutral -- clears any residual deflection left from
     # where the real mouse was pointing (a residual pitch once drifted the ship down mid-sweep and
     # lost the landmark behind the cockpit). First Esc opens the menu, second closes it back to flight.
