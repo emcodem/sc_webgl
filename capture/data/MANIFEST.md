@@ -1,10 +1,11 @@
 # Capture data manifest — Gladius, 2026-07-19
 
 Catalog of every raw clip captured this session, what it measured, and whether it's a **KEEPER**
-(the trusted result behind a `MEASUREMENTS.md` number) or **TEST/VOID** (superseded, failed, or a
+(the trusted result behind a `MEASUREMENTS.md` row) or **TEST/VOID** (superseded, failed, or a
 throwaway). Each clip dir holds `raw.mp4` + its analysis outputs (`orient.csv` / `omega.csv` /
 `speed_montage.png`, `events.json`, `segments.json`, `meta.json`). Results & interpretation:
-`../MEASUREMENTS.md` (sections "Gladius ROLL", "Gladius PITCH/YAW", "Gladius LINEAR").
+`../MEASUREMENTS.md` (as of 2026-07-26, a values table — see its "Rotational rates — Roll/Pitch/Yaw"
+and "Linear thrust / speed" sections; full narrative/derivation moved to `../MEASUREMENTS_ARCHIVE.md`).
 
 ## ROLL — keyboard Q/E, orientation-tracked (Kareah, PU)
 
@@ -90,6 +91,12 @@ throwaway). Each clip dir holds `raw.mp4` + its analysis outputs (`orient.csv` /
 | `yaw-spoolup-boost-20260723-232815` (`data/indicator/`) | yaw spool-up boosted attempt from far-off-center position | VOID (superseded by v2) |
 | `yaw-spoolup-boost-v2-20260723-233054` (`data/indicator/`) | yaw spool-up rise curve, boosted — 2nd-order fit: rate_ss=48.81, ωₙ=8.186, ζ=0.560 | KEEPER |
 | `yaw-spoolup-boost-v2-counter-20260723-233242` (`data/indicator/`) | counter for the above | KEEPER |
+| `pitch-spoolup-boost-up-20260725-221236` (`data/indicator/`) | pitch UP spool-up rise curve, boosted, 0.55s dwell — peak observed rate (model-free) 76.23°/s at t=0.405s; 1st/2nd-order fits unreliable on this short a window (superseded by the longer-dwell redo below) | KEEPER |
+| `pitch-spoolup-boost-up-counter-20260725-222202` (`data/indicator/`) | boosted counter for the above | KEEPER (utility) |
+| `pitch-spoolup-boost-up-longdwell-20260726-102109` (`data/indicator/`) | pitch UP spool-up rise curve, boosted, 1.1s dwell — full overshoot+undershoot cycle captured; `fit_spool_response.py --t0 4.517 --trim-end 0.683`: rate_ss=76.69°/s, ωₙ=8.135 rad/s, ζ=0.714, RMS 0.138° (2nd-order) vs 0.506° (1st-order) | KEEPER |
+| `pitch-spoolup-boost-up-longdwell-counter-20260726-102709` (`data/indicator/`) | boosted counter for the above (didn't fully restore frame position, cosmetic only) | KEEPER (utility) |
+| `pitch-spoolup-boost-down-longdwell-20260726-104400` (`data/indicator/`) | pitch DOWN spool-up rise curve, boosted, 1.1s dwell, matching the UP redo — `fit_spool_response.py --t0 4.534 --trim-end 0.90`: rate_ss=70.15°/s, ωₙ=8.283 rad/s, ζ=0.820, RMS 0.131° (2nd-order) vs 0.527° (1st-order); real (not lost-lock) rate collapse past trim_end~0.92s bounds the usable window | KEEPER |
+| `pitch-spoolup-boost-down-longdwell-counter-20260726-104842` (`data/indicator/`) | boosted counter for the above (attitude restoration imperfect, unrelated stray key input mid-session; cosmetic only) | KEEPER (utility) |
 
 ## Notes for sorting / consolidation
 - The **KEEPER** rows are the numbers in `MEASUREMENTS.md`. TEST/VOID/SUPERSEDED/REDUNDANT can be

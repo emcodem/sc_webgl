@@ -36,3 +36,15 @@ Lock these in before any capture session and record the actual values in each tr
       the in-game flight-mode indicator (or toggle and watch it) immediately before every session --
       don't trust `USER\Client\0\Profiles\default\attributes.xml`'s `IFCS_Setting_CoupledEnabled`
       for this, its write timing relative to a live in-flight toggle isn't confirmed reliable.
+- [ ] **Power triangle — FULL POWER TO ENGINES, every session, no exceptions.** Confirmed the hard
+      way on 2026-07-26: a boosted-pitch 360°-sustained-hold test landed almost exactly on the coded
+      82°/s rate (0.166° residual after 2 full laps) only once engines were set to full power: the
+      SAME test shortly before, at default/unrecorded power allocation, read a rate ~7-9°/s slower
+      (residual ~36.6° after just 1 lap). This means power allocation is a real, previously-untracked
+      confound on rotational rate, and most of this project's existing boosted-pitch measurements
+      (rate_ss=70.15-76.69 in `capture/MEASUREMENTS.md`'s spool-up fits, all the boosted-pitch
+      afterburner-ratio rows, likely more) were captured without confirming/recording power
+      allocation — **treat them as suspect until re-verified at full engine power.** Set full power
+      to engines (power management panel or its bound key) and confirm it visually immediately
+      before every capture, the same way Coupled is verified above — don't assume a prior session's
+      setting persists.

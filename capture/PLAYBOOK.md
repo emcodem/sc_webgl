@@ -13,9 +13,13 @@ handful of offline loops you can run any time after.
 
 **Read this, not BLUEPRINT's numbered "Per-ship procedure"** — that documents the older
 `orchestrate.py`/`fit_model.py` vJoy-*device* path, which never produced a full-ship spec. Reference
-material: `BLUEPRINT.md` ("Roll capture", "Gotchas", "OBS backend setup") for method depth;
-`MEASUREMENTS.md` + `data/MANIFEST.md` for the Gladius numbers to compare against.
-**`MEASUREMENTS.md` is the Gladius-only record — don't edit it** (new-ship results → a new `<SHIP>.md`).
+material: `BLUEPRINT.md` ("Choosing and seeding a landmark", "Gotchas", "OBS backend setup") for
+method depth; `MEASUREMENTS.md` + `data/MANIFEST.md` for the Gladius numbers to compare against.
+**`MEASUREMENTS.md` is the Gladius-only record — don't edit it** (new-ship results → a new
+`<SHIP>.md`). Note (2026-07-26): `MEASUREMENTS.md` is now a values table with a CONFIRMED/SUSPECT
+status column, not a narrative log — see its own header and the "power triangle allocation" CRITICAL
+note before treating any pre-2026-07-26 row as settled. Full narrative/derivation detail for any row
+moved to `MEASUREMENTS_ARCHIVE.md`.
 
 ---
 

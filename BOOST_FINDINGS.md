@@ -200,13 +200,67 @@ than the coded 1st-order lag, across pitch/yaw/boosted/non-boosted alike) recove
 75.75°/s** for boosted pitch — much closer to the coded 82°/s than either the short-hold snapshot
 (66.98/62.49) or the raw 360-test's wider bracket (77-89), and the doc treats this as resolving the
 question for that direction. Not clear from the text which direction (UP/DOWN) that fit used —
-likely DOWN, matching this whole dataset's default convention. **The one piece that's still a real
-gap: the same 2nd-order fit has not been run on the UP-direction spool-up curve**, so it's unknown
-whether UP's rate_ss also lands near ~75-80 or reflects the small (~3.2%) UP-faster-than-DOWN
-asymmetry already seen in the unboosted rates. That — not a from-scratch full-360 repeat — is the
-well-scoped next capture for pitch's boost ratio, and needs a rise-curve capture (fast-ramp to full
-deflection + continuous `track_landmark.py` tracking) plus a 2nd-order fit script, neither of which
-exists as a committed reusable tool yet (this fit appears to have been done ad hoc previously).
+likely DOWN, matching this whole dataset's default convention.
+
+**UPDATE 2026-07-25 (later same day): the missing UP-direction capture is done, and it built a
+reusable fit tool (`analysis/fit_spool_response.py`) — but that tool surfaced a real problem with
+the 2nd-order fitting method itself, not just a missing data point.** Re-running the new tool against
+the SAME already-recorded DOWN-boosted clip that produced the rate_ss=75.75/ωₙ=8.009/ζ=0.916 numbers
+above does NOT reproduce them: fitting the raw rate curve degenerates to a near-critically-damped,
+poor-RMS solution, and an angle-domain fit (numerically stable) goes blind to the very overshoot that
+would distinguish 1st- from 2nd-order dynamics. Neither approach reliably recovers ωₙ/ζ on this short
+a window. What IS solid (model-free, directly observed peak rate within the rise window): **DOWN
+69.94°/s at t=0.305s, UP 76.23°/s at t=0.405s** — UP's peak sits closer to the API's 82°/s than DOWN's
+does, consistent with (though not an independent re-confirmation of) the existing conclusion that
+boosted-UP's short-hold reps under-read. See `MEASUREMENTS.md`'s "Pitch UP boosted spool-up rise
+curve" section for the full writeup, including the now-disputed status of the original four-condition
+ωₙ/ζ table. **Practical effect on gap #1: still unresolved, and now more clearly so** — the rate_ss
+values in play (69.94-76.23 depending on direction/method) remain below the coded uniform ×1.2
+(82°/s), same qualitative conclusion as before, but a trustworthy ωₙ/ζ characterization needs a
+better fitting method (most likely a longer dwell capturing a full oscillation) before any
+`flightModel.ts` change is warranted.
+
+**UPDATE 2026-07-26: the "better fitting method" from the line above turned out to be exactly that —
+a longer dwell, not a different fitting approach.** Re-captured pitch UP boosted at `--dwell 1.1`
+(vs the original 0.55), long enough to show a full overshoot-THEN-undershoot cycle before the
+landmark exits frame. Fit against the pre-contamination window: **rate_ss=76.69°/s, ωₙ=8.135 rad/s,
+ζ=0.714, RMS 0.138° (2nd-order) vs 0.506° (1st-order)** — ωₙ lands right inside the original
+four-condition table's ~8.0-8.6 rad/s range and the RMS ratio (~3.7×) matches its "2-4× better"
+claim. This is fairly strong evidence the *original* 2026-07-23 fits (rate_ss=75.75 for DOWN
+included) were sound, and this session's earlier short-window failures were the real anomaly, not a
+flaw in the original method. `fit_spool_response.py` gained two options to support this:
+`--trim-end` (cut the window before frame-edge/lost-lock contamination sets in — watch
+`peak_brightness` for an abrupt swing away from its steady baseline) and `--t0` (manual override
+when the auto-alignment's correlation search gets unreliable on a longer, noisier trace — its
+`align_corr` visibly drops from the ~0.95+ seen on short clean captures).
+
+**UPDATE 2026-07-26 (later same day): DOWN redone at the same matching longer dwell.** Result:
+**rate_ss=70.15°/s, ωₙ=8.283 rad/s, ζ=0.820, RMS 0.131° (2nd-order) vs 0.527° (1st-order, ~4.0×)** —
+found via a `--trim-end` sweep (0.55→0.98s) that showed ωₙ staying stable (8.2-8.6 rad/s) across the
+whole clean range while ζ climbs out of the same degenerate 0.999-pinned boundary UP's short-window
+attempts hit, only escaping it once trim_end exceeds ~0.75s; RMS jumps sharply past trim_end=0.90-0.92,
+marking where a real (not tracking-artifact — `peak_brightness` stays clean throughout) rate collapse
+starts. **UP vs DOWN, both via the identical method: ωₙ agrees within ~2% (8.14 vs 8.28, both inside
+the original ~8.0-8.6 range) — good cross-validation of the shared-natural-frequency claim. rate_ss
+is ~9% higher for UP (76.69 vs 70.15), same direction as the already-documented small UP-faster-than-
+DOWN asymmetry. ζ is meaningfully higher for DOWN (0.82 vs 0.71) — DOWN is more damped — a new
+finding, single rep each direction.** **Gap #1 status: BOTH pitch directions now resolved to the same
+standard. Yaw and non-boosted-pitch rows still haven't been re-captured at a matching longer dwell** —
+treat those as *plausible given this cross-check, not independently re-confirmed* until someone does.
+
+**⚠ UPDATE 2026-07-26 (later same night): a bigger, previously-untracked confound found — engine
+power allocation.** A 360°-sustained-hold test (independent of the spool-up fit method above) found
+that boosted pitch reads almost exactly the coded 82°/s (0.166° residual after 2 full laps) **only
+when the power triangle is set to full power to engines** — the same test at whatever power
+allocation was the session default read ~7-9°/s slower. Power allocation was never controlled for or
+recorded in ANY capture session before this, including both rate_ss fits above (76.69 UP, 70.15
+DOWN). **This means gap #1 is open again, in a different way than before: the UP/DOWN rate_ss values
+above may simply reflect non-full engine power, not a real sub-coded afterburner effect.** See
+`capture/MEASUREMENTS.md`'s new "⚠ CRITICAL: power triangle allocation" section and "Pitch UP
+boosted, full engine power" for the full data. `capture/settings_checklist.md` now mandates
+confirming full engine power before every capture, the same way Coupled mode already was. Next real
+step for gap #1: re-run the spool-up rise-curve captures (both directions) with engine power
+confirmed full, since the existing rate_ss=70-77°/s numbers can no longer be trusted at face value.
 
 ---
 
