@@ -10,8 +10,9 @@ import {
   ORBITER_TUNING, DRIFTER_TUNING, driftThink, orbiterThink, spawnDriftState, spawnOrbitState
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
-import { spawnProjectileFrom, updateProjectiles, FIRE_COOLDOWN_SEC } from '../combat/weapons';
+import { spawnProjectileFrom, updateProjectiles, FIRE_COOLDOWN_SEC, WEAPON } from '../combat/weapons';
 import { findActivePip } from '../combat/pipTargeting';
+import { computeLeadPoint } from '../combat/leadIndicator';
 import { computeAxes, lookAtQuat, rotateTowards } from '../math/quaternion';
 import { integrateFlight, resolveBoost } from '../physics/flightModel';
 import { evaluateGateCrossing } from './gatePath';
@@ -139,6 +140,10 @@ export function updateScenario(world: World, dt: number): void {
   const player = world.player.ship;
   const playerFiredThisTick = firePlayerWeaponIfRequested(world, dt);
   if (playerFiredThisTick) runtime.stats.shotsFired++;
+  // stepCombat (free-flight) decays this every frame; updateScenario needs its own copy since the
+  // two step functions are mutually exclusive (main.ts runs one or the other, never both) — without
+  // it, a scenario hit sets hitFlash=1 once in resolveHits below and it never comes back down.
+  player.hitFlash = Math.max(0, player.hitFlash - dt * 2);
 
   // The single soft-locked target (see findActivePip's doc comment) — used below to gate the
   // drifter's aggressive roll escalation onto the ONE enemy the player is actually tracking/about to
@@ -207,12 +212,19 @@ export function updateScenario(world: World, dt: number): void {
       }
 
       case 'turret': {
-        // stays put, just turns to face the player at its capped rate and fires once boresighted
-        const toPlayer = {
-          x: player.pos.x - enemy.pos.x,
-          y: player.pos.y - enemy.pos.y,
-          z: player.pos.z - enemy.pos.z
-        };
+        // stays put, but aims like a good gunner: full firing-solution lead against the player's
+        // current motion vector (same computeLeadPoint the fighter/chaser AIs use for their own gun
+        // solutions), not pure pursuit at the player's current position — a decoupled sidestrafe
+        // alone shouldn't be enough to walk every shot off target. Falls back to pure pursuit only
+        // when no intercept exists (player outrunning the projectile in a straight line away).
+        const lead = computeLeadPoint(enemy.pos, enemy.vel, player.pos, player.vel, WEAPON.muzzleSpeed);
+        const toPlayer = lead
+          ? { x: lead.x - enemy.pos.x, y: lead.y - enemy.pos.y, z: lead.z - enemy.pos.z }
+          : {
+              x: player.pos.x - enemy.pos.x,
+              y: player.pos.y - enemy.pos.y,
+              z: player.pos.z - enemy.pos.z
+            };
         const dist = Math.hypot(toPlayer.x, toPlayer.y, toPlayer.z);
         if (dist < 1e-6) break;
 

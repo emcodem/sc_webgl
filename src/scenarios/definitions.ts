@@ -8,10 +8,6 @@ import type { ScenarioConfig } from './types';
 // The measured Gladius — the base every scenario ship/variant here is built from.
 const GLADIUS = getShipType('Gladius');
 
-// Half turn rate opponent for the drill — same Gladius stats otherwise, so it feels like a real
-// ship, just an easier one to out-turn.
-const SLOW_GLADIUS = deriveShipType(GLADIUS, { angularScale: 0.5, name: 'Gladius (Drill Target)' });
-
 // Physically slower-turning hull for the rookie fighter, on top of its more hesitant AI tuning
 // (FIGHTER_TUNING_ROOKIE) — the combination is what actually sells "still learning to fly".
 const ROOKIE_GLADIUS = deriveShipType(GLADIUS, { angularScale: 0.65, name: 'Gladius (Rookie Pilot)' });
@@ -131,30 +127,42 @@ export function buildEvasivePilotScenario(opts: EvasivePilotOptions = EVASIVE_PI
   };
 }
 
-// Ported from the original project's scenarios/definitions.ts.
-export const SCENARIOS: ScenarioConfig[] = [
-  buildAimTrainingScenario(),
-  buildMergeDrillScenario(),
-  buildEvasivePilotScenario(),
-  {
-    id: 'slow-turret-drill',
-    name: 'Slow Turret Drill',
+// User-configurable knob exposed as a slider on the Turret Drill card (see ui/scenarioMenu.ts).
+// Expressed as a fraction of the Gladius's measured yaw turn rate (GLADIUS.maxAngVel.yaw) rather
+// than a raw rad/s figure, so the slider reads as "% of normal" regardless of which hull backs it.
+export interface TurretDrillOptions { turnRateScale: number; }
+export const TURRET_DRILL_DEFAULTS: TurretDrillOptions = { turnRateScale: 0.5 };
+
+export function buildTurretDrillScenario(opts: TurretDrillOptions = TURRET_DRILL_DEFAULTS): ScenarioConfig {
+  const turnRateRadPerSec = GLADIUS.maxAngVel.yaw * opts.turnRateScale;
+  return {
+    id: 'turret-drill',
+    name: 'Turret Drill',
     description:
-      'A stationary Gladius with half normal turn rate tracks and fires at you. Land 50 hits to destroy it before it lands 50 on you.',
+      `A stationary Gladius turret, turning at ${Math.round(opts.turnRateScale * 100)}% of its normal rate, ` +
+      'tracks and fires at you. Land 50 hits to destroy it before it lands 50 on you.',
     enemySpawns: [
       {
-        type: SLOW_GLADIUS,
+        type: GLADIUS,
         pos: { x: 400, y: 0, z: 1800 },
         quat: { x: 0, y: 0, z: 0, w: 1 },
         behavior: 'turret',
-        turnRateRadPerSec: SLOW_GLADIUS.maxAngVel.yaw
+        turnRateRadPerSec
       }
     ],
     hitsToKillEnemy: 50,
     hitsToKillPlayer: 50,
     includeStation: false,
     winCondition: 'destroy'
-  },
+  };
+}
+
+// Ported from the original project's scenarios/definitions.ts.
+export const SCENARIOS: ScenarioConfig[] = [
+  buildAimTrainingScenario(),
+  buildMergeDrillScenario(),
+  buildEvasivePilotScenario(),
+  buildTurretDrillScenario(),
   {
     id: 'fighter-intercept-rookie',
     name: 'Fighter Intercept — Rookie',

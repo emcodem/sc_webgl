@@ -1,9 +1,12 @@
 import {
   SCENARIOS, buildAimTrainingScenario, AIM_TRAINING_DEFAULTS,
   buildMergeDrillScenario, MERGE_DRILL_DEFAULTS,
-  buildEvasivePilotScenario, EVASIVE_PILOT_DEFAULTS
+  buildEvasivePilotScenario, EVASIVE_PILOT_DEFAULTS,
+  buildTurretDrillScenario, TURRET_DRILL_DEFAULTS
 } from '../scenarios/definitions';
-import type { AimTrainingOptions, MergeDrillOptions, EvasivePilotOptions } from '../scenarios/definitions';
+import type {
+  AimTrainingOptions, MergeDrillOptions, EvasivePilotOptions, TurretDrillOptions
+} from '../scenarios/definitions';
 import type { ScenarioConfig, ScenarioRuntime } from '../scenarios/types';
 import type { World } from '../core/world';
 import { PIP_TRAINER_DEFAULTS } from '../combat/pipTrainer';
@@ -107,6 +110,29 @@ function saveEvasivePilotOptions(): void {
 }
 
 const evasivePilotOptions: EvasivePilotOptions = loadEvasivePilotOptions();
+
+const TURRET_DRILL_STORAGE_KEY = 'vector_turret_drill_options';
+
+function loadTurretDrillOptions(): TurretDrillOptions {
+  try {
+    const raw = localStorage.getItem(TURRET_DRILL_STORAGE_KEY);
+    if (!raw) return { ...TURRET_DRILL_DEFAULTS };
+    const parsed = JSON.parse(raw);
+    return {
+      turnRateScale: typeof parsed.turnRateScale === 'number'
+        ? parsed.turnRateScale : TURRET_DRILL_DEFAULTS.turnRateScale
+    };
+  } catch {
+    return { ...TURRET_DRILL_DEFAULTS };
+  }
+}
+
+function saveTurretDrillOptions(): void {
+  try { localStorage.setItem(TURRET_DRILL_STORAGE_KEY, JSON.stringify(turretDrillOptions)); }
+  catch { /* non-fatal */ }
+}
+
+const turretDrillOptions: TurretDrillOptions = loadTurretDrillOptions();
 
 const PIP_TRAINER_STORAGE_KEY = 'vector_pip_trainer_options';
 
@@ -255,6 +281,24 @@ function buildEvasivePilotControls(descEl: HTMLElement): HTMLElement {
   return wrap;
 }
 
+// descEl's text is kept in sync with the turn-speed lever, same convention as buildMergeDrillControls.
+function buildTurretDrillControls(descEl: HTMLElement): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'scenario-slider-block';
+
+  wrap.appendChild(sliderRow(
+    'Turn Speed', Math.round(turretDrillOptions.turnRateScale * 100), 10, 150, 5,
+    v => `${v}%`,
+    v => {
+      turretDrillOptions.turnRateScale = v / 100;
+      saveTurretDrillOptions();
+      descEl.textContent = buildTurretDrillScenario(turretDrillOptions).description;
+    }
+  ));
+
+  return wrap;
+}
+
 // Speed/Randomness/Hold Time/Duration knobs for the PIP Trainer card — see combat/pipTrainer.ts.
 function buildPipTrainerControls(): HTMLElement {
   const wrap = document.createElement('div');
@@ -328,10 +372,12 @@ function renderList(): void {
     const isAimTraining = config.id === 'aim-training';
     const isMergeDrill = config.id === 'merge-drill';
     const isEvasivePilot = config.id === 'evasive-pilot';
-    // merge-drill/evasive-pilot's description embeds the configured options, so it's rebuilt from
-    // the player's saved options rather than using the default-built SCENARIOS entry as-is.
+    const isTurretDrill = config.id === 'turret-drill';
+    // merge-drill/evasive-pilot/turret-drill's description embeds the configured options, so it's
+    // rebuilt from the player's saved options rather than using the default-built SCENARIOS entry as-is.
     const displayConfig = isMergeDrill ? buildMergeDrillScenario(mergeDrillOptions)
       : isEvasivePilot ? buildEvasivePilotScenario(evasivePilotOptions)
+      : isTurretDrill ? buildTurretDrillScenario(turretDrillOptions)
       : config;
     const card = document.createElement('div');
     card.className = 'scenario-card';
@@ -339,6 +385,7 @@ function renderList(): void {
     if (isAimTraining) card.appendChild(buildAimTrainingControls());
     if (isMergeDrill) card.appendChild(buildMergeDrillControls(card.querySelector('p') as HTMLElement));
     if (isEvasivePilot) card.appendChild(buildEvasivePilotControls(card.querySelector('p') as HTMLElement));
+    if (isTurretDrill) card.appendChild(buildTurretDrillControls(card.querySelector('p') as HTMLElement));
     const btn = document.createElement('button');
     btn.textContent = 'START';
     btn.addEventListener('click', () => {
@@ -348,6 +395,7 @@ function renderList(): void {
         isAimTraining ? buildAimTrainingScenario(aimTrainingOptions)
           : isMergeDrill ? buildMergeDrillScenario(mergeDrillOptions)
           : isEvasivePilot ? buildEvasivePilotScenario(evasivePilotOptions)
+          : isTurretDrill ? buildTurretDrillScenario(turretDrillOptions)
           : config
       );
     });

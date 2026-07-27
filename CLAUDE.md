@@ -96,7 +96,7 @@ see the original's verify notes). A working script is in this session's job tmp
 Ported from the original project: a data-driven scenario system layered on top of the combat
 primitives above. `scenarios/types.ts` (`ScenarioConfig`/`ScenarioRuntime` — `world.enemies` IS the
 active scenario's enemy list, no separate array), `scenarios/definitions.ts` (all 8 `SCENARIOS`:
-aim-training, merge-drill, evasive-pilot, slow-turret-drill, fighter-intercept rookie/ace, two
+aim-training, merge-drill, evasive-pilot, turret-drill, fighter-intercept rookie/ace, two
 barrel-roll gate-path drills), `scenarios/runtime.ts` (`startScenario`/`updateScenario` — a second
 top-level step function parallel to `combat/combatSystem.ts::stepCombat`; `main.ts` picks one or
 the other per frame), `scenarios/gatePath.ts` (the `'gates'` win condition's ring course). New AI
