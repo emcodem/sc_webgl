@@ -36,6 +36,15 @@ and "Linear thrust / speed" sections; full narrative/derivation moved to `../MEA
 | `back-20260719-161411` | back S: accel 42 / max 225 / coast 134 | KEEPER |
 | `boost-lateral-20260719-155201` | boosted lateral: accel 127 / cap 391 | KEEPER |
 | `boost-vert-up-20260719-161007` | boosted up: accel 126 / cap 383 / coast 66 | KEEPER |
+| `forward-fullpower-20260727-222155` | full power, fwd W: accel ~130 / coast ~40 / max 225 | KEEPER |
+| `back-fullpower-20260727-222242` | full power, back S: accel ~40 / coast ~130, max only 202 (5s hold too short for cap) | KEEPER |
+| `lateral-fullpower-20260727-222315` | full power, lateral D: accel ~95 / coast ~95 / max 225 | KEEPER |
+| `vert-up-fullpower-20260727-222354` | full power, up: accel ~98 / coast ~46 / max 225 (redout tint on coast tail only) | KEEPER |
+| `vert-down-fullpower-20260727-222427` | full power, down (short 2.5s hold): accel ~46 / coast ~95, max only 121 by design | KEEPER |
+| `boost-lateral-fullpower-20260727-222513` | full power, boosted lateral: accel ~125 / max ~390 / coast ~125 | KEEPER |
+| `boost-vert-up-fullpower-20260727-222544` | full power, boosted up: accel ~123 / max ~379 / coast ~65 (full GLOC blackout last ~2s of coast tail, data already captured before it) | KEEPER |
+| `boost-forward-fullpower-20260727-222626` | full power, boosted fwd: max ~519, release settled ~55-60 m/s², ~8.5s to zero — operator accidentally hit Esc+"Exit to Menu" at t≈24.3s, harmless (ship already at 0 m/s by t≈21.9s) | KEEPER |
+| `boost-retro-fullpower-20260727-223857` | full power, boosted retro: max ~267, accel ~55 (new), release settled ~200 m/s², ~2.0s to zero | KEEPER |
 
 ## PITCH/YAW — mouse virtual joystick, sun-tracked (private AC)
 
