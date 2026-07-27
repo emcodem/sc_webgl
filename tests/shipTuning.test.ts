@@ -81,6 +81,7 @@ describe('Gladius measured tuning invariants', () => {
       angularSpoolOmega: { pitch: 8.633, yaw: 8.027 },
       angularSpoolZeta: { pitch: 0.807, yaw: 0.729 },
       rollReleaseDecel: 8.7234,
+      pitchYawReversalDecel: { pitch: 3.9667, yaw: 4.5500 },
       scmSpeed: 226,
       scmSpeedBack: 225,
       boostSpeedForward: 520,
@@ -369,6 +370,78 @@ describe('pitch/yaw 2nd-order rotational spool model', () => {
       peak = Math.max(peak, body.angVel.pitch);
     }
     expect(peak).toBeGreaterThan(g.maxAngVel.pitch);
+  });
+});
+
+// Pitch/yaw reversal governor (applied 2026-07-28, per user go-ahead — see gladius.ts's
+// pitchYawReversalDecel doc and capture/MEASUREMENTS.md's "Reversal stop-time — felt-threshold
+// method" section): a hard flip to the opposite deflection decelerates at a flat rate, distinct from
+// both the spring-damper spool-up/release model above and from a same-equation-with-flipped-target
+// reversal. Mirrors the roll-release governor tests' style as a regression guard on this branch's
+// shape specifically, not just steady-state.
+describe('pitch/yaw reversal governor (flat deceleration on a sign-flip, not the spring-damper)', () => {
+  function freshBody(type: ShipType): FlightBody {
+    return {
+      type,
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: 0, y: 0, z: 0 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      angVel: { pitch: 0, yaw: 0, roll: 0 },
+      angAccel: { pitch: 0, yaw: 0, roll: 0 },
+      boosting: false,
+      throttleSpoolTime: 0,
+      verticalSpoolTime: 0
+    };
+  }
+  const NO_ROTATION = { throttle: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false };
+
+  it('decrements pitch rate by a flat step per tick while reversing, not via the spring-damper', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    const dt = 1 / 240;
+    for (let i = 0; i < 240 * 3; i++) {
+      integrateFlight(body, { ...NO_ROTATION, pitch: 1, yaw: 0, roll: 0 }, dt);
+    }
+    const before = body.angVel.pitch;
+    expect(before).toBeGreaterThan(0);
+    integrateFlight(body, { ...NO_ROTATION, pitch: -1, yaw: 0, roll: 0 }, dt);
+    const drop = before - body.angVel.pitch;
+    expect(drop).toBeCloseTo(g.pitchYawReversalDecel.pitch * dt, 6);
+    expect(body.angAccel.pitch).toBe(0); // reset, not carried over from the spool-up state
+  });
+
+  it('a full-rate reversal crosses zero in roughly maxAngVel/pitchYawReversalDecel, then continues into the new direction', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    const dt = 1 / 240;
+    for (let i = 0; i < 240 * 3; i++) {
+      integrateFlight(body, { ...NO_ROTATION, pitch: 1, yaw: 0, roll: 0 }, dt);
+    }
+    let steps = 0;
+    let crossedAt = -1;
+    for (let i = 0; i < 240 * 2; i++) {
+      integrateFlight(body, { ...NO_ROTATION, pitch: -1, yaw: 0, roll: 0 }, dt);
+      steps++;
+      if (crossedAt < 0 && body.angVel.pitch <= 0) crossedAt = steps * dt;
+    }
+    expect(crossedAt).toBeCloseTo(g.maxAngVel.pitch / g.pitchYawReversalDecel.pitch, 1);
+    // held the reversed input well past crossing zero — should now be spooling up negative, not stuck
+    expect(body.angVel.pitch).toBeLessThan(-g.maxAngVel.pitch * 0.5);
+  });
+
+  it('releasing to neutral (target=0) still uses the spring-damper, unaffected by the reversal branch', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 2; i++) {
+      integrateFlight(body, { ...NO_ROTATION, pitch: 1, yaw: 0, roll: 0 }, dt);
+    }
+    const before = body.angVel.pitch;
+    integrateFlight(body, { ...NO_ROTATION, pitch: 0, yaw: 0, roll: 0 }, dt);
+    const drop = before - body.angVel.pitch;
+    // the spring-damper's first-tick drop depends on omega/zeta, not the flat reversal decel — just
+    // confirm it does NOT match the flat-decel step, i.e. the reversal branch didn't fire on release.
+    expect(drop).not.toBeCloseTo(g.pitchYawReversalDecel.pitch * dt, 6);
   });
 });
 

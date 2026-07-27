@@ -84,6 +84,11 @@ export interface RawShipMeasurement {
   // core/types.ts's ShipType.rollReleaseDecel for the full rationale.
   rollReleaseDecel: number;
 
+  // Flat rad/s^2 deceleration applied when pitch/yaw's commanded target opposes current spin (a
+  // reversal, not a release) — see core/types.ts's ShipType.pitchYawReversalDecel for the full
+  // rationale.
+  pitchYawReversalDecel: { pitch: number; yaw: number };
+
   // Natural frequency (rad/s) / damping ratio of pitch/yaw's 2nd-order spool-up+release model — see
   // core/types.ts's ShipType.angularSpoolOmega doc.
   angularSpoolOmega: { pitch: number; yaw: number };

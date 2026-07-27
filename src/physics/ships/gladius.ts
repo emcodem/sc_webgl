@@ -244,6 +244,17 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   // ~0.5s"). Applied to flightModel.ts's roll release branch only — pitch/yaw instead get their own
   // 2nd-order spool model below, which covers their release/reversal transient too (see flightModel.ts).
   rollReleaseDecel: 8.7234,
+  // Pitch/yaw REVERSAL governor (applied 2026-07-28, per user go-ahead): a hard flip to the opposite
+  // deflection decelerates at a roughly constant rate before picking up the new direction, instead of
+  // through the angularSpoolOmega/Zeta spring-damper below (which still governs spin-up-from-rest and
+  // release-to-neutral) — see capture/MEASUREMENTS.md's "Reversal stop-time — felt-threshold method"
+  // section (2026-07-27/28) and core/types.ts's ShipType.pitchYawReversalDecel doc for the full
+  // rationale and caveats (SUSPECT data — felt-threshold, not frame-tracked; pitch well-validated,
+  // yaw much rougher; no boosted data; mag2-magnitude dependence unmeasured beyond "saturates
+  // early"). Derived as maxAngVel/dur2_stop-at-full-reversal:
+  //   pitch: maxAngVel.pitch(1.19 rad/s) / 0.300s = 3.9667 rad/s^2
+  //   yaw:   maxAngVel.yaw(0.91 rad/s) / 0.20s = 4.5500 rad/s^2
+  pitchYawReversalDecel: { pitch: 3.9667, yaw: 4.5500 },
   // Pitch/yaw rotation spool-up + release/reversal, 2nd-order underdamped step response (2026-07-23
   // capture, "Spool-up transient is a 2nd-order underdamped step response" in MEASUREMENTS.md) —
   // fits the real rate-vs-time rise curve 2-4x better than the old 1st-order exponential-lag model in

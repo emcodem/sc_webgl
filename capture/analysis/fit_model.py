@@ -52,12 +52,23 @@ directly to shipTypes.ts). mass_only CANNOT: its thrust/drag are fixed positive 
 optimizer degenerates to a huge, meaningless mass (driving the response toward ~0 as the
 least-bad fit). Check a first symmetric-model run's fitted thrust sign; if negative, re-run
 everything (including mass_only) with --sign -1 to flip the loaded omega before fitting.
+
+Two more candidates, `second_order`/`second_order_fixed_rate` (see MODELS2 below): the three models
+above all share one state variable (w) and the single-pole thrust/drag ODE -- which is what ROLL
+still uses in flightModel.ts, but NOT what pitch/yaw use there any more (see integrateFlight's
+rotation block, and gladius.ts's angularSpoolOmega/Zeta): pitch/yaw are driven by a 2-state
+mass-spring-damper (w, a) toward a commanded rate, fit from separate spool-up/release captures and
+assumed (never directly tested until now) to also govern reversal correctly with just a flipped
+target. `second_order` floats rate_ss/wn/zeta freely; `second_order_fixed_rate` pins rate_ss at the
+axis's actual coded maxAngVel (pass via --coded-rate-ss) and only lets wn/zeta float, mirroring how
+mass_only above tests "are thrust0/drag0 already right" for the old model family.
 """
 
 import argparse
 import csv
 import json
 import sys
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -135,6 +146,93 @@ MODELS = {
 }
 
 
+def second_order_model(state, u, params, extra):
+    """The model flightModel.ts actually runs for pitch/yaw: a driven mass-spring-damper toward a
+    commanded rate (target = u*rate_ss). state=(w, a) = (angular rate, angular acceleration);
+    params=(rate_ss, wn, zeta) all float freely; extra unused (kept for simulate2() parity)."""
+    w, a = state
+    rate_ss, wn, zeta = params
+    target = u * rate_ss
+    return a, -2 * zeta * wn * a - wn * wn * (w - target)
+
+
+def second_order_fixed_rate_model(state, u, params, extra):
+    """Same equation as second_order_model, but rate_ss is FIXED at the axis's real coded
+    maxAngVel (passed via extra) -- only wn/zeta float. Tests whether the reversal can be explained
+    by different transient dynamics alone, without also letting the steady-state rate drift from
+    spec (same spirit as mass_only above for the old model family)."""
+    w, a = state
+    wn, zeta = params
+    rate_ss = extra
+    target = u * rate_ss
+    return a, -2 * zeta * wn * a - wn * wn * (w - target)
+
+
+MODELS2 = {
+    "second_order": (second_order_model, ["rate_ss", "wn", "zeta"]),
+    "second_order_fixed_rate": (second_order_fixed_rate_model, ["wn", "zeta"]),
+}
+
+# Multi-start grid for wn0/zeta0 -- a single seed can land in a local minimum, same reasoning as
+# fit_spool_response.py's own grid (a reversal segment is just as prone to this as a spool-up one).
+_WN0_GRID = (3.0, 5.0, 8.0, 12.0, 20.0)
+_ZETA0_GRID = (0.3, 0.5, 0.7, 0.85, 0.95)
+
+
+def simulate2(model_d_dt, params, t: np.ndarray, u_fn, extra) -> np.ndarray:
+    """Forward-Euler for a 2-state (w, a) model -- same time-stepping convention as simulate()
+    above, generalized to the extra acceleration state pitch/yaw's real model needs."""
+    w = np.zeros_like(t)
+    a = np.zeros_like(t)
+    for i in range(1, len(t)):
+        dt = t[i] - t[i - 1]
+        u = u_fn(t[i - 1])
+        dw, da = model_d_dt((w[i - 1], a[i - 1]), u, params, extra)
+        w[i] = w[i - 1] + dw * dt
+        a[i] = a[i - 1] + da * dt
+    return w
+
+
+def fit2(model_name: str, trials: list[tuple[np.ndarray, np.ndarray]], u_fn, extra,
+         rate_ss0: float) -> dict:
+    model_fn, param_names = MODELS2[model_name]
+    free_rate = "rate_ss" in param_names
+
+    def residuals(params):
+        return np.concatenate([
+            simulate2(model_fn, params, t, u_fn, extra) - omega_measured
+            for t, omega_measured in trials
+        ])
+
+    best = None
+    for wn0, zeta0 in product(_WN0_GRID, _ZETA0_GRID):
+        guess = [rate_ss0, wn0, zeta0] if free_rate else [wn0, zeta0]
+        bounds = ([0.0, 1e-3, 1e-3], [np.inf, 100.0, 0.999]) if free_rate else ([1e-3, 1e-3], [100.0, 0.999])
+        result = least_squares(residuals, guess, bounds=bounds)
+        rms = float(np.sqrt(np.mean(result.fun ** 2)))
+        if best is None or rms < best[0]:
+            best = (rms, result.x)
+    rms, x = best
+    params = dict(zip(param_names, x))
+
+    full_res = residuals(x)
+    per_trial_rms = []
+    offset = 0
+    for t, omega_measured in trials:
+        n = len(t)
+        trial_res = full_res[offset:offset + n]
+        per_trial_rms.append(float(np.degrees(np.sqrt(np.mean(trial_res ** 2)))))
+        offset += n
+
+    return {
+        "model": model_name,
+        "params": params,
+        "rms_error_rad_s": rms,
+        "rms_error_deg_s": np.degrees(rms),
+        "per_trial_rms_deg_s": per_trial_rms,
+    }
+
+
 def fit(model_name: str, trials: list[tuple[np.ndarray, np.ndarray]], u_fn, extra,
         initial_guess: list) -> dict:
     model_fn, param_names = MODELS[model_name]
@@ -186,6 +284,9 @@ def main() -> None:
                          help="multiply loaded omega by this before fitting -- set -1 if a prior "
                               "symmetric-model run fit a negative thrust (see module docstring's "
                               "'Sign convention' note); required for mass_only to mean anything")
+    parser.add_argument("--coded-rate-ss", type=float, default=None,
+                         help="axis's real coded maxAngVel in rad/s (e.g. gladius.ts's maxAngVel.yaw) "
+                              "-- if given, also fits second_order_fixed_rate; omit to skip it")
     args = parser.parse_args()
 
     loaded = [load_trial(d, sign=args.sign) for d in args.trial_dirs]
@@ -217,6 +318,18 @@ def main() -> None:
               f"params = {params_str}")
         if len(trials) > 1:
             print(f"{'':>12s}  per-trial RMS (deg/s) = [{per_trial}]")
+
+    rate_ss0 = args.thrust0 / args.drag0  # old model's implied steady state -- a reasonable seed
+    model2_names = ["second_order"] + (["second_order_fixed_rate"] if args.coded_rate_ss is not None else [])
+    for model_name in model2_names:
+        extra = args.coded_rate_ss if model_name == "second_order_fixed_rate" else None
+        result = fit2(model_name, trials, u_fn, extra, rate_ss0)
+        params_str = ", ".join(f"{k}={v:.4f}" for k, v in result["params"].items())
+        per_trial = ", ".join(f"{v:.2f}" for v in result["per_trial_rms_deg_s"])
+        print(f"{result['model']:>24s}: RMS error = {result['rms_error_deg_s']:.3f} deg/s   "
+              f"params = {params_str}")
+        if len(trials) > 1:
+            print(f"{'':>24s}  per-trial RMS (deg/s) = [{per_trial}]")
 
 
 if __name__ == "__main__":

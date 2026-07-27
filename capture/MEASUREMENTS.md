@@ -34,8 +34,13 @@ ratios, all 3 rotational axes) is now fully done**: roll (1.199×), pitch (1.190
 recaptured 2026-07-27 with a shortened dwell — see Yaw table) are all CONFIRMED and land almost
 exactly on the coded 1.2×. All three ratios close substantially versus their non-full-power values
 (1.18×/1.06×/1.057×) — full power was masking a real, uniform ~1.2× afterburner effect across every
-rotational axis. Still open: non-boosted rotational baselines for roll/yaw (pitch's is now done) and
-all linear thrust/speed rows (handoff.md's Priorities 3-4).
+rotational axis. **Priority 4 (all linear thrust/speed rows) is now fully done** (2026-07-27, see the
+Linear table) — every axis/direction (fwd/back/lateral/up/down accel+coast, boosted lateral/vert-up,
+boosted forward/retro top speed + release decay) reconfirmed at full power. Unlike boosted rotation,
+**linear thrust/speed turns out to be largely power-triangle-INsensitive** — every full-power value
+lands within ~2-5% of its old unconfirmed-power reading, not the ~11% jump boosted pitch showed.
+Still open: non-boosted rotational baselines for roll/yaw (pitch's is now done, handoff.md's old
+Priority 3).
 
 ---
 
@@ -95,6 +100,7 @@ all linear thrust/speed rows (handoff.md's Priorities 3-4).
 | Accumulator clamp | 1920 counts = half of 3840 capture width | rate-consistency check | 1 | 2026-07-23 | CONFIRMED | Resolution-dependent, re-derive at other resolutions. |
 | Reversal wobble | ~1-1.5s settling ringing, ±0.5-1°/s | fast/slow ramp reversal + static control | 1 each | 2026-07-22 | SUSPECT | Confirmed real vs tracking noise, but explicitly "should be repeated." |
 | Reversal fit (device-path, Coupled) | thrust=7.02-7.55, drag_normal=8.20-9.24, drag_reversal=0.00 pinned | `fit_model.py` | 3 | 2026-07-18 | SUSPECT | An earlier Decoupled-mode dataset was fully invalidated and discarded (wrong flight mode). |
+| **Reversal fit — coded 2nd-order model (device-path, Coupled)** | `second_order` (rate_ss=0.77 rad/s≈44°/s, wn=11.1, zeta pinned at 0.999) RMS 9.50°/s; `second_order_fixed_rate` (rate_ss pinned at coded 0.91 rad/s, wn=10.2, zeta pinned at 0.999) RMS 10.53°/s — **both worse** than the row-above asymmetric drag=0 fit's RMS 9.00°/s, and both pin zeta at the near-critical-damping bound, unlike the genuinely-underdamped (zeta 0.56-0.73) spool-up-from-rest fits for this same axis | `fit_model.py`'s new `second_order`/`second_order_fixed_rate` models (added 2026-07-27), reusing the existing `data/Gladius/yaw_reversal/20260718-{212039,212121}` trials — no new capture | 2 (same trials as the row above) | 2026-07-27 | SUSPECT | Directly tests [GitHub issue #12](https://github.com/emcodem/sc_webgl/issues/12)'s question: does `flightModel.ts`'s coded 2nd-order model (the one actually driving pitch/yaw in-game) already explain a reversal as "spool-up with a flipped target"? **No** — it fits this real reversal trace worse than the already-flagged simple asymmetric/drag=0 model, and only gets that close by collapsing toward zero oscillation (zeta->0.999), contradicting the same-axis spool-up fit's genuine underdamped shape (zeta 0.56-0.73). Suggests real reversal needs distinctly different (more damped, non-oscillatory) dynamics than spool-up, not just a negated target — consistent with, and sharper than, the drag_reversal=0 finding above. Single joint fit of the same 2 pre-existing trials; needs more reps plus an equivalent PITCH capture (`feeder/maneuvers/pitch_reversal.json` already exists, never actually run) before this changes any code. |
 | Dedicated spool-up (device-path) | u=1.0 → ~49-55°/s; u=0.5 → ~32.5-33.3°/s (ratio 0.65, not 0.5) | raw plateau read | 2 clean each | 2026-07-18/19 | SUSPECT | Confirms nonlinear default device-vjoy curve (separate from the mouse-curve findings above). |
 | 360°-check shortfall (device-path) | mean −0.73° | before/after | 3 | 2026-07-18 | SUSPECT | Confirms sustained yaw ≈52°/s spec; not a valid τ measurement (confounds noted). |
 
@@ -144,6 +150,73 @@ from these same trials remains the most solid number**: 81.67°/s (UP) and 80.47
 the Pitch table above. A repeat with the landmark seeded even closer to the top frame edge (more
 travel room before hitting the dash/edge) would tighten these further.
 
+## Reversal stop-time — felt-threshold method (2026-07-27/28)
+
+Directly probes [GitHub issue #12](https://github.com/emcodem/sc_webgl/issues/12) (real SC's
+"brake first" reversal sluggishness vs. sc_webgl's more immediate one) via a new tool,
+`capture/reversal_feel_test.py`: drive full/partial mouse deflection to `mag1` for `dur1` (reaches
+steady state), hard-flip to `mag2` for `dur2`, release. No OBS/frame-tracking — `dur2` is the
+**felt** threshold where the hold exactly cancels the ship's velocity without it visibly starting
+to turn the other way, found by manual binary search (retry with `dur2` raised/lowered). **All
+values below are SUSPECT by construction** (human perceptual threshold, not a frame-tracked
+zero-crossing) — treat as a strong qualitative signal and a candidate model shape, not
+capture-grade numbers. Coupled vs. Decoupled was checked directly and found to make no difference
+(consistent with the existing structural finding above that decoupled only removes linear damping).
+
+### mag1 sweep, mag2 = full opposite deflection (dur1 = 1.0s each)
+
+| Axis | mag1 | dur2_stop | Notes |
+|---|---|---|---|
+| Yaw (mag2=-1700) | 1700 | 0.20s | Retested — an initial 0.30s reading was a measurement mistake. |
+| Yaw (mag2=-1700) | 850 | ~0.078s | Refined from a looser 0.085/0.080 lower bound. |
+| Yaw (mag2=-1700) | 550 | ~0.020s | Hard to judge at this speed; refined down from an initial 0.012-0.028 spread. |
+| Yaw (mag2=-1700) | 350 | ≤0.0008s | Below one frame at 120fps (8.3ms) — effectively "instant," not a precise value. |
+| Pitch (mag2=-1080) | 1080 | 0.300s | Original anchor point, repeatedly confirmed. |
+| Pitch (mag2=-1080) | 950 | 0.245s | Predicted by the linear fit below, then independently confirmed. |
+| Pitch (mag2=-1080) | 850 | 0.209s | Predicted, then confirmed. |
+| Pitch (mag2=-1080) | 700 | 0.155s | Predicted, then confirmed. |
+| Pitch (mag2=-1080) | 540 | 0.095s | Refined via bisection (initial lower bound was 0.07-0.09). |
+| Pitch (mag2=-1080) | 310 | 0.0155s | Refined via bisection. |
+| Pitch (mag2=-1080) | 200 | ≤0.001s | Below one frame at 120fps — at the resolution floor, same caveat as yaw's 350-count row. |
+
+**Pitch fits a clean line**: `dur2_stop = 3.589e-4 × (mag1 − 267.0)` (log-RMS 0.024 on the 3
+bisected calibration points 1080/540/310) — then **independently predicted 950/850/700 almost
+exactly**, which were confirmed afterward. That's real validation of a linear (not power-law)
+relationship for pitch, not just a curve-fit artifact.
+
+Yaw's equivalent fit is far less settled: successive refits (as looser lower-bound values got
+bisected tighter) swung from an exponent of 1.54 to 0.78 — still an exact 3-point interpolation
+each time (3 free params, 3 points), never independently validated against held-out points the way
+pitch's line was. **Yaw's curve shape should be treated as unresolved**, not linear-confirmed.
+
+### Cross-axis pattern: fitted "effective deadzone" is ~5-6× the real one
+
+Both axes' fits imply a deadzone-like offset well past the actual configured
+`VJoyCombinedDeadZone` (confirmed via `attributes.xml`: `4.45` → the *default* setting):
+
+| Axis | Fitted offset | Real deadzone estimate (4.45% of that axis's own max) | Ratio |
+|---|---|---|---|
+| Pitch (linear fit, 6 pts) | 267.0 | 48.1 (4.45% of 1080) | 5.6× |
+| Yaw (best available fit) | 486.3 | 85.4 (4.45% of 1920, the true accumulator clamp) | 5.7× |
+
+This ratio held up across multiple refits on both axes even as the exponent estimate for yaw moved
+around a lot — more likely a real effect than a fitting artifact. Not yet explained; candidate
+causes include the reversal governor's own response having a much wider "dead" region than the
+input curve's deadzone, or the constant-decel model itself being an oversimplification.
+
+### mag2 (counter-thrust magnitude) saturates well before full deflection
+
+One exploratory test, pitch, mag1=1000: predicted `dur2_stop` at mag2=FULL(-1080) from the linear
+fit is 0.263s. Observed `dur2_stop` at **mag2=-500 (well under half deflection)** was **~0.25-0.28s
+— essentially the same**. Halving the counter-command barely changed the stop time. This
+contradicts the naive assumption that braking authority scales down with mag2 the same way the
+initial spin-up target scales with mag1 (that assumption predicted ~0.92-1.0s, roughly 3-4× too
+long). Braking looks closer to a **saturating/threshold response** — a moderate counter-command
+already produces close to full braking effect — than a smoothly proportional one. Where that
+saturation actually breaks down (how low mag2 can go before stop-time starts rising) is not yet
+tested; a follow-up sweep (mag2 = -300/-150/-80 at mag1=1000) was proposed but results not yet in
+as of this entry.
+
 ## Linear thrust / speed (Gladius)
 
 | Condition | Value | Method | Reps | Date | Status | Notes |
@@ -162,6 +235,15 @@ travel room before hitting the dash/edge) would tighten these further.
 | Boosted retro top speed | ~267 m/s | same | 1 | 2026-07-25 | SUSPECT | Matches coded boostSpeedBack 268. |
 | Boost-release decay, forward | settled ~55-60 m/s², 8.5s to zero (520→0), crosses SCM(226) at ~4.1s | continuous OBS clip through release | 1 | 2026-07-25 | SUSPECT | Brakes continuously through SCM cap to a full stop — no plateau at SCM. Not yet acted on in code beyond the narrower fix in BOOST_FINDINGS.md §8. |
 | Boost-release decay, retro | settled ~200-210 m/s², 2.0s to zero (267→0) | same | 1 | 2026-07-25 | SUSPECT | Retro brakes ~3.5× faster than forward. |
+| **Forward accel / coast decel, full power** | **~130 / ~40 m/s²** | `linear_hold_capture.py` (`W:5,_:8`) + `montage_speed.py`, region `1560,1140,140,90` | 1 | 2026-07-27 | CONFIRMED | Matches coded 134/40 within ~3%; essentially unchanged from the unconfirmed-power row above — linear thrust looks far less power-sensitive than boosted rotation was. Max 225 m/s (SCM 226). |
+| **Back accel / coast decel, full power** | **~40 / ~130 m/s²** | same (`S:5,_:8`) | 1 | 2026-07-27 | CONFIRMED | Coast decel matches this same session's forward-accel reading (~130) almost exactly — direct confirmation of the opposing-thruster coast model at full power. 5s hold only reached 202 m/s (accel too shallow to hit the 225 cap in the time given), consistent with ~40 m/s² needing ~5.6s. |
+| **Lateral accel / coast decel, full power** | **~95 / ~95 m/s²** | same (`D:5,_:8`) | 1 | 2026-07-27 | CONFIRMED | Symmetric both ways, matches coded strafe 96.7 and the unconfirmed-power row closely. Max 225 m/s. |
+| **Up accel / coast decel, full power** | **~98 / ~46 m/s²** | same (`UP:4,_:8`) | 1 | 2026-07-27 | CONFIRMED | Matches unconfirmed-power row (98/49) closely. Max 225 m/s. Screen tints red (redout) only on the low-speed coast tail, same documented pattern as before — no accel/cap reading affected. |
+| **Down accel / coast decel, full power** | **~46 / ~95 m/s²** | same (`DN:2.5,_:8`, kept short — GLOC risk) | 1 | 2026-07-27 | CONFIRMED | Matches unconfirmed-power row (49/98) closely; coast decel matches this session's up-accel reading (~98), confirming the opposing-thruster model. Short 2.5s hold only reached 121 m/s by design (never intended to hit cap). |
+| **Boosted lateral, full power** | **accel ≈125 m/s², max ≈390 m/s, coast ≈125 m/s²** | same (`D:5,_:8 --boost`) | 1 | 2026-07-27 | CONFIRMED | Matches the unconfirmed-power row (127/391/127) closely. |
+| **Boosted vertical-up, full power** | **accel ≈123 m/s², max ≈379 m/s, coast ≈65 m/s²** | same (`UP:4,_:8 --boost`) | 1 | 2026-07-27 | CONFIRMED | Matches the unconfirmed-power row (126/383/66) closely. Pilot fully blacked out (solid black frames, not just redout tint) for the last ~2s of the coast tail from accumulated -G — expected given the ~13G peak deceleration on this axis; accel/max/most of coast decel were already captured before the blackout, per the established "no reading taken during a blackout" method note. |
+| **Boosted forward top speed + release decay, full power** | **max ≈519 m/s; release: initial ~110-145 m/s² for ~0.3-0.4s, settling ~55-60 m/s², ~8.5s to zero (519→0)** | same (`W:12,_:15 --boost`) | 1 | 2026-07-27 | CONFIRMED | Matches the unconfirmed-power rows (519-520 max; 55-60 settled, 8.5s to zero) almost exactly. This clip's own operator accidentally hit Esc + clicked "Exit to Menu" at t≈24.3s (real mouse/keyboard collision, not a tooling bug) — harmless here since the ship had already coasted to 0 m/s by t≈21.9s, well before the interruption. |
+| **Boosted retro top speed + release decay, full power** | **max ≈267 m/s; accel ≈55 m/s² (new); release: settled ≈200 m/s², ~2.0s to zero (267→0)** | same (`S:12,_:15 --boost`) | 1 | 2026-07-27 | CONFIRMED | Matches the unconfirmed-power rows (267 max; 200-210 settled, 2.0s to zero) almost exactly. The accel figure (≈55 m/s²) wasn't previously reported. |
 
 ## Boost meter (drain / recharge, % per second)
 

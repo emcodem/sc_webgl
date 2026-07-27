@@ -34,6 +34,7 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     angularSpoolOmega: { ...raw.angularSpoolOmega },
     angularSpoolZeta: { ...raw.angularSpoolZeta },
     rollReleaseDecel: raw.rollReleaseDecel,
+    pitchYawReversalDecel: { ...raw.pitchYawReversalDecel },
     scmSpeed: raw.scmSpeed,
     scmSpeedBack: raw.scmSpeedBack,
     boostSpeedForward: raw.boostSpeedForward,
@@ -119,6 +120,7 @@ export function validateShipType(t: ShipType, id: string): void {
   positivePitchYaw(t.boostAngularSpoolZeta, 'boostAngularSpoolZeta');
   finite(t.rollReleaseDecel, 'rollReleaseDecel');
   if (t.rollReleaseDecel <= 0) throw new Error(`Invalid ShipType '${id}': rollReleaseDecel must be > 0, got ${t.rollReleaseDecel}`);
+  positivePitchYaw(t.pitchYawReversalDecel, 'pitchYawReversalDecel');
 
   finite(t.scmSpeed, 'scmSpeed');
   finite(t.scmSpeedBack, 'scmSpeedBack');

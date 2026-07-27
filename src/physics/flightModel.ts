@@ -45,6 +45,27 @@ export interface FlightInputs {
   decoupled: boolean;
 }
 
+// One axis of pitch/yaw rotation: the 2nd-order underdamped spring-damper for spin-up-from-rest and
+// release-to-neutral, but a separate constant-decel REVERSAL branch when `target` opposes the ship's
+// CURRENT spin (a hard flip, not a release) — real Gladius decelerates through a reversal at a
+// roughly constant rate rather than the spring-damper's oscillating approach. See gladius.ts's
+// pitchYawReversalDecel doc and capture/MEASUREMENTS.md's "Reversal stop-time — felt-threshold
+// method" section (2026-07-27/28, applied per user go-ahead 2026-07-28). `accel` resets to 0 on
+// crossing back through zero so the post-reversal spool-up starts fresh from rest, same as a genuine
+// standing start — not carrying over the braking phase's own transient state.
+function stepPitchYawAxis(
+  prevVel: number, prevAccel: number, target: number,
+  omega: number, zeta: number, reversalDecel: number, dt: number
+): { vel: number; accel: number } {
+  if (prevVel !== 0 && target !== 0 && Math.sign(prevVel) !== Math.sign(target)) {
+    const decelStep = reversalDecel * dt;
+    const vel = Math.abs(prevVel) <= decelStep ? 0 : prevVel - Math.sign(prevVel) * decelStep;
+    return { vel, accel: 0 };
+  }
+  const accel = prevAccel + (-2 * zeta * omega * prevAccel - omega * omega * (prevVel - target)) * dt;
+  return { vel: prevVel + accel * dt, accel };
+}
+
 // Applies one physics tick of rotation, thrust, drag, and speed-capping to `body` — shared by both
 // the player ship and any AI-flown EnemyShip so they fly on the same rules. `body.boosting` is
 // expected to already be resolved by the caller (see resolveBoost below) — boost-meter bookkeeping
@@ -75,30 +96,31 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
 
   const prevAngVel = { pitch: body.angVel.pitch, yaw: body.angVel.yaw, roll: body.angVel.roll };
 
-  // PITCH/YAW rotation: 2nd-order underdamped step-response tracker (mass-spring-damper-like),
-  // covering BOTH spool-up (input applied) AND release/reversal (input dropped/reversed) with one
-  // continuous equation — real Gladius's rate-vs-time curve for both is a genuine overshoot-and-
-  // settle wobble, not the old two-part scheme (proportional forcing while held + an exponential-
-  // decay-with-snap-to-zero approximation on release) this replaced. See gladius.ts's
-  // angularSpoolOmega/Zeta doc for the fitted values and capture/MEASUREMENTS.md's "Spool-up
-  // transient is a 2nd-order underdamped step response" section for the full derivation.
-  // State-space form (standard driven mass-spring-damper): target is the commanded steady-state rate
-  // (using the already budget-shared pitchInput/yawInput above); `body.angAccel` is the new state
-  // this needs (the old model only tracked angVel).
+  // PITCH/YAW rotation: 2nd-order underdamped step-response tracker (mass-spring-damper-like) for
+  // spin-up (input applied) AND release-to-neutral (input dropped) — real Gladius's rate-vs-time
+  // curve for both is a genuine overshoot-and-settle wobble, not the old two-part scheme (proportional
+  // forcing while held + an exponential-decay-with-snap-to-zero approximation on release) this
+  // replaced. See gladius.ts's angularSpoolOmega/Zeta doc for the fitted values and
+  // capture/MEASUREMENTS.md's "Spool-up transient is a 2nd-order underdamped step response" section
+  // for the full derivation.
   //   angAccel += (-2*zeta*omega*angAccel - omega^2*(angVel - target)) * dt
   //   angVel   += angAccel * dt
-  // Release/reversal need no separate branch: they're just this same equation with a lower/negated
-  // target, which is exactly why release showed the same wobble as spool-up in the capture data.
+  // A REVERSAL (target opposes the ship's current spin, not just dropping to neutral) is NOT this
+  // same equation with a negated target — real Gladius decelerates through a reversal at a roughly
+  // constant rate instead (see gladius.ts's pitchYawReversalDecel doc and MEASUREMENTS.md's
+  // "Reversal stop-time" section, applied per user go-ahead 2026-07-28); stepPitchYawAxis above
+  // branches on this. This SUPERSEDES the prior assumption (release and reversal share one equation)
+  // for the reversal case specifically — release-to-neutral is unaffected.
   const spoolOmega = body.boosting ? t.boostAngularSpoolOmega : t.angularSpoolOmega;
   const spoolZeta = body.boosting ? t.boostAngularSpoolZeta : t.angularSpoolZeta;
   const pitchTarget = pitchInput * maxAngVel.pitch;
   const yawTarget = yawInput * maxAngVel.yaw;
-  body.angAccel.pitch += (-2 * spoolZeta.pitch * spoolOmega.pitch * body.angAccel.pitch
-    - spoolOmega.pitch * spoolOmega.pitch * (prevAngVel.pitch - pitchTarget)) * dt;
-  body.angAccel.yaw += (-2 * spoolZeta.yaw * spoolOmega.yaw * body.angAccel.yaw
-    - spoolOmega.yaw * spoolOmega.yaw * (prevAngVel.yaw - yawTarget)) * dt;
-  body.angVel.pitch = prevAngVel.pitch + body.angAccel.pitch * dt;
-  body.angVel.yaw = prevAngVel.yaw + body.angAccel.yaw * dt;
+  const pitchStep = stepPitchYawAxis(prevAngVel.pitch, body.angAccel.pitch, pitchTarget,
+    spoolOmega.pitch, spoolZeta.pitch, t.pitchYawReversalDecel.pitch, dt);
+  const yawStep = stepPitchYawAxis(prevAngVel.yaw, body.angAccel.yaw, yawTarget,
+    spoolOmega.yaw, spoolZeta.yaw, t.pitchYawReversalDecel.yaw, dt);
+  body.angVel.pitch = pitchStep.vel; body.angAccel.pitch = pitchStep.accel;
+  body.angVel.yaw = yawStep.vel; body.angAccel.yaw = yawStep.accel;
 
   // Roll release is a hard, roughly-constant-deceleration GOVERNOR stop (measured ~40deg roll-out
   // from full rate in ~0.5s), NOT the proportional/exponential drag used for spin-up (unchanged below)

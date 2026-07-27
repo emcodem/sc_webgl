@@ -196,6 +196,20 @@ export interface ShipType {
   // exponential model's ~56deg tail (see capture/BLUEPRINT.md's roll-reversal findings: fitted drag
   // pins at exactly 0 during release). See physics/flightModel.ts.
   rollReleaseDecel: number;
+  // Pitch/yaw REVERSAL governor: when the commanded target opposes the ship's current spin (a hard
+  // flip, not a release-to-neutral), real Gladius decelerates at a roughly constant rate rather than
+  // through the oscillating angularSpoolOmega/Zeta spring-damper above — same governor shape as
+  // rollReleaseDecel, just gating a different condition (sign-flip vs. release). See
+  // physics/flightModel.ts's rotation integrator and capture/MEASUREMENTS.md's "Reversal stop-time —
+  // felt-threshold method" section (2026-07-27/28). Applied per user go-ahead 2026-07-28 though the
+  // underlying data is SUSPECT (felt-threshold, not frame-tracked): pitch's constant is well-
+  // validated (a 3-point linear fit correctly predicted 3 held-out points before they were measured);
+  // yaw's is much rougher (never independently validated). Neither has boosted data — this same
+  // constant is reused regardless of `boosting`. Also unmeasured: how this decel depends on the
+  // opposing input's own magnitude — one exploratory data point suggests it saturates near this same
+  // value well before full counter-deflection, so flightModel.ts applies it whenever the target
+  // opposes current spin AT ALL, not scaled by how hard the stick is pushed the other way.
+  pitchYawReversalDecel: { pitch: number; yaw: number };
   scmSpeed: number;
   scmSpeedBack: number;
   boostSpeedForward: number;
