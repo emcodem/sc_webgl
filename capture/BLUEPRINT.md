@@ -224,12 +224,14 @@ since a correct rate estimate returns the landmark to (near) its starting screen
 ## OBS backend setup (preferred over ffmpeg — much cleaner frame timing)
 
 `ffmpeg`'s `gdigrab` has real, measured frame-timing jitter (0-83ms gaps at 4K). The OBS backend
-(`--backend obs` / any tool with `recorder/obs_capture.py`), once configured correctly, gives frame
-gaps of 16.665-16.667ms — essentially exact 60fps (verify via `ffprobe -show_entries
-frame=best_effort_timestamp_time`). This directly fixes two failure modes: a false "motion onset at
-frame 0" (jitter-driven noise during the pre-maneuver quiet hold mistriggering sync) and a noisy
-quiet-hold baseline. **If data looks noisy or sync triggers early, try the OBS backend before
-assuming a real ship-behavior anomaly.**
+(`--backend obs` / any tool with `recorder/obs_capture.py`), once configured correctly, gives
+essentially exact, uniform frame gaps matching the configured fps (verify via `ffprobe
+-show_entries frame=best_effort_timestamp_time`) — measured at 16.665-16.667ms gaps (60fps) before
+this project moved to a 120fps target (2026-07-27, ~8.33ms expected gaps; monitor confirmed
+120Hz-capable). This directly fixes two failure modes: a false "motion onset at frame 0"
+(jitter-driven noise during the pre-maneuver quiet hold mistriggering sync) and a noisy quiet-hold
+baseline. **If data looks noisy or sync triggers early, try the OBS backend before assuming a real
+ship-behavior anomaly.**
 
 Getting `--backend obs` actually working takes real one-time setup, none of it obvious from
 `recorder/obs_capture.py` alone (which only wraps start/stop, not scene configuration):
@@ -253,7 +255,9 @@ Getting `--backend obs` actually working takes real one-time setup, none of it o
    otherwise configured correctly — plausibly an anti-cheat block on whatever capture path
    "Automatic" picks. Explicitly set `method: 1` (DXGI Desktop Duplication) or `2` (Windows 10 WGC).
 5. **Set canvas AND output resolution to the monitor's physical resolution, and FPS, explicitly**
-   (`set_video_settings(60, 1, W, H, W, H)`) — a fresh OBS profile defaults to 1920x1080/1280x720/30fps.
+   (`set_video_settings(120, 1, W, H, W, H)`) — a fresh OBS profile defaults to
+   1920x1080/1280x720/30fps. Requires the monitor to actually be running at ≥120Hz (check Windows
+   Display Settings) — on a 60Hz panel this setting just duplicates frames and buys nothing.
 6. **Force the scene item's transform to exact 1:1** (`positionX/Y: 0`, `scaleX/Y: 1.0`) via
    `set_scene_item_transform` — don't trust OBS's auto-fit scaling if the source was created against
    a mismatched canvas size.

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from feeder.win_focus import focus_and_click, focus_no_click  # noqa: E402
+from feeder.win_focus import ready_and_reset, click_center  # noqa: E402
 from recorder.obs_capture import connect, start as obs_start, stop as obs_stop  # noqa: E402
 
 _MOUSE_BTN = {"left": (0x0002, 0x0004), "right": (0x0008, 0x0010), "middle": (0x0020, 0x0040)}
@@ -44,9 +44,12 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     client = connect(password=args.obs_password)
+    hwnd = None
     if not args.no_focus:
-        (focus_and_click if args.click else focus_no_click)()
+        hwnd, _ = ready_and_reset()
     obs_start(client)
+    if args.click and hwnd is not None:
+        click_center(hwnd)
     print(f"OBS recording; settling {args.settle}s...")
     time.sleep(args.settle)
 

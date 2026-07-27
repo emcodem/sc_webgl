@@ -33,7 +33,7 @@ from analysis.angle_convert import (  # noqa: E402
 
 def analyze(trial: Path, seed_x: float, seed_y: float, window: int, fov: float,
             resolution: tuple[int, int], axis: str, skip: float,
-            smooth_window: int = 11, smooth_poly: int = 3):
+            smooth_window: int = 11, smooth_poly: int = 3, t0_max: float = 6.0):
     width, height = resolution
     rows = track(trial / "raw.mp4", seed_x, seed_y, half_window=window)
     rows = drop_non_advancing_timestamps(rows)
@@ -63,9 +63,14 @@ def analyze(trial: Path, seed_x: float, seed_y: float, window: int, fov: float,
     ot = np.array([float(r["t"]) for r in oc]); oinj = np.abs(np.array([float(r["injected"]) for r in oc]))
     segs = json.loads((trial / "segments.json").read_text())
 
-    # align: scan T0, maximize corr(|speed|(t), |cmd|(t-T0))
+    # align: scan T0, maximize corr(|speed|(t), |cmd|(t-T0)). t0_max must cover the full lead-in --
+    # obs_start() fires before the operator's confirmation dialog (see win_focus.py), so this isn't
+    # just settle/focus time anymore: it's however long the operator takes to click "ready?", which
+    # has been observed anywhere from ~5s to 110s+ in practice. A too-small t0_max doesn't error, it
+    # just silently returns a near-zero-correlation garbage alignment -- always check `corr` is high
+    # (>0.7ish), and widen --t0-max and re-run (no recapture needed) if it isn't.
     best = (0.0, -1.0)
-    for T0 in np.arange(0.5, 6.0, 0.02):
+    for T0 in np.arange(0.5, t0_max, 0.02):
         c = np.interp(t - T0, ot, oinj, left=0, right=0)
         cc = np.corrcoef(speed, c)[0, 1]
         if cc > best[1]:
@@ -97,11 +102,14 @@ def main() -> None:
     p.add_argument("--fov", type=float, default=116.0)
     p.add_argument("--resolution", default="3840x2160", help="WIDTHxHEIGHT")
     p.add_argument("--skip", type=float, default=0.7, help="seconds of transient to skip at each hold start")
+    p.add_argument("--t0-max", type=float, default=6.0,
+                   help="upper bound (seconds) of the video-vs-commanded alignment search -- widen this "
+                        "if `corr` prints low (a too-small t0_max doesn't error, it silently misaligns)")
     args = p.parse_args()
 
     width, height = (int(x) for x in args.resolution.split("x"))
     res, T0, corr = analyze(args.trial, args.seed_x, args.seed_y, args.window, args.fov,
-                             (width, height), args.axis, args.skip)
+                             (width, height), args.axis, args.skip, t0_max=args.t0_max)
     print(f"align T0={T0:.2f}s corr={corr:.3f}")
     print("offset  rate_deg_s   ok")
     for r in res:

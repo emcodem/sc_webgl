@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from feeder.win_focus import _send_scan, focus_and_click, focus_no_click  # noqa: E402
+from feeder.win_focus import _send_scan, ready_and_reset, click_center  # noqa: E402
 from recorder.obs_capture import connect, start as obs_start, stop as obs_stop  # noqa: E402
 
 # SC roll keybinds (hardware scan codes -- see MEASUREMENTS.md "IMMEDIATE NEXT TASK").
@@ -147,13 +147,15 @@ def main() -> None:
 
     client = connect(password=args.obs_password)
     # Focus BEFORE recording so any focus-time flicker (and the Esc menu, if --esc-reset) never lands
-    # in the clip -- the tracker needs a clean, stable pre-roll baseline.
+    # in the clip -- the tracker needs a clean, stable pre-roll baseline. The confirmation popup wait
+    # also never lands in the clip this way (its length varies operator to operator and would
+    # otherwise break analysis/hold_rate.py's fixed-width auto-alignment).
+    hwnd = None
     if not args.no_focus:
-        if args.click:
-            focus_and_click()
-        else:
-            focus_no_click(esc_reset=args.esc_reset)
+        hwnd, _ = ready_and_reset(esc_reset=args.esc_reset)
     obs_start(client)
+    if args.click and hwnd is not None:
+        click_center(hwnd)
     print(f"OBS recording; settling {args.settle}s (ship must be still before first roll)...")
     time.sleep(args.settle)
 

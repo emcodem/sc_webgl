@@ -30,7 +30,7 @@ import ctypes  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent))
 from feeder.mouse_feeder import move_rel  # noqa: E402
-from feeder.win_focus import focus_and_click  # noqa: E402
+from feeder.win_focus import ready_and_reset, click_center  # noqa: E402
 from recorder.obs_capture import connect, start as obs_start, stop as obs_stop  # noqa: E402
 
 
@@ -103,8 +103,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     client = connect(password=args.obs_password)
+    hwnd, _ = ready_and_reset()
     obs_start(client)
-    focus_and_click()
+    click_center(hwnd)
     print(f"OBS recording; settling {args.settle}s...")
     time.sleep(args.settle)
 

@@ -55,7 +55,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from mouse_hold_capture import run_staircase, _rmb  # noqa: E402
-from feeder.win_focus import focus_and_click  # noqa: E402
+from feeder.win_focus import ready_and_reset, click_center  # noqa: E402
 from recorder.obs_capture import connect, start as obs_start, stop as obs_stop  # noqa: E402
 
 
@@ -65,8 +65,9 @@ def run_one(client, axis: str, offsets: list[int], magnitude: int, dwell: float,
     out_dir = out_root / f"{axis}_{label}_rep{rep}-{time.strftime('%Y%m%d-%H%M%S')}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    hwnd, _ = ready_and_reset()
     obs_start(client)
-    focus_and_click()
+    click_center(hwnd)
     time.sleep(settle)
     if boost:
         _rmb(True)

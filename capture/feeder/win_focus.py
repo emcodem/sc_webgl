@@ -124,37 +124,32 @@ def _foreground(substr: str, confirm: bool = True) -> tuple[int, str]:
     return hwnd, title
 
 
-def focus_no_click(substr: str = "Star Citizen", esc_reset: bool = True, verbose: bool = True,
-                    confirm: bool = True) -> str:
-    """Bring SC to the foreground (so injected KEYBOARD input actually lands) WITHOUT clicking the
-    reticle -- for keyboard-driven captures (roll = Q/E) near a station where the center-click of
-    focus_and_click would fire a shot into it (crimestat at a security post). Keyboard SendInput only
-    needs SC foregrounded, not the cursor captured, so no click is required. Esc x2 still resets any
-    residual mouse-look stick deflection (skippable via esc_reset=False). Shows a blocking "ready?"
-    popup first (skippable via confirm=False, e.g. for a tight loop that already confirmed once)."""
+def ready_and_reset(substr: str = "Star Citizen", esc_reset: bool = True, confirm: bool = True) -> tuple[int, str]:
+    """Everything that must happen BEFORE OBS recording starts: the blocking "ready?" popup,
+    foregrounding SC, and the Esc x2 mouse-joystick reset (skippable via esc_reset=False). Deliberately
+    excludes the center-click (see click_center below) so a caller can start OBS recording in between --
+    otherwise the recorded clip's leading seconds are however long the operator takes to dismiss the
+    popup (observed anywhere from ~5s to 110s+ in practice), which silently breaks
+    analysis/hold_rate.py's fixed-width auto-alignment search downstream. Every capture script should
+    call this, then start OBS recording, then click_center (if needed), in that order -- never call
+    obs_start before this."""
     hwnd, title = _foreground(substr, confirm=confirm)
     if esc_reset:
+        # First Esc opens the menu, second closes it back to flight -- resets the mouse virtual
+        # joystick to neutral, clearing any residual deflection left from where the real mouse was
+        # pointing (a residual pitch once drifted the ship down mid-sweep and lost the landmark
+        # behind the cockpit).
         _press_esc()
-        time.sleep(1.0)
+        time.sleep(1.0)   # let the menu fully open before the second Esc closes it
         _press_esc()
         time.sleep(0.5)
-    if verbose:
-        print(f"foregrounded '{title}' (no click)")
-    return title
+    return hwnd, title
 
 
-def focus_and_click(substr: str = "Star Citizen", verbose: bool = True, confirm: bool = True) -> str:
-    """Shows a blocking "ready?" popup first (skippable via confirm=False, e.g. for a tight loop
-    that already confirmed once), then forces SC to the foreground and clicks its center (the
-    reticle -- fires a shot if armed, see module docstring)."""
-    hwnd, title = _foreground(substr, confirm=confirm)
-    # Esc x2 resets the mouse virtual joystick to neutral -- clears any residual deflection left from
-    # where the real mouse was pointing (a residual pitch once drifted the ship down mid-sweep and
-    # lost the landmark behind the cockpit). First Esc opens the menu, second closes it back to flight.
-    _press_esc()
-    time.sleep(1.0)   # let the menu fully open before the second Esc closes it
-    _press_esc()
-    time.sleep(0.5)
+def click_center(hwnd: int, verbose: bool = True) -> None:
+    """Clicks the window's center (the flight reticle -- fires a shot if armed, see module
+    docstring). Call this AFTER OBS recording has started (post ready_and_reset), so the click
+    lands inside the recorded clip instead of during the variable-length pre-recording wait."""
     rect = wintypes.RECT()
     _u.GetWindowRect(hwnd, ctypes.byref(rect))
     cx, cy = (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
@@ -165,7 +160,38 @@ def focus_and_click(substr: str = "Star Citizen", verbose: bool = True, confirm:
     _u.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
     time.sleep(0.2)
     if verbose:
-        print(f"focused + clicked '{title}' (center {cx},{cy})")
+        print(f"clicked center ({cx},{cy})")
+
+
+def focus_no_click(substr: str = "Star Citizen", esc_reset: bool = True, verbose: bool = True,
+                    confirm: bool = True) -> str:
+    """Bring SC to the foreground (so injected KEYBOARD input actually lands) WITHOUT clicking the
+    reticle -- for keyboard-driven captures (roll = Q/E) near a station where a center-click would
+    fire a shot into it (crimestat at a security post). Keyboard SendInput only needs SC
+    foregrounded, not the cursor captured, so no click is required.
+
+    NOTE: this bundles the popup+reset AND (implicitly) the "OBS not started yet" timing together --
+    for anything that records video, prefer calling ready_and_reset() directly and starting OBS
+    recording right after it returns, rather than this wrapper, so the recording doesn't include the
+    operator's confirmation wait. Kept for non-recording callers (e.g. recenter.py)."""
+    _, title = ready_and_reset(substr, esc_reset=esc_reset, confirm=confirm)
+    if verbose:
+        print(f"foregrounded '{title}' (no click)")
+    return title
+
+
+def focus_and_click(substr: str = "Star Citizen", verbose: bool = True, confirm: bool = True) -> str:
+    """Shows a blocking "ready?" popup first (skippable via confirm=False, e.g. for a tight loop
+    that already confirmed once), then forces SC to the foreground and clicks its center (the
+    reticle -- fires a shot if armed, see module docstring).
+
+    NOTE: for anything that records video, prefer calling ready_and_reset() + starting OBS recording
+    + click_center() directly instead of this wrapper, so the recording doesn't include the
+    operator's confirmation wait (see ready_and_reset's docstring). Kept for non-recording callers."""
+    hwnd, title = ready_and_reset(substr, confirm=confirm)
+    click_center(hwnd, verbose=False)
+    if verbose:
+        print(f"focused + clicked '{title}'")
     return title
 
 

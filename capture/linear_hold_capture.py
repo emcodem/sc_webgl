@@ -38,7 +38,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from feeder.win_focus import _send_scan, focus_and_click, focus_no_click  # noqa: E402
+from feeder.win_focus import _send_scan, ready_and_reset, click_center  # noqa: E402
 from recorder.obs_capture import connect, start as obs_start, stop as obs_stop  # noqa: E402
 
 # Named linear-thrust binds (standard here): W/S fwd/back, A/D left/right, Space up, L-Ctrl down.
@@ -132,12 +132,15 @@ def main() -> None:
             _mouse_btn(args.boost_mouse, down)
 
     client = connect(password=args.obs_password)
+    hwnd = None
     if not args.no_focus:
-        (focus_and_click if args.click else focus_no_click)()
+        hwnd, _ = ready_and_reset()
     if args.decoupled:
         _tap(C_SCAN)  # coupled -> decoupled (before recording, so the whole clip is decoupled)
         time.sleep(0.5)
     obs_start(client)
+    if args.click and hwnd is not None:
+        click_center(hwnd)
     print(f"OBS recording; settling {args.settle}s (0 m/s)"
           + (" [DECOUPLED]" if args.decoupled else "") + "...")
     time.sleep(args.settle)

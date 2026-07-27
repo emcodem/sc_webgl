@@ -25,6 +25,18 @@ treated as **suspect, possibly reading low**, not settled — pure input-mapping
 shape, deadzone %, clamps, cosmetic settings) don't depend on thrust output and are unaffected.
 `settings_checklist.md` now mandates confirming full engine power before every capture.
 
+**Recapture progress (2026-07-26/27):** Pitch UP and DOWN boosted steady-state rate are now CONFIRMED
+at full power (~81.7-82.0°/s both directions, cross-validated across 2-3 independent methods each —
+see the Pitch table). The 2nd-order spool-up shape (ωₙ/ζ) at full power also now has a first
+converged reading for both directions (ωₙ ~9.5-10.3 rad/s, notably above the non-full-power ~8.0-8.6
+band — see the spool-up table), though single-rep and noisier than ideal. **Priority 2 (afterburner
+ratios, all 3 rotational axes) is now fully done**: roll (1.199×), pitch (1.190×), and yaw (1.188×,
+recaptured 2026-07-27 with a shortened dwell — see Yaw table) are all CONFIRMED and land almost
+exactly on the coded 1.2×. All three ratios close substantially versus their non-full-power values
+(1.18×/1.06×/1.057×) — full power was masking a real, uniform ~1.2× afterburner effect across every
+rotational axis. Still open: non-boosted rotational baselines for roll/yaw (pitch's is now done) and
+all linear thrust/speed rows (handoff.md's Priorities 3-4).
+
 ---
 
 ## Rotational rates — Roll (Gladius, keyboard Q/E via bound vJoy device)
@@ -34,6 +46,9 @@ shape, deadzone %, clamps, cosmetic settings) don't depend on thrust output and 
 | Non-boosted, steady rate | ±202°/s (Q +201.6/+194.8, E −202.5/−209.4) | `roll_hold_capture.py` + `track_orientation.py`, 3s holds | 4 | 2026-07-19 | SUSPECT | Matches coded 199.96°/s to <2%. [Archive §"Gladius ROLL"](MEASUREMENTS_ARCHIVE.md) |
 | Boosted, steady rate | +234.7 / −237.1°/s | same, boost held | 1 seq | 2026-07-19 | SUSPECT | Matches coded 240°/s to ~2%. |
 | Afterburner ratio | 1.18× | derived | — | 2026-07-19/23 | SUSPECT | Closest of 3 rotational axes to coded 1.2×. |
+| **Non-boosted, steady rate, full power** | **199.6°/s** (Q 199.88/200.16, E −198.28/−200.11) | `roll_hold_capture.py` + new `track_roll_twopoint.py` (bearing between 2 tracked landing-pad landmarks — see method note below), 3s holds | 2 | 2026-07-26 | CONFIRMED | Matches coded 199.96°/s almost exactly. Both directions, both reps tightly agree (std ≤11°/s per window). |
+| **Boosted, steady rate, full power** | **239.4°/s** (Q 239.61/239.09, E −239.40/−239.51) | same | 2 | 2026-07-26 | CONFIRMED | Matches coded 240°/s almost exactly. Very tight rep-to-rep agreement. |
+| **Afterburner ratio, full power** | **1.199×** | derived | 2×2 dir | 2026-07-26 | CONFIRMED | Essentially exact match to the coded 1.2× — the gap in the non-full-power row above closes almost completely once power is controlled. |
 | Decoupled vs Coupled | same hard-stop ~0.6s release either mode | same | 1 | 2026-07-19 | CONFIRMED | Structural: decoupled only drops the linear auto-brake, not rotational behavior. |
 | Spool-up τ (drag-like fit) | τ≈0.20s | fit vs governor-ramp alt | few | 2026-07-19 | SUSPECT | Below coded 0.28s — real vs tracker bias unresolved. Gated (flightModel.ts ported-verbatim). |
 | Release/coast-down | hard stop ~0.5s, ~40° roll-out | same | few | 2026-07-19 | SUSPECT | Less than exponential-drag's predicted 56° — open question. |
@@ -49,8 +64,17 @@ shape, deadzone %, clamps, cosmetic settings) don't depend on thrust output and 
 | UP, non-boosted | 66.88°/s (66.78/66.97) | same | 2 | 2026-07-23 | SUSPECT | <0.3% apart — ~3.2% faster than DOWN, flagged as a possibly-real small asymmetry. |
 | UP, boosted (360-test) | ~77-89°/s (79.38/84.54, 75.25/88.67) | full-360 before/after | 2 | 2026-07-23 | SUSPECT | Supersedes an earlier short-hold reading (66.98/62.49) that under-read badly. |
 | **UP, boosted, full engine power confirmed** | **81.98°/s** (residual 0.166°) | 360-sustained-hold, 2 laps, `centroid_in_window` | 1 | 2026-07-26 | CONFIRMED* | *Single rep — matches coded/API 82°/s almost exactly. The reference point that surfaced the power-triangle confound; treat as most-trusted current boosted-pitch value but repeat before fully final. |
+| UP, boosted, full power — 2nd corroboration | 81.67°/s (model-free peak) | `mouse_hold_capture.py` 1080 counts + `fit_spool_response.py`'s pre-fit peak-rate read | 1 | 2026-07-26 | CONFIRMED | Independent capture/method, same session — corroborates the 360-test row above to <0.4%. 2nd-order curve fit on this same clip did NOT converge (see spool-up table note below); only the model-free peak rate is trustworthy from this trial. |
+| UP, boosted, full power — 360 repeat, margined | ~80.4°/s (range 79.8-81.1 depending on T0-fit precision) | 360-sustained-hold, 2 laps + 2s extra dwell, crossing-time method (exact video-time the sun re-crosses its starting pixel row, vs. a fixed-T residual read) | 1 | 2026-07-27 | CONFIRMED | Redone with 2s extra dwell margin so the sun's return is comfortably mid-clip instead of in the last 1-2 frames (the marginal 2026-07-26 repeat below). Within ~2% of the 81.98°/s reference — confirms it, doesn't contradict. |
+| UP, boosted, full power — 360 repeat (marginal, superseded) | ~80.9-83.1°/s (residual ~9.8°, sign ambiguous) | 360-sustained-hold, 2 laps | 1 | 2026-07-26 | SUSPECT | Dwell (8.78s = exactly 2 laps at nominal 82°/s) cut it too close — the sun only re-enters frame in the recording's last 1-2 frames. Superseded by the margined repeat above. |
+| **DOWN, boosted, full engine power confirmed** | **80.47°/s** (model-free peak) | `mouse_hold_capture.py` 1080 counts + `fit_spool_response.py`'s pre-fit peak-rate read | 1 | 2026-07-26 | CONFIRMED* | *Single rep, first full-power DOWN measurement (previously untested) — matches UP's full-power reads (81.67-81.98°/s) and the coded 82°/s closely. 2nd-order curve fit on this clip did NOT converge (see spool-up table note below). |
+| DOWN, boosted, full power — 360 attempt (invalidated, superseded) | inconclusive | 360-sustained-hold, 2 laps + buffer | 1 | 2026-07-26 | — | Invalidated: a station/structure visible in this AC instance sits near the expected return position and its lights contaminated the landmark search. Superseded by the relocated redo below. |
+| **DOWN, boosted, full power — 360 redo** | **~81.1°/s** (range 80.6-81.6) | 360-sustained-hold, 2 laps + 2s dwell margin, relocated to empty space, crossing-time method (same as the UP margined repeat) | 1 | 2026-07-27 | CONFIRMED | Sun re-crosses its exact starting pixel row at video t≈10.298s; T0=1.42s (corr=0.944). Matches the established 80.47-81.98°/s full-power cluster (UP and DOWN) closely — resolves the prior station-contamination invalidation. |
 | Afterburner ratio, DOWN | 1.064× | derived | 2+2 | 2026-07-23 | SUSPECT | |
 | Afterburner ratio, UP | inconclusive, "probably 1.0-1.1" | derived | 2 | 2026-07-23 | SUSPECT | Not pinned down even setting the power confound aside. |
+| **UP, non-boosted, full power** | **68.75°/s** (69.01/68.49) | `mouse_hold_capture.py`, 1080 counts, seeded near top of frame — see gotcha below | 2 | 2026-07-26 | CONFIRMED | Tight agreement (<1% apart). Close to the non-full-power UP row (66.88°/s) — non-boosted pitch looks much less power-sensitive than boosted. |
+| **Afterburner ratio, UP, full power** | **1.190×** | derived (68.75 vs 81.7-82.0 boosted-UP average) | 2 (non-boost) | 2026-07-26 | CONFIRMED | Much closer to the coded 1.2× than the non-full-power reading — resolves the "inconclusive" row above. |
+| Radar-cone HUD gotcha (pitch specifically) | tracker false-locks once the landmark nears screen y≈1470-1490 (the radar/scan-cone graphic's screen position), well before any real physical limit | discovered while redoing this row | — | 2026-07-26 | — | Matches `BLUEPRINT.md`'s own documented warning ("seed well above center, ~25% margin from top") — a centered seed doesn't leave enough clean travel room for non-boosted pitch (slower to settle) before hitting it. Cost 3 redone captures before catching. |
 | Full-deflection point | ~1080 counts | live bisection (1000-1085 probes) | several | 2026-07-22 | CONFIRMED | This IS the accumulator hard-clamp (half of 2160 capture height) — resolution-dependent, re-derive at other resolutions. |
 | Input-curve exponent | NOT confirmed (fit pinned to bound, RMS 2.11°/s) | least-squares vs yaw's model | single-rep 100-1080 | 2026-07-23 | — | Not applied to code. Needs repeat reps at 900/1000/1050/400/500 before any number is usable. |
 
@@ -61,6 +85,10 @@ shape, deadzone %, clamps, cosmetic settings) don't depend on thrust output and 
 | Non-boosted plateau | 50.4-51.27°/s (flat 1500-1920) | dense sweep + repeat probes | many | 2026-07-22/23 | SUSPECT | Curve monotonic-to-flat from deadzone through 1500; earlier apparent "peak then decline" was a measurement artifact, resolved. |
 | Boosted (at 1920 clamp) | 53.26°/s (53.29/53.22) | `mouse_hold_capture.py --boost` | 2 | 2026-07-23 | SUSPECT | Tight agreement. |
 | Afterburner ratio | 1.057× | derived | 2 | 2026-07-23 | SUSPECT | Not cross-checked against API reference. |
+| **Non-boosted, full power** | **50.95°/s** (51.10/50.79) | `mouse_hold_capture.py`, 1700 counts (at the established plateau, unlike the 1080-count undershoot tried first — see note below) | 2 | 2026-07-26 | CONFIRMED | Matches the non-full-power plateau (50.4-51.27°/s) closely — yaw's non-boosted rate looks power-insensitive. |
+| **Boosted, full power** | **60.52°/s** (61.68/58.61/61.26, std 1.36) | same, 1700 counts, `--boost`, 0.7s dwell | 3 | 2026-07-27 | CONFIRMED | Root cause of the old noisy/fragmented reads found: NOT a focus-interruption problem — the star was genuinely running off the right edge of frame mid-hold (yaw is fast enough that a 1.5s dwell drove it past the 58° half-FOV boundary). A shortened 0.7s dwell keeps it in-frame the whole hold; all 3 reps tracked cleanly (corr 0.85-0.97, zero LOST flags). |
+| **Afterburner ratio, full power** | **1.188×** | derived | 3 boost / 2 non-boost | 2026-07-27 | CONFIRMED | Matches roll (1.199×) and pitch (1.190×) closely — confirms the near-uniform ~1.2× afterburner multiplier across all 3 rotational axes at full power. |
+| 1080-count undershoot (method note) | at 1080 counts (below yaw's ~1500 full-deflection point) non-boosted yaw reads only ~36-37°/s | `mouse_hold_capture.py`, discovered while starting this row | 2 | 2026-07-26 | — | Not a bug — 1080 is comfortably past pitch's own clamp but well short of yaw's own ~1500-count plateau, so a proportionally lower, curve-shaped rate is expected. Redone at 1700 counts for a fair comparison (rows above). |
 | Input-curve exponent | **1.011** (RMS 0.46°/s), full_range=1490.8 | least-squares, 15-pt clamp-cleaned dataset | 15 pts | 2026-07-23 | CONFIRMED | Applied: `axisCurve.ts` DEFAULT_EXPONENT 1.04→1.01. Supersedes an earlier ≈1.48 (mostly deadzone-rescaling artifact). |
 | Deadzone threshold | ≈300 counts at dz=20 (≈67 at default dz=4.45) | dz reappearance sweep | — | 2026-07-19 | CONFIRMED | Confirms `VJoyCombinedDeadZone` is a % of full stick range. |
 | Full-deflection point | ~1500 counts | plateau + curve fit | — | 2026-07-22/23 | CONFIRMED | Distinct from the 1920 accumulator clamp below — two different concepts, don't conflate. |
@@ -82,6 +110,8 @@ cycle give unreliable ωₙ/ζ regardless of which domain you fit in).
 | Pitch | boosted (short window) | 75.75°/s | 8.009 | 0.916 | 1.16 vs 3.07° | 2026-07-23 | SUSPECT | Fitting method later found unreliable on short windows generally (see BLUEPRINT.md); the longer-dwell DOWN redo landed within ~7%/3%/10%, so likely sound on those terms — but still under the power-triangle confound. |
 | Pitch UP | boosted, longer-dwell (full cycle) | 76.69°/s | 8.135 | 0.714 | 0.138 vs 0.506° | 2026-07-26 | SUSPECT | Power-triangle NOT confirmed for this capture. |
 | Pitch DOWN | boosted, longer-dwell (full cycle) | 70.15°/s | 8.283 | 0.820 | 0.131 vs 0.527° | 2026-07-26 | SUSPECT | ωₙ agrees with UP within ~2%; rate_ss ~9% lower (echoes non-boosted UP/DOWN asymmetry). Power-triangle NOT confirmed. |
+| **Pitch UP** | **boosted, full engine power** | **75.56°/s** | **9.521** | **0.709** | 0.758 vs 0.941° | 2026-07-26 | SUSPECT* | *Converged (not pinned) — see full-power method note below. ωₙ ~17% above the non-full-power band. Single rep, noisier than historical fits (RMS ~5-6× higher) since it uses data right up against the dashboard-occlusion cutoff. |
+| **Pitch DOWN** | **boosted, full engine power** | **77.01°/s** | **10.319** | **0.786** | 0.788 vs 0.913° | 2026-07-26 | SUSPECT* | *Converged (not pinned) — see full-power method note below. ωₙ ~24% above the non-full-power band, ~8% above UP's full-power ωₙ. Single rep, uses data right up against the top-frame-edge cutoff. |
 | Yaw | non-boosted | 50.57°/s | 8.027 | 0.729 | 1.66 vs 4.42° | 2026-07-23 | SUSPECT | Not re-verified at a matching longer dwell. |
 | Yaw | boosted | 48.81°/s | 8.186 | 0.560 | 1.00 vs 4.69° | 2026-07-23 | SUSPECT | Does NOT push toward coded `boostMaxAngVel.yaw` (62°/s) — stays near non-boosted rate; window may include release-tail contamination. |
 
@@ -89,6 +119,30 @@ cycle give unreliable ωₙ/ζ regardless of which domain you fit in).
 condition above regardless of axis/boost — a shared underlying natural frequency, not per-axis
 tuning. This qualitative shape finding (real overshoot-and-settle, 2nd order beats 1st by 2-4×) is
 independent of the power-triangle confound; the exact rate_ss numbers are what's suspect.
+
+**Full-power re-attempt (2026-07-26): initial fit didn't converge; a wider tracking window fixed it.**
+Re-ran both Pitch UP and Pitch DOWN boosted spool-up captures at confirmed full engine power (same
+1.1s dwell/0.05s ramp recipe as the longer-dwell rows above). At `fit_spool_response.py`'s default
+`--window 40`, both trials' 2nd-order fit pinned ζ near the degenerate 0.999 bound across the whole
+usable `--trim-end` range — the "flat, near-critically-damped" failure signature the tool's own
+docstring warns about. Diagnosis: the tracker was losing lock to a false bright object (a HUD
+element for UP, near the top-of-frame edge for DOWN) well before the landmark's TRUE physical exit
+point (confirmed by extracting and visually inspecting frames — for UP, the sun visibly disappears
+behind the cockpit dashboard right where the narrow window lost it; for DOWN, it reaches the true
+top FOV edge). **Widening the window to `--window 80` let the tracker follow the real landmark all
+the way to its genuine physical exit** (dashboard occlusion for UP, frame edge for DOWN) instead of
+losing it early to the false-lock artifact, recovering an extra ~0.15-0.25s of real clean data with
+no new capture needed — same two video files, just re-analyzed. Sweeping `--trim-end` on the wider-
+window data showed the same rate_ss/RMS staying stable while ζ stayed pinned through most of the
+range, then genuinely unpinning into stable, non-boundary values right before the final contamination
+collapse (UP: unpins at trim-end 0.84-0.86, collapses at 0.88; DOWN: unpins at 0.905-0.915, collapses
+at 0.92) — the two converged rows in the table above are read from those unpinned plateaus. Both are
+single-rep and lean on data right at the edge of what's physically visible (RMS 0.76-0.79°, notably
+noisier than the ~0.13-0.14° seen on the non-full-power fits with more travel room), so treat as a
+first read, not final — but they're genuinely converged, not degenerate. **The model-free peak rate
+from these same trials remains the most solid number**: 81.67°/s (UP) and 80.47°/s (DOWN), both in
+the Pitch table above. A repeat with the landmark seeded even closer to the top frame edge (more
+travel room before hitting the dash/edge) would tighten these further.
 
 ## Linear thrust / speed (Gladius)
 

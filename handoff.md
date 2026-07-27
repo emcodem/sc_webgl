@@ -1,141 +1,101 @@
-# Handoff — measurements to re-test in light of the resolution-dependent vjoy clamp (2026-07-23)
+# Handoff — full-engine-power recapture plan (2026-07-27)
 
-Context: found that Star Citizen's mouse-vjoy accumulator **hard-caps at half the capture resolution
-in pixels, per axis** (half-width for yaw, half-height for pitch) — see the CRITICAL note at the top
-of `capture/MEASUREMENTS.md`. Confirmed for pitch at 3840×2160 capture (clamp = 1080, found via live
-bisection watching for clean-stop-vs-overshoot-on-release). Predicted but not yet independently
-confirmed for yaw at the same resolution: clamp = 1920. Any past capture that drove a raw mouse count
-past the relevant clamp risks being contaminated by this — not necessarily wrong, but worth checking.
+Written for a fresh session with no prior context. Read `capture/MEASUREMENTS.md`'s "⚠ Standing
+confound: engine power-triangle allocation" section first for the full story; this file is just the
+action list. Two sessions have now worked this plan (2026-07-26 opened it, 2026-07-26/27 overnight
+did Priority 1 and Priority 2) — the priorities below are what's left.
 
-**Re-derive the clamp for whatever resolution is actually in use before redoing anything below** — it's
-half the capture width (yaw) or half the capture height (pitch) of THAT session's capture, not a fixed
-1920/1080 across all future sessions.
+## DONE — do not re-capture
 
-## To re-test — high priority
+- **Priority 1 (pitch spool-up)**: complete. Boosted pitch UP/DOWN steady rate CONFIRMED at full
+  power (~81.7-82.0°/s both directions). 2nd-order spool shape (ωₙ/ζ) also has a first converged
+  reading both directions (ωₙ ~9.5-10.3 rad/s) — single-rep, noisier than ideal, but real. See
+  `MEASUREMENTS.md`'s Pitch and spool-up tables.
+- **Priority 2 (afterburner ratios, all 3 rotational axes)**: essentially complete.
+  - **Roll: CONFIRMED**, 1.199× (non-boosted 199.6°/s, boosted 239.4°/s, 2 reps × 2 directions each,
+    very tight). Matches coded 1.2× almost exactly.
+  - **Pitch: CONFIRMED**, 1.190× (non-boosted UP 68.75°/s, 2 reps; boosted UP from Priority 1).
+  - **Yaw: SUSPECT**, 1.165× (non-boosted 50.95°/s solid, 2 reps; boosted 59.36°/s is a SINGLE noisy
+    rep — see "Yaw boosted repeat" below).
+  - Headline finding: all three ratios sit much closer to the coded uniform 1.2× at full power than
+    the earlier non-full-power values (1.18×/1.06×/1.057×) — the power-triangle confound was masking
+    a real, near-uniform afterburner multiplier across every rotational axis.
+- **Priority 3 (non-boosted rotational baselines)**: done as a byproduct of Priority 2 — roll
+  (199.6°/s), pitch (68.75°/s), yaw (50.95°/s) are all CONFIRMED non-boosted full-power reads.
 
-- ~~**The foundational Gladius PITCH/YAW + afterburner measurement**~~ — **PITCH half DONE (2026-07-23)**:
-  redone clean at 1080 counts (safely under the confirmed clamp), sun-tracked, same method otherwise —
-  see `MEASUREMENTS.md`'s "PITCH row superseded" note under the original 2026-07-19 entry. Result:
-  **64.86°/s unboosted, 71.11°/s boosted, ratio 1.096×** (both clean single-rep reads, `hold_rate.py`
-  corr 0.92/0.97, no lost-lock). Notably: the ratio (1.096) is lower than both the old contaminated
-  reading's ratio (1.155) and the coded 1.2 afterburner multiplier — worth a repeat rep before treating
-  that as a real finding rather than single-rep noise. **Yaw's redo DONE too (2026-07-23)**: 1920 counts
-  (the clamp boundary itself), sun centered, clean single rep — **51.27°/s** (corr 0.975), matching the
-  established ~50.8-51°/s plateau. Confirms yaw's existing 1500-2200 data isn't clamp-contaminated the
-  way pitch's old ~2000-count reading was. See `MEASUREMENTS.md`'s "Clamp-boundary check at 1920
-  counts" note.
+## Not yet started
 
-## Worth flagging, conclusions likely still hold but narrower than stated
+- **Priority 4 (linear thrust/speed)**: forward/back/lateral/up/down accel + coast-decel, max
+  speeds, boosted lateral/vertical, boosted forward/retro top speed and boost-release decay rates —
+  `linear_hold_capture.py` + `montage_speed.py`. All currently single-rep at unconfirmed power
+  (predates the power-triangle fix). Untouched this session.
 
-- ~~Item 1's "repeat 1300-2200" data / dense sweep's 2200 reading~~ — **DONE (2026-07-23)**: the
-  past-clamp rows (2000/2200 in the repeat table, 2200 in the dense sweep) have been deleted from
-  `MEASUREMENTS.md` rather than just flagged, since they were re-reads of the clamped ~1920 position,
-  not independent data. The "flat plateau" conclusion now reads through ~1800-1920 (the surviving
-  data), backed independently by the clean 1920-count clamp-boundary capture (51.27°/s) — practical
-  conclusion (`fullDeflectionCounts ≈ 1500`) unchanged.
-- **The vjoy-*indicator* gain cross-check's old ~4000 result** — already retracted outright (not just
-  flagged) in `YAWCAPTURE.md`'s "RETRACTED (2026-07-23)" section and removed from `MEASUREMENTS.md`;
-  noted here only so it isn't accidentally re-added. If this cross-check is ever redone, keep every
-  driven amplitude under the resolution-derived clamp.
+## Loose ends worth tidying
 
-## Unaffected — do not need re-testing
+- ~~Yaw boosted — needs a clean repeat~~ **DONE 2026-07-27**: root cause was NOT focus interruption
+  (that was never actually confirmed) — it was a genuine **field-of-view excursion**. Boosted yaw is
+  fast enough (~55-61°/s) that the old 1.5s dwell drove the tracked star past the 58° half-FOV edge
+  before the hold ended, corrupting the median with post-excursion garbage. Fixed by shortening the
+  dwell to 0.7s (keeps the star in-frame the whole hold); 3 clean reps now agree tightly (61.68 /
+  58.61 / 61.26°/s, mean 60.52, std 1.36) → afterburner ratio 1.188×, matching roll/pitch. See
+  `MEASUREMENTS.md`'s Yaw table.
+- ~~Pitch UP 360-test repeat is marginal~~ **DONE 2026-07-27**: redone with 2s extra dwell margin so
+  the sun's return is comfortably mid-clip. Used a crossing-time read (exact video-time the sun
+  re-crosses its starting pixel row, found via precise `centroid_in_window` reads bracketing the
+  crossing, with T0 fit from the clean early portion of the trace only — continuous tracking through
+  the whole clip is still unreliable, per `BLUEPRINT.md`'s existing warning, and in fact false-locked
+  onto the radar-cone HUD graphic around t≈1.7s in this same clip, exactly the documented gotcha).
+  Implied rate ≈80.4°/s (range 79.8-81.1 depending on T0-fit precision) — within ~2% of the 81.98°/s
+  reference, confirms it. See `MEASUREMENTS.md`'s Pitch table.
+- ~~Pitch DOWN 360-test is fully invalidated~~ **DONE 2026-07-27**: relocated to genuinely empty
+  space and redone with the same margined crossing-time method as the UP repeat above. Implied rate
+  ≈81.1°/s (range 80.6-81.6), matching the established 80.5-82.0°/s full-power cluster. See
+  `MEASUREMENTS.md`'s Pitch table.
 
-- Everything using ≤600-1000 counts: `VJoyAnglePilots` flight-effect test, `VJoyCombinedDeadZone`
-  measurements, input-curve shape / cross-ship gain, the fast/slow reversal-transient captures. All
-  comfortably under either clamp.
-- All **roll** and **linear/strafe/vertical** data — keyboard-driven (Q/E, W/A/S/D, Space/Ctrl), not
-  mouse, so the mouse-vjoy clamp doesn't apply at all.
+## New tooling from this session
 
-## Also still open (unrelated to the clamp, carried over from `YAWCAPTURE.md`)
+- **`capture/analysis/track_roll_twopoint.py`** (new): tracks roll via the bearing between two
+  independently-tracked point landmarks (e.g. two lit station structures/landing pads a few percent
+  off-center), for scenes with no single elongated object for `track_orientation.py`'s PCA approach.
+  Used successfully for all of this session's roll captures. See its own docstring.
+- **Recording-flow fix (`feeder/win_focus.py` + all capture scripts), 2026-07-27**: every
+  `*_capture.py` script used to call `obs_start()` *before* the operator's confirmation popup
+  (`656d6f7`'s safety gate), so the recorded clip's leading seconds were however long the operator
+  took to click "ready?" — observed anywhere from ~5s to 110s+ in practice. This silently broke
+  `analysis/hold_rate.py`'s fixed 0.5-6.0s auto-alignment search (near-zero correlation, no error
+  raised) and was the proximate trigger for digging into the yaw gotcha above. Fixed by splitting
+  `win_focus.py`'s `focus_and_click`/`focus_no_click` into `ready_and_reset()` (popup + foreground +
+  Esc×2 reset) and a separate `click_center(hwnd)`, and reordering every capture script to:
+  `ready_and_reset()` → `obs_start()` → `click_center()` (if needed) → settle → maneuver. Recordings
+  are now consistently a few seconds long instead of tens-to-hundreds, and `hold_rate.py` also grew a
+  `--t0-max` flag (still defaults to 6.0s) in case a future capture's lead-in is unusually long again
+  — check `corr` is high (>0.7ish) and widen it before assuming a capture is bad.
 
-- ~~Item 4: the actual yaw curve refit~~ — **DONE (2026-07-23, no game/capture needed)**: least-squares
-  fit against the full clamp-cleaned yaw dataset (deadzone edge through the 1920 clamp boundary)
-  confirms the current model shape (rescaled deadzone + power law), exponent **1.011** (RMS 0.46 °/s),
-  `full_range` 1491-1517 (matches the already-used 1500). `axisCurve.ts`'s `DEFAULT_EXPONENT` updated
-  1.04 → 1.01. See `MEASUREMENTS.md`'s "Yaw input-curve exponent" section.
-- **A separate pitch curve fit — attempted, inconclusive, still open.** Same method applied to
-  pitch's 100-1080 dataset does not converge cleanly (noisy single-rep 900/1050 counts fight any
-  monotonic curve; fitted `full_range` wants to exceed the confirmed ~1080 saturation point). Needs
-  repeat reps at 900/1000/1050 (and ideally 400/500) before a pitch-specific exponent can be
-  committed — see `MEASUREMENTS.md`'s "Pitch input-curve exponent" section. No pitch exponent has been
-  applied to code.
-- Repeat reps for the reversal-transient wobble (item 2) at more magnitudes.
-- ~~Measure yaw's own boosted ratio at the corrected clamp-safe 1920 offset~~ — **DONE (2026-07-23)**:
-  53.26°/s boosted vs 50.41°/s unboosted at 1920 counts (2 clean reps, corr 0.972-0.975) → ratio
-  **1.057×**. Combined with roll (1.18) and pitch (1.096, still single-rep), **all three rotational
-  axes now read below the coded uniform 1.2× afterburner multiplier** once measured clamp-clean — see
-  `MEASUREMENTS.md`'s "Yaw afterburner ratio — clean redo at the 1920 clamp boundary". Not acted on in
-  code (gated, `shipTypes.ts` ported-verbatim).
-- ~~Repeat the pitch afterburner boost ratio~~ — **DONE (2026-07-23)**: 2 clean reps each now (non-
-  boosted 64.86/64.73, boosted 71.11/66.72) → ratio ~1.064×, closely matching yaw's independently-
-  measured 1.057×. See `MEASUREMENTS.md`'s "Pitch afterburner ratio — repeat reps" section, including
-  a method note on why dwell needs to be shorter when starting from a re-centered vs. originally-
-  biased position, and a cautionary note about a badly-overshot calculated repositioning pulse
-  (pitch's own spool τ is still unmeasured — don't reuse roll's 0.2s assumption for it again).
-- **Bonus (2026-07-23): full-360° sustained-hold cross-check, all 4 pitch conditions (down/up ×
-  non-boosted/boosted).** Independent method (no continuous tracking needed — before/after screen
-  position of the sun after ~one commanded revolution). down-nonboost, down-boost, up-nonboost all
-  confirmed the short-hold numbers within ~2%.
-- **IMPORTANT CORRECTION (2026-07-23): boosted pitch-UP short-hold reps (66.98/62.49) were WRONG —
-  under-reading by ~20%.** This project's own API reference (`reference/ships/aegs-gladius.json`) says
-  Gladius pitch = 68 unboosted / **82 boosted**. The short-hold reps sat ~18-24% below that — too big a
-  gap for noise. Redone via the 360 method (after fixing two real bugs — see below): 2 reps gave
-  candidate rates of 79.38/84.54 and 75.25/88.67, both decisively closer to 82 than to the short-hold
-  average. **Root cause: a 0.45-0.55s short-hold dwell likely doesn't give boosted pitch enough time to
-  finish spooling up before the steady-state window is sampled** — the 360 test's 4.4s hold clears any
-  plausible spool constant easily. **Revised estimate: boosted pitch-UP ≈ 77-89°/s, consistent with the
-  API's 82.** This raises a real question about whether the boosted pitch-DOWN short-hold reps (68.92)
-  are ALSO under-reading — their own 360 cross-check happened to agree (67.82-69.94), but that could be
-  coincidental rather than proof the dwell was long enough; worth a skeptical re-check later. Yaw's
-  boosted short-hold reps (53.26 at 1920 counts) haven't been checked against a long-hold/360 cross-check
-  at all yet, and yaw's own API reference value isn't confirmed in this doc — same concern could apply.
-  **Two real methodology bugs found and fixed while chasing this:**
-  1. The "before" position for a 360 test must come from the capture's OWN recorded video frame 0, never
-     from a live screenshot taken before the capture command — a screenshot taken beforehand can be
-     stale by hundreds of pixels by the time the capture actually starts (focus/click + OBS's 1s settle
-     both take real wall-clock time). Using a stale seed produced one attempt reading an impossible ~7°/s.
-  2. This ship-orientation's view has a **fixed, non-moving bright object at screen ≈(1920,1945)** —
-     almost certainly a static HUD/scene element — that an automated "biggest bright blob" landmark
-     finder can mislatch onto when the true sun is dim/occluded at that instant. Caught by noticing
-     identical-looking blob positions recurring suspiciously across unrelated frames/timestamps.
-  See `MEASUREMENTS.md`'s "UP-boosted, redone properly" section for the full writeup, and the two new
-  memory entries this produced.
-- **MAJOR (2026-07-23): captured the actual spool-up rate-vs-time curve directly for all 4 conditions
-  (pitch/yaw × non-boosted/boosted) — the real point of this whole capture effort, per harald's own
-  framing (steady-state rates are already known ground truth from the coded/API values; spool-up time
-  was the actually-unmeasured piece).** Fit both the coded 1st-order exponential-lag model and a
-  2nd-order underdamped step response to each curve. **The 2nd-order model wins by 2-4× in every single
-  condition** — this is a real, structural finding: SC's rotational spool-up is underdamped-2nd-order,
-  not a simple exponential approach to a clamp. Strikingly, the fitted natural frequency ωₙ is ~8.0-8.6
-  rad/s in ALL FOUR conditions regardless of axis/boost — a shared underlying constant, not per-axis
-  tuning. Damping (ζ) moves in opposite directions under boost per axis (pitch more damped, yaw less) —
-  unexplained but measured. Fitting the FULL curve (not a late/short snapshot) also properly resolves
-  boosted pitch (75.75°/s, matching the API's 82 well) and shows boosted yaw's true rate is NOT the
-  coded ~62 (looks like an unverified ×1.2 assumption) but closer to ~48.8-53, i.e. yaw's afterburner
-  effect on rotation is much smaller than pitch/roll's. See `MEASUREMENTS.md`'s "Spool-up transient is a
-  2nd-order underdamped step response" section for the full fit table — this is the strongest
-  candidate yet for an actual `flightModel.ts` change (gated, needs explicit go-ahead), since it comes
-  with concrete ωₙ/ζ parameters per condition rather than just "something's off."
-- **Bonus (2026-07-23): checked the opposite pitch direction ("UP") too.** Non-boosted UP is clean and
-  tight (66.78/66.97, both frame-verified) and runs ~3.2% faster than non-boosted DOWN (64.80 avg) —
-  each direction's own reps agree far more tightly than that gap, so it looks like a real small UP/DOWN
-  rate asymmetry (possibly analogous to the already-confirmed per-direction thrust asymmetry on the
-  LINEAR axes), not noise. **Boosted UP could NOT be pinned down** — its 2 reps (66.98, 62.49) straddle
-  the non-boosted rate, whereas boosted DOWN's 2 reps both happened to land above it; the ~6-7%
-  rep-to-rep spread is consistent between both directions, so this reads as boosted-pitch measurements
-  generally carrying that much noise, not a real direction-dependent boost effect. **3+ reps per
-  direction would be needed to pin the boosted-pitch ratio tighter than "somewhere around 1.0-1.1."**
-  See `MEASUREMENTS.md`'s "Pitch UP direction" section.
+## Gotchas hit this session (both already added to `MEASUREMENTS.md` and memory)
 
-**Live-session note:** OBS recorded solid black for the first boosted-yaw attempt this session (both
-the +1920 hold and its counter) — confirmed by pulling frames directly from OBS's own output file, not
-just the copied trial file. Fixed by the user checking/restarting the OBS capture source; a quick
-no-input `obs_capture.py start`/`stop` verification (checking a pulled frame isn't black) before
-trusting a real maneuver's recording is now worth doing at the start of any session, since
-`mouse_hold_capture.py` doesn't itself detect a black recording.
+- **A too-narrow `--window` on `fit_spool_response.py`/`track_landmark.py` can cause a false-lock
+  onto a static bright object well before the landmark's true physical exit**, producing a
+  degenerate/pinned fit that looks like "not enough data" when it's actually a tracking-parameter
+  problem. Fix: widen `--window` (40→80 or more) and re-analyze the SAME already-captured video —
+  no recapture needed. See `feedback_widen_tracking_window_before_recapturing` memory.
+- **Pitch specifically can false-lock onto the radar/scan-cone HUD graphic** (fixed screen position,
+  roughly y≈1470-1490 at 3840×2160/116° FOV) well before any real physical limit, if seeded too
+  close to center. `BLUEPRINT.md` already documented this ("seed well above center, ~25% margin from
+  the top") — check that file's Gotchas section before deep-diagnosing a similar-looking freeze.
+- **Yaw's own full-deflection point (~1500 counts) is well above pitch's clamp (1080)** — using 1080
+  for a yaw capture undershoots yaw's plateau and reads a proportionally lower, curve-shaped rate,
+  not a wrong measurement. Use ~1700 counts for yaw to land on its actual plateau.
+- **A station/structure drifting into an AC instance's view can contaminate star-tracking** for both
+  the simple hold-capture method and the 360°-sustained-hold method — not just busy starfields.
+  Verify you're in genuinely empty space before trusting a capture, especially after spending time
+  near a station for roll work (its lights/structure can persist in frame for subsequent pitch/yaw
+  captures taken from the same spot).
 
-## Requires the game running (not done this session — SC/OBS weren't up at session start)
+## Practical notes (carried over, still true)
 
-- Reversal-wobble repeat reps and the pitch boost-ratio repeat are still open and need a live session
-  (OBS is now confirmed working as of 2026-07-23's yaw boost capture). The yaw curve refit was pure
-  data analysis against already-recorded video/tabulated results and needed no game session.
+- Confirm full power to engines (visually, power management panel) before every capture — verified
+  via screenshot multiple times this session, including after an unplanned mid-session relogin.
+- Every capture script's `focus_and_click`/`focus_no_click` pops a confirmation dialog first —
+  expect it, click OK, then the usual foreground+reset happens.
+- Once a category is recaptured, update its `MEASUREMENTS.md` row's Status from SUSPECT to CONFIRMED
+  (or update the value if it moved) — don't leave stale SUSPECT rows once they're actually resolved.

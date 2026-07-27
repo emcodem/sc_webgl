@@ -48,8 +48,10 @@ Two things are expensive to set up and worth grouping around:
    `--boost` flag, no toggle). → Batch all mouse runs together, batch all decoupled runs together.
 
 Motion blur stays **OFF globally** (required for roll; harmless everywhere else — the linear montage
-reads the compact cockpit number regardless). Set it once. FOV **116**, **3840×2160 @ 60fps**, OBS
-backend, ship at **0 m/s**, Coupled by default.
+reads the compact cockpit number regardless). Set it once. FOV **116**, **3840×2160 @ 120fps**
+(moved up from 60fps on 2026-07-27 — monitor confirmed 120Hz-capable; remember to also raise the
+in-game frame rate cap to 120 to match, per `settings_checklist.md`), OBS backend, ship at **0 m/s**,
+Coupled by default.
 
 ---
 

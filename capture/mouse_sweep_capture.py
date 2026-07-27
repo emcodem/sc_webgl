@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from feeder.mouse_feeder import move_rel, AXES  # noqa: E402
-from feeder.win_focus import focus_and_click  # noqa: E402
+from feeder.win_focus import ready_and_reset, click_center  # noqa: E402
 from recorder.obs_capture import connect, start as obs_start, stop as obs_stop  # noqa: E402
 
 import math
@@ -76,8 +76,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     client = connect(password=args.obs_password)
+    hwnd, _ = ready_and_reset()
     obs_start(client)
-    focus_and_click()  # REQUIRED: injected motion only reaches flight if SC is the focused window
+    click_center(hwnd)  # REQUIRED: injected motion only reaches flight if SC is the focused window
     print(f"OBS recording; settling {args.settle}s (indicator held still)...")
     time.sleep(args.settle)
 

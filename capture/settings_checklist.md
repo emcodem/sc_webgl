@@ -13,8 +13,9 @@ Lock these in before any capture session and record the actual values in each tr
 - [ ] **Motion blur — off.** Blurs the tracked landmark and biases centroid tracking.
 - [ ] **Camera shake / G-force shake — off.** Adds noise to the tracked landmark's pixel position
       that has nothing to do with the ship's actual rotation.
-- [ ] **Frame rate cap / vsync** — set a fixed cap (match the recording's target fps) so `dt` per
-      frame is consistent; avoid uncapped/variable frame rate.
+- [ ] **Frame rate cap / vsync** — set a fixed cap matching the recording's target fps (**120fps**
+      as of 2026-07-27, up from 60) so `dt` per frame is consistent; avoid uncapped/variable frame
+      rate.
 - [ ] **HUD scale / elements** — keep whatever HUD element you're tracking (if using a heading/pitch
       ladder tick instead of a star) at a consistent scale and unobstructed.
 - [ ] **Control bindings** — all 6 axes (yaw/pitch/roll/strafe_lateral/strafe_vertical/
