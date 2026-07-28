@@ -6,9 +6,10 @@
 // and rebindable mouse buttons respectively.
 //
 // Also owns the Ctrl-key guard: Ctrl is withheld from game input entirely until the mouse is
-// captured (pointer lock), so the browser's own Ctrl+combos (copy/paste, address bar, etc.) work
-// normally while you're not playing. See below for why capture, not this, is what actually keeps
-// Ctrl+W/Q from closing the tab.
+// captured (pointer lock) or the page is fullscreen, so the browser's own Ctrl+combos
+// (copy/paste, address bar, etc.) work normally while you're not playing. See below for why
+// fullscreen specifically, not capture, is what actually keeps Ctrl+W/Q from closing the tab —
+// capture alone only makes Ctrl live as game input, it doesn't make it safe.
 // ============================================================================================
 
 // Keyboard Lock API — Chromium-only, experimental, not in lib.dom.d.ts.
@@ -28,12 +29,22 @@ let mouseDY = 0;
 let captured = false;
 
 let ctrlFlashTimeout: ReturnType<typeof setTimeout> | null = null;
-function flashCtrlDisabledWarning(): void {
+function flashCtrlWarning(message: string): void {
   const el = document.getElementById('ctrl-flash-warning') as HTMLElement;
+  el.textContent = message;
   el.style.opacity = '1';
   if (ctrlFlashTimeout) clearTimeout(ctrlFlashTimeout);
-  ctrlFlashTimeout = setTimeout(() => { el.style.opacity = '0'; }, 700);
+  ctrlFlashTimeout = setTimeout(() => { el.style.opacity = '0'; }, 1400);
 }
+
+// Keyboard Lock (the only thing that can stop Ctrl+W reaching the browser) only arms in
+// fullscreen — pointer lock alone doesn't count, and neither does merely blocking Ctrl from
+// game input (that preventDefault is on the Ctrl keydown, not the browser's own Ctrl+W handling
+// of the following W). So the same warning applies whether Ctrl is blocked or live: outside
+// fullscreen, Ctrl+W is never actually safe. Specifically F2, not F11 — F11 is the browser's own
+// native fullscreen, invisible to document.fullscreenElement/fullscreenchange, so it never arms
+// Keyboard Lock; only the page-driven Fullscreen API (what F2 calls) does.
+const CTRL_UNSAFE_MSG = '⚠ Ctrl+W still closes this tab here — press F2 (not F11) to protect it';
 
 const keyboardLockSupported = !!(navigator.keyboard && navigator.keyboard.lock);
 
@@ -58,24 +69,33 @@ export function releaseKeyboardLock(): void {
 export function initInput(canvas: HTMLCanvasElement): void {
   window.addEventListener('keydown', (e) => {
     const isCtrlCode = e.code === 'ControlLeft' || e.code === 'ControlRight';
+    const fullscreen = document.fullscreenElement != null;
+    // Either capture or fullscreen counts as "playing" for Ctrl purposes — buttonBar.ts's F2
+    // fullscreen toggle supports flying without ever pointer-locking the canvas, so gating this
+    // on `captured` alone used to leave fullscreen-only sessions with Ctrl wrongly blocked.
+    const inputEnabled = captured || fullscreen;
 
-    // Ctrl is disabled outside capture — browsers won't let any page block Ctrl+W (close tab)
-    // or Ctrl+Q (quit) via preventDefault; the Keyboard Lock request fired on capture below is
-    // the only real protection (and even that needs Chromium + fullscreen to actually take
-    // effect). So the only thing this branch buys us is not letting a bare Ctrl register as
-    // game input until capture is engaged.
-    if (isCtrlCode && !captured) {
+    // Browsers won't let any page block Ctrl+W (close tab) or Ctrl+Q (quit) via preventDefault
+    // outside this state, so keep Ctrl out of game input entirely until capture or fullscreen
+    // engages — that's the only thing this branch buys: not letting a bare Ctrl register as
+    // game input while you're not playing.
+    if (isCtrlCode && !inputEnabled) {
       e.preventDefault();
-      if (!e.repeat) flashCtrlDisabledWarning();
+      if (!e.repeat) flashCtrlWarning(CTRL_UNSAFE_MSG);
       return;
     }
 
-    // Outside capture, Ctrl isn't bound to any game action, so a Ctrl/Cmd-held combo (Ctrl+C,
+    // Playing but not fullscreen: Ctrl is live game input below, but Ctrl+W genuinely can still
+    // close the tab here. Keep warning on every press rather than just once — this is the state
+    // most likely to cause an accidental close.
+    if (isCtrlCode && !fullscreen && !e.repeat) flashCtrlWarning(CTRL_UNSAFE_MSG);
+
+    // While not playing, Ctrl isn't bound to any game action, so a Ctrl/Cmd-held combo (Ctrl+C,
     // Ctrl+V, Ctrl+A, etc.) is standard browser behavior, not game input — leave it alone
     // entirely rather than falling through to held/justPressed + the scroll-key preventDefault
-    // below. Once captured, Ctrl combos are real game input (e.g. a rebound Ctrl+<key> chord),
-    // so don't skip them there.
-    if ((e.ctrlKey || e.metaKey) && !isCtrlCode && !captured) return;
+    // below. Once playing, Ctrl combos are real game input (e.g. a rebound Ctrl+<key> chord), so
+    // don't skip them there.
+    if ((e.ctrlKey || e.metaKey) && !isCtrlCode && !inputEnabled) return;
 
     // ignore OS auto-repeat for edge detection, but keep held-state true
     if (!e.repeat) justPressedSet.add(e.code);
@@ -104,6 +124,18 @@ export function initInput(canvas: HTMLCanvasElement): void {
 
   // dropping focus/visibility clears held keys so nothing sticks "on"
   window.addEventListener('blur', () => { held.clear(); });
+
+  // Cross-browser fallback for accidental Ctrl+W/Q: unlike Keyboard Lock (Chromium + fullscreen
+  // only), a beforeunload listener forces the browser's native "leave site?" confirmation on tab
+  // close/reload in effectively every browser. Gated on the same captured-or-fullscreen check as
+  // the Ctrl warning above — only prompt while actually playing, so it doesn't nag on every dev
+  // reload/link click while idle at the menu. Custom returnValue text is ignored by modern
+  // browsers (they show their own generic prompt), but the confirmation dialog itself appears.
+  window.addEventListener('beforeunload', (e) => {
+    if (!captured && !document.fullscreenElement) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
 }
 
 const SCROLL_KEYS = new Set([

@@ -114,9 +114,9 @@ html, body {
 #capture-hint b { color: var(--hud-accent); }
 #capture-hint.hidden { opacity: 0; }
 
-/* Flashed briefly over the crosshair when Ctrl is pressed while uncaptured (see
-   input/input.ts) — opacity is toggled by JS, not by a CSS animation, so repeated presses
-   restart the same fade rather than stacking. */
+/* Flashed briefly over the crosshair when Ctrl is pressed and Ctrl+W isn't actually safe from
+   the browser (see input/input.ts) — opacity is toggled by JS, not by a CSS animation, so
+   repeated presses restart the same fade rather than stacking. */
 #ctrl-flash-warning {
   position: fixed;
   top: 18%;
