@@ -64,6 +64,8 @@ function makePlaceholderEnemy(shipTypeId: string): EnemyShip {
     health: createHealth(100), // fine-grained enough that healthFrac rounding never spuriously hits 0
     behavior: 'cruiser',
     fireCooldown: 0,
+    weaponCapacitor: type.weaponType.capacitorCapacity,
+    weaponCapacitorCooldownTimer: 0,
     respawnTimer: 0,
     spawnPos: { x: 0, y: 0, z: 0 },
     spawnQuat: { x: 0, y: 0, z: 0, w: 1 }

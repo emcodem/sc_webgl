@@ -1,4 +1,5 @@
 import type { RawShipMeasurement } from './rawShipType';
+import { PANTHER_S3 } from '../weapons/panther';
 
 // Gladius — PORTED VERBATIM from the original project (starcitizen_flightsim/src/ship/shipTypes.ts),
 // including the full derivation below (not just a summary) — this is the source of truth these
@@ -305,5 +306,8 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   boostRechargeRate: 2.51,
   boostRechargeRateRedZone: 2.51,
   boostRechargeDelaySec: 0.3,
-  hullRadius: 10
+  hullRadius: 10,
+  // Twin CF-337 Panther Repeater S3s — see physics/weapons/panther.ts for provenance (ballistics
+  // carried over unchanged; capacitor fields are new and SUSPECT pending a real capture).
+  weaponType: PANTHER_S3
 };

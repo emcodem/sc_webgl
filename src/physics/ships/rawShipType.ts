@@ -1,4 +1,4 @@
-import type { AngularState } from '../../core/types';
+import type { AngularState, WeaponType } from '../../core/types';
 
 // ============================================================================================
 // Raw ship-measurement schema — the AUTHORING shape for a ship's flight tuning.
@@ -118,6 +118,8 @@ export interface RawShipMeasurement {
   boostRechargeDelaySec: number;
 
   hullRadius: number;
+
+  weaponType: WeaponType;
 
   candidateRefinements?: CandidateRefinements;
 }

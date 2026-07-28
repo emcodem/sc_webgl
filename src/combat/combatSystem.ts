@@ -11,7 +11,7 @@ import { think } from './enemyAI';
 import { createHealth } from './health';
 import { resolveHits, resolveObjectHits } from './hitDetection';
 import { spawnExplosion, spawnImpact, updateEffects } from './effects';
-import { spawnProjectileFrom, updateProjectiles, WEAPON, FIRE_COOLDOWN_SEC } from './weapons';
+import { spawnProjectileFrom, updateProjectiles, tryFireWeapon, resolveCapacitor } from './weapons';
 import { findActivePip } from './pipTargeting';
 
 // ============================================================================================
@@ -31,24 +31,23 @@ const RESPAWN_DELAY = 3; // seconds a destroyed ship waits before respawning at 
 export function firePlayerWeaponIfRequested(world: World, dt: number): boolean {
   const player = world.player;
   const ship = player.ship;
-  ship.fireCooldown -= dt;
   // mouse click only counts once the pointer is actually captured, so the very first click on the
   // canvas just captures the mouse instead of also firing
   const mouseReady = MouseLook.isCaptured();
   const firing = Keybinds.isActive('primaryFire') || Joystick.isButtonPressed('primaryFire') ||
     (mouseReady && MouseButtons.isPressed('primaryFire'));
-  if (player.mode !== 'pilot' || !firing || ship.fireCooldown > 0) return false;
-  const axes = computeAxes(ship.quat);
-  // Converge the offset guns at the soft-locked target's range (the PIP's firing solution) so rounds
-  // meet right at the pip; with no lock, spawnProjectileFrom falls back to its default harmonization.
-  const cam = { pos: ship.pos, axes };
-  const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
-  const convergeDist = pip
-    ? length(sub(pip.lead, ship.pos))
-    : WEAPON.convergeDist;
-  spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles, convergeDist);
-  ship.fireCooldown = FIRE_COOLDOWN_SEC;
-  return true;
+  const weapon = ship.type.weaponType;
+  const requested = player.mode === 'pilot' && firing;
+  return tryFireWeapon(weapon, ship, requested, dt, () => {
+    const axes = computeAxes(ship.quat);
+    // Converge the offset guns at the soft-locked target's range (the PIP's firing solution) so
+    // rounds meet right at the pip; with no lock, spawnProjectileFrom falls back to the weapon's
+    // default harmonization.
+    const cam = { pos: ship.pos, axes };
+    const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
+    const convergeDist = pip ? length(sub(pip.lead, ship.pos)) : weapon.convergeDist;
+    spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles, convergeDist, weapon);
+  });
 }
 
 export function stepCombat(world: World, dt: number): void {
@@ -97,7 +96,12 @@ export function stepCombat(world: World, dt: number): void {
     enemy.lastInputs = decision.inputs; // see core/world.ts's EnemyShip.lastInputs
     // Free-flight opponents fly and maneuver but never fire — this is a sandbox to practice flying
     // and shooting AT them, not a dogfight where they shoot back. Scenarios (updateScenario) are the
-    // only place enemies actually open fire.
+    // only place enemies actually open fire. Still tick the capacitor (never a "just fired" edge, so
+    // this only ever recharges) so a free-flight enemy's capacitor behaves correctly if/when these
+    // ships are ever allowed to shoot.
+    const cap = resolveCapacitor(enemy.type.weaponType, enemy.weaponCapacitor, enemy.weaponCapacitorCooldownTimer, dt, false);
+    enemy.weaponCapacitor = cap.capacitor;
+    enemy.weaponCapacitorCooldownTimer = cap.cooldownTimer;
   }
 
   updateProjectiles(world.projectiles, dt);

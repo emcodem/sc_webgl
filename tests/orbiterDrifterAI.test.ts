@@ -15,7 +15,8 @@ function makeEnemy(pos = ZERO): EnemyShip {
     type: TYPE, pos, vel: ZERO, quat: IDENTITY, angVel: { pitch: 0, yaw: 0, roll: 0 },
     angAccel: { pitch: 0, yaw: 0, roll: 0 },
     boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0, throttleSpoolTime: 0, verticalSpoolTime: 0,
-    health: createHealth(10), behavior: 'orbiter', fireCooldown: 0, respawnTimer: 0,
+    health: createHealth(10), behavior: 'orbiter', fireCooldown: 0,
+    weaponCapacitor: TYPE.weaponType.capacitorCapacity, weaponCapacitorCooldownTimer: 0, respawnTimer: 0,
     spawnPos: pos, spawnQuat: IDENTITY
   };
 }
@@ -25,6 +26,7 @@ function makePlayer(pos = ZERO): ShipBody {
     angAccel: { pitch: 0, yaw: 0, roll: 0 },
     throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), hitFlash: 0, fireCooldown: 0,
+    weaponCapacitor: TYPE.weaponType.capacitorCapacity, weaponCapacitorCooldownTimer: 0,
     respawnTimer: 0
   };
 }

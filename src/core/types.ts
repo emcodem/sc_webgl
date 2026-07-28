@@ -235,4 +235,28 @@ export interface ShipType {
   // physics/flightModel.ts's governor block and physics/ships/gladius.ts's measurement note).
   boostManeuveringSpeedCap: number;
   hullRadius: number;
+  weaponType: WeaponType;
+}
+
+// A ship's fitted gun — ballistics + fire-rate values (previously a single hardcoded WEAPON const
+// in combat/weapons.ts) plus a capacitor: a charge pool that drains per shot and, after a post-fire
+// dwell, recharges over time (GitHub #2). Per-ship via ShipType.weaponType rather than global, since
+// ships will eventually carry different guns. See physics/weapons/panther.ts for the one weapon that
+// exists today and its provenance.
+export interface WeaponType {
+  name: string;
+  muzzleSpeed: number;   // m/s, added on top of the shooter's own velocity
+  fireRate: number;      // rounds/sec while the trigger is held (arcade-balance value, not
+                         // necessarily the real RPM — see panther.ts's note)
+  lifetime: number;      // s before a round despawns
+  muzzleForward: number; // spawn offset ahead of the ship so tracers don't clip through the hull
+  damage: number;
+  // Weapon convergence ("harmonization"): the offset guns are toed-in so their bore lines cross at a
+  // point on the boresight this far ahead when no target range is known.
+  convergeDist: number;    // metres — default harmonization range
+  minConvergeDist: number; // clamp: closer than this the toe-in angle gets silly
+
+  capacitorCapacity: number;          // max charge, in shots
+  capacitorRechargeRate: number;      // shots/sec recharged once the post-fire delay has elapsed
+  capacitorRechargeDelaySec: number;  // s after the LAST shot before recharge begins
 }

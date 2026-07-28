@@ -2,7 +2,11 @@ import type { CelestialBody, EnemyShip, Projectile, ShipBody } from '../core/wor
 import type { Vec3 } from '../core/types';
 import { add, clamp, dot, normalize, scale, sub } from '../math/vec';
 import { applyDamage } from './health';
-import { WEAPON } from './weapons';
+import { getWeaponType, DEFAULT_WEAPON_TYPE_ID } from '../physics/weapons';
+
+// Projectile doesn't carry which weapon fired it, so this can't yet be a truly per-shot damage value
+// (would need a field added once a second weapon actually exists) — fine while there's only one.
+const WEAPON_DAMAGE = getWeaponType(DEFAULT_WEAPON_TYPE_ID).damage;
 
 // Swept segment-vs-sphere: does the round's path this frame (prevPos → pos) pass within `radius` of
 // `center`? A round travels up to ~70 m per frame (1400 m/s × the 50 ms dt clamp) against hulls only
@@ -42,7 +46,7 @@ export function resolveHits(
       if (playerShip.health.points > 0) {
         const hit = sweepHitsSphere(pr.prevPos, pr.pos, playerShip.pos, playerShip.type.hullRadius);
         if (hit) {
-          applyDamage(playerShip.health, WEAPON.damage);
+          applyDamage(playerShip.health, WEAPON_DAMAGE);
           playerShip.hitFlash = 1;
           onPlayerHit?.();
           onImpact?.(hit, normalize(sub(hit, playerShip.pos)));
@@ -56,7 +60,7 @@ export function resolveHits(
       if (enemy.respawnTimer > 0 || enemy.health.points <= 0) continue;
       const hit = sweepHitsSphere(pr.prevPos, pr.pos, enemy.pos, enemy.type.hullRadius);
       if (hit) {
-        const destroyed = applyDamage(enemy.health, WEAPON.damage);
+        const destroyed = applyDamage(enemy.health, WEAPON_DAMAGE);
         onEnemyHit?.(enemy);
         if (destroyed) onEnemyDestroyed?.(enemy);
         onImpact?.(hit, normalize(sub(hit, enemy.pos)));

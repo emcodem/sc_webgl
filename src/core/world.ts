@@ -61,6 +61,8 @@ export interface ShipBody {
   health: Health;
   hitFlash: number;      // 0..1, set to 1 when hit, decays over time — drives the HUD damage flash
   fireCooldown: number;  // seconds until the next shot may fire (see combat/weapons.ts WEAPON.fireRate)
+  weaponCapacitor: number;              // current charge, in shots, 0..type.weaponType.capacitorCapacity
+  weaponCapacitorCooldownTimer: number; // s until recharge resumes after the last shot (see combat/weapons.ts resolveCapacitor)
   respawnTimer: number;  // >0 while destroyed and waiting to respawn; 0 = alive/flyable
   // The FlightInputs actually fed to integrateFlight this frame (set in control/pilot.ts) —
   // transient bookkeeping, same convention as hitFlash/fireCooldown above, read by
@@ -115,6 +117,8 @@ export interface EnemyShip {
   drift?: DriftState;         // 'drifter' only
   evasive?: EvasiveAIMemory;  // 'evasive' only
   fireCooldown: number;
+  weaponCapacitor: number;              // see ShipBody's field of the same name
+  weaponCapacitorCooldownTimer: number; // see ShipBody's field of the same name
   respawnTimer: number; // >0 while destroyed and waiting to respawn; 0 = alive/flyable. Only the
                          // free-flight sandbox fighter (core/player.ts) and scenario enemies whose
                          // behavior has no in-place respawn ever use this — orbiter/drifter respawn

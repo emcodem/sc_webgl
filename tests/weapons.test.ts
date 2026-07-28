@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { WEAPON, spawnProjectileFrom, updateProjectiles } from '../src/combat/weapons';
+import { WEAPON, spawnProjectileFrom, updateProjectiles, tryFireWeapon } from '../src/combat/weapons';
 import type { Projectile } from '../src/core/world';
 
 const FORWARD = { x: 0, y: 0, z: 1 };
@@ -84,5 +84,51 @@ describe('updateProjectiles', () => {
     const projectiles: Projectile[] = [{ pos: { x: 0, y: 0, z: 0 }, prevPos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, age: WEAPON.lifetime, owner: 'player' }];
     updateProjectiles(projectiles, 0.001);
     expect(projectiles).toHaveLength(0);
+  });
+});
+
+describe('tryFireWeapon', () => {
+  function freshState() {
+    return { fireCooldown: 0, weaponCapacitor: WEAPON.capacitorCapacity, weaponCapacitorCooldownTimer: 0 };
+  }
+
+  it('fires up to capacity, then refuses the next shot', () => {
+    const state = freshState();
+    let shots = 0;
+    // hold the trigger at the weapon's own fire cadence until the capacitor runs dry
+    const dt = 1 / WEAPON.fireRate;
+    for (let i = 0; i < 100 && state.weaponCapacitor >= 1; i++) {
+      if (tryFireWeapon(WEAPON, state, true, dt, () => { shots++; })) continue;
+    }
+    expect(shots).toBeGreaterThan(0);
+    expect(state.weaponCapacitor).toBeLessThan(1);
+    // out of charge — holding the trigger fires nothing more
+    const before = shots;
+    expect(tryFireWeapon(WEAPON, state, true, dt, () => { shots++; })).toBe(false);
+    expect(shots).toBe(before);
+  });
+
+  it('refuses to fire through the post-fire recharge delay, then allows firing again once recharged', () => {
+    const state = freshState();
+    // drain to empty with one shot (capacitorCapacity < 2, per panther.ts's provisional numbers)
+    expect(tryFireWeapon(WEAPON, state, true, 0, () => {})).toBe(true);
+    expect(state.weaponCapacitor).toBeLessThan(1);
+
+    // still within the recharge delay — no amount of held trigger fires a round
+    let firedDuringDelay = false;
+    const dt = 1 / 60;
+    const delayFrames = Math.ceil(WEAPON.capacitorRechargeDelaySec / dt) - 1;
+    for (let i = 0; i < delayFrames; i++) {
+      if (tryFireWeapon(WEAPON, state, true, dt, () => { firedDuringDelay = true; })) firedDuringDelay = true;
+    }
+    expect(firedDuringDelay).toBe(false);
+
+    // enough additional time for the capacitor to recharge back above 1 shot
+    const rechargeSeconds = (1 - state.weaponCapacitor) / WEAPON.capacitorRechargeRate + 1;
+    for (let i = 0; i < Math.ceil(rechargeSeconds / dt); i++) {
+      tryFireWeapon(WEAPON, state, false, dt, () => {});
+    }
+    expect(state.weaponCapacitor).toBeGreaterThanOrEqual(1);
+    expect(tryFireWeapon(WEAPON, state, true, dt, () => {})).toBe(true);
   });
 });

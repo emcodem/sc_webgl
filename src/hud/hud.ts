@@ -199,6 +199,12 @@ function updateStatsPanel(world: World): void {
   boostEl.className = ship.boosting ? 'value on' : 'value';
   (el('bar-boost')).style.width = `${boostPct}%`;
 
+  const capPct = Math.round((ship.weaponCapacitor / ship.type.weaponType.capacitorCapacity) * 100);
+  const capEl = el('s-capacitor');
+  capEl.textContent = `${capPct}%`;
+  capEl.className = ship.weaponCapacitor < 1 ? 'value on' : 'value'; // can't currently fire
+  (el('bar-capacitor')).style.width = `${Math.max(0, capPct)}%`;
+
   el('s-speed').textContent = `${speed.toFixed(1)} m/s`;
   const yawRateDeg = ship.angVel.yaw * (180 / Math.PI);
   const pitchRateDeg = ship.angVel.pitch * (180 / Math.PI);

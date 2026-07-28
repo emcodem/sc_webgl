@@ -53,7 +53,8 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     boostAngularSpoolZeta: { ...raw.boostAngularSpoolZeta },
     boostLinearThrust: { ...raw.boostLinearThrust },
     boostManeuveringSpeedCap: raw.boostManeuveringSpeedCap,
-    hullRadius: raw.hullRadius
+    hullRadius: raw.hullRadius,
+    weaponType: raw.weaponType
   };
 
   validateShipType(ship, raw.name);
@@ -142,4 +143,15 @@ export function validateShipType(t: ShipType, id: string): void {
   finite(t.boostRechargeRateRedZone, 'boostRechargeRateRedZone');
   finite(t.boostRechargeDelaySec, 'boostRechargeDelaySec');
   finite(t.hullRadius, 'hullRadius');
+
+  finite(t.weaponType.muzzleSpeed, 'weaponType.muzzleSpeed');
+  finite(t.weaponType.fireRate, 'weaponType.fireRate');
+  finite(t.weaponType.lifetime, 'weaponType.lifetime');
+  finite(t.weaponType.muzzleForward, 'weaponType.muzzleForward');
+  finite(t.weaponType.damage, 'weaponType.damage');
+  finite(t.weaponType.convergeDist, 'weaponType.convergeDist');
+  finite(t.weaponType.minConvergeDist, 'weaponType.minConvergeDist');
+  finite(t.weaponType.capacitorCapacity, 'weaponType.capacitorCapacity');
+  finite(t.weaponType.capacitorRechargeRate, 'weaponType.capacitorRechargeRate');
+  finite(t.weaponType.capacitorRechargeDelaySec, 'weaponType.capacitorRechargeDelaySec');
 }

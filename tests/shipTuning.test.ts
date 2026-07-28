@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { SHIP_TYPES, getShipType } from '../src/physics/ships';
 import { integrateFlight, resolveBoost, type FlightBody } from '../src/physics/flightModel';
 import type { ShipType } from '../src/core/types';
+import { PANTHER_S3 } from '../src/physics/weapons/panther';
+import { resolveCapacitor } from '../src/combat/weapons';
 
 // Guards the load-bearing tuning invariants carried over from the original project. If these break,
 // the ported flight model no longer matches the measured real-Gladius behaviour (see
@@ -100,7 +102,8 @@ describe('Gladius measured tuning invariants', () => {
       boostAngularSpoolZeta: { pitch: 0.916, yaw: 0.560 },
       boostLinearThrust: { main: 420, retro: 216.5, strafe: 190.5, verticalUp: 190.5, verticalDown: 95.25 },
       boostManeuveringSpeedCap: 385,
-      hullRadius: 10
+      hullRadius: 10,
+      weaponType: PANTHER_S3
     };
     // angularThrust/boostAngularThrust are derived (maxAngVel * angularDrag); compare those with
     // tolerance and the rest exactly.
@@ -486,5 +489,48 @@ describe('boost-meter drain + recharge (re-measured 2026-07-25, no red-zone asym
     }
     expect(secondsTo25).toBeCloseTo(9.96, 0); // 25% at ~2.51%/s
     expect(secondsTo100).toBeCloseTo(39.84, 0); // full 100% at ~2.51%/s
+  });
+});
+
+// Weapon capacitor (GitHub #2) — locks in PANTHER_S3's measured (SUSPECT, see panther.ts) constants
+// against resolveCapacitor's pure step function, same "measured constants can't silently drift"
+// intent as the boost-meter block above.
+describe('weapon capacitor drain + recharge', () => {
+  it('firing drains exactly 1 shot and starts the post-fire recharge dwell', () => {
+    const w = PANTHER_S3;
+    const r = resolveCapacitor(w, w.capacitorCapacity, 0, 1 / 60, true);
+    expect(r.capacitor).toBeCloseTo(w.capacitorCapacity - 1, 6);
+    expect(r.cooldownTimer).toBeCloseTo(w.capacitorRechargeDelaySec, 6);
+  });
+
+  it('does not recharge until the post-fire dwell has fully elapsed', () => {
+    const w = PANTHER_S3;
+    let capacitor = w.capacitorCapacity - 1;
+    let cooldown = w.capacitorRechargeDelaySec;
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * w.capacitorRechargeDelaySec - 1; i++) {
+      const r = resolveCapacitor(w, capacitor, cooldown, dt, false);
+      capacitor = r.capacitor;
+      cooldown = r.cooldownTimer;
+    }
+    expect(capacitor).toBeCloseTo(w.capacitorCapacity - 1, 6); // unchanged — still dwelling
+    expect(cooldown).toBeGreaterThan(0);
+  });
+
+  it('recharges at capacitorRechargeRate once the dwell elapses, capped at capacity', () => {
+    const w = PANTHER_S3;
+    let capacitor = 0;
+    let cooldown = w.capacitorRechargeDelaySec;
+    const dt = 1 / 60;
+    let secondsToFull = -1;
+    for (let i = 0; i < 60 * 60 && capacitor < w.capacitorCapacity; i++) {
+      const r = resolveCapacitor(w, capacitor, cooldown, dt, false);
+      capacitor = r.capacitor;
+      cooldown = r.cooldownTimer;
+      if (secondsToFull < 0 && capacitor >= w.capacitorCapacity) secondsToFull = (i + 1) * dt;
+    }
+    const expectedSeconds = w.capacitorRechargeDelaySec + w.capacitorCapacity / w.capacitorRechargeRate;
+    expect(secondsToFull).toBeCloseTo(expectedSeconds, 0);
+    expect(capacitor).toBeCloseTo(w.capacitorCapacity, 6); // never overshoots the cap
   });
 });
