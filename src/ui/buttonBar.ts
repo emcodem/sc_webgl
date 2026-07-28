@@ -2,6 +2,7 @@ import type { World } from '../core/world';
 import { resetWorld } from '../core/player';
 import { startScenario } from '../scenarios/runtime';
 import { startPipTrainer } from '../combat/pipTrainer';
+import { isCaptured, requestKeyboardLock, releaseKeyboardLock } from '../input/input';
 
 // F1 (restart) and F2 (fullscreen) — the two top-right toggles that don't open a panel. F3/F4 own
 // their own overlay + keybinding in mainMenu.ts/controlsPanel.ts.
@@ -30,6 +31,12 @@ export function initButtonBar(world: World): void {
   fullscreenBtn.addEventListener('click', () => { toggleFullscreen().catch(() => {}); });
   document.addEventListener('fullscreenchange', () => {
     fullscreenBtn.classList.toggle('on', document.fullscreenElement != null);
+    // Fullscreen entered via F2 without ever clicking the canvas to pointer-lock (mouse-look
+    // isn't required to fly) otherwise never requests Keyboard Lock, leaving reserved combos
+    // like Ctrl+W free to reach the browser despite being in fullscreen — see input.ts's
+    // pointerlockchange handler, which requests it independently on mouse capture.
+    if (document.fullscreenElement) requestKeyboardLock();
+    else if (!isCaptured()) releaseKeyboardLock();
   });
 
   window.addEventListener('keydown', (e) => {

@@ -58,6 +58,10 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
 }
 
 export function startScenario(world: World, config: ScenarioConfig): void {
+  // Tear down a previously-active PIP Trainer run the same way switching to Free Flight or a
+  // fresh PIP Trainer run already does — otherwise it keeps ticking/rendering underneath this
+  // scenario (see main.ts's unconditional `if (world.pipTrainer) updatePipTrainer(...)`).
+  world.pipTrainer = null;
   const ship = world.player.ship;
   // Full reset to SPAWN (not just health/vel like the original) — sc_webgl's player can be
   // anywhere (out at the moon, etc.) when the menu opens, and every scenario's enemy spawn

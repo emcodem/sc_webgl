@@ -10,6 +10,7 @@ import * as RemoteMouseInput from '../input/remoteMouseInput';
 import * as EspAssist from '../combat/espAssist';
 import { bubbleTicks } from '../scenarios/runtime';
 import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer';
+import { getFps } from './fpsTracker';
 import * as Recorder from '../replay/recorder';
 import * as ReplayPlayer from '../replay/player';
 
@@ -153,6 +154,10 @@ function updateGauges(world: World): void {
 function updateStatsPanel(world: World): void {
   const p = world.player;
   const ship = p.ship;
+
+  // Meaningful in all three sub-panels (flight/foot/destroyed), so it updates unconditionally
+  // rather than living inside just one of the mutually-exclusive row groups below.
+  el('s-fps').textContent = `${Math.round(getFps())}`;
 
   const showDestroyed = ship.respawnTimer > 0;
   const showFlight = !showDestroyed && p.mode === 'pilot';
@@ -458,7 +463,33 @@ function updateHudCanvas(world: World): void {
     drawEnemyInfo(ctx, enemy, ship, cam, W, H);
     drawOffscreenArrow(ctx, enemy.pos, cam, W, H, '#ff7a45', 'rgba(255, 170, 110, 0.85)');
   }
-  if (world.pipTrainer) drawPipTrainerRing(ctx, world.pipTrainer, cam, W, H);
+  if (world.pipTrainer) {
+    drawPipTrainerRing(ctx, world.pipTrainer, cam, W, H);
+    drawPipTrainerInfo(ctx, world.pipTrainer, ship, cam, W, H);
+  }
+}
+
+// Distance + line-of-sight closing speed under the PIP Trainer's target, mirroring drawEnemyInfo
+// above (same data shape: state.pos/state.vel in place of enemy.pos/enemy.vel). Unlike a real
+// enemy, the trainer's marker is a fixed-pixel-size diamond that doesn't scale with distance (see
+// updatePipTrainerMarker's doc comment), so the label uses a fixed pixel offset instead of
+// drawEnemyInfo's hullRadius-scaled one.
+const PIP_TRAINER_INFO_OFFSET_Y = 22;
+
+function drawPipTrainerInfo(ctx: CanvasRenderingContext2D, state: PipTrainerState, ship: ShipBody, cam: Camera, W: number, H: number): void {
+  const p = project(state.pos.x, state.pos.y, state.pos.z, cam, W, H);
+  if (!p) return;
+  const rx = state.pos.x - ship.pos.x, ry = state.pos.y - ship.pos.y, rz = state.pos.z - ship.pos.z;
+  const distance = Math.hypot(rx, ry, rz);
+  if (distance < 1e-6) return;
+  const rvx = state.vel.x - ship.vel.x, rvy = state.vel.y - ship.vel.y, rvz = state.vel.z - ship.vel.z;
+  const closingRate = -(rx * rvx + ry * rvy + rz * rvz) / distance;
+  ctx.textAlign = 'center';
+  ctx.font = '14px "Courier New", monospace';
+  ctx.fillStyle = 'rgba(200, 225, 215, 0.85)';
+  ctx.fillText(`${distance.toFixed(0)}m`, p.x, p.y + PIP_TRAINER_INFO_OFFSET_Y);
+  ctx.fillStyle = closingRate > 0 ? 'rgba(125, 255, 160, 0.85)' : 'rgba(255, 150, 110, 0.85)';
+  ctx.fillText(`${closingRate >= 0 ? '+' : ''}${closingRate.toFixed(0)} m/s`, p.x, p.y + PIP_TRAINER_INFO_OFFSET_Y + 16);
 }
 
 // Hold-progress ring + scored-rep flash ring around the PIP Trainer's diamond (#pip-trainer-marker

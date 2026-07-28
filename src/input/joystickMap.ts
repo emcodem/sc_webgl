@@ -78,11 +78,21 @@ registerConfig({
 // Deadzone + expo curve live in axisCurve.ts (applied via shapeAxis below). The joystick deadzone is
 // separate from the mouse's (getJoystickDeadzone) — a physical stick needs a much larger one.
 const AXIS_INDEX: Record<string, number> = { x: 0, y: 1, z: 2, rotx: 3, roty: 4, rotz: 5, slider1: 6, slider2: 7 };
-// Not persisted (matches the original project — a fresh load always starts from these defaults).
-const invert: Record<AxisConcept, boolean> = {
+let invert: Record<AxisConcept, boolean> = {
   strafeLateral: false, strafeVertical: true, strafeLongitudinal: false,
   pitch: false, yaw: false, roll: false
 };
+registerConfig({
+  key: 'invert',
+  serialize: () => invert,
+  deserialize: (data) => { invert = (data as Record<AxisConcept, boolean>) || {}; },
+  resetToDefault: () => {
+    invert = {
+      strafeLateral: false, strafeVertical: true, strafeLongitudinal: false,
+      pitch: false, yaw: false, roll: false
+    };
+  }
+});
 
 function readAxisFor(concept: AxisConcept): number | null {
   const binding = axisMap[concept];

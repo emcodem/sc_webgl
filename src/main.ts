@@ -12,6 +12,7 @@ import { SCENARIOS } from './scenarios/definitions';
 import { updatePipTrainer, startPipTrainer, PIP_TRAINER_DEFAULTS } from './combat/pipTrainer';
 import { checkScenarioResult, checkPipTrainerResult } from './ui/scenarioMenu';
 import { updateHUD } from './hud/hud';
+import { sampleFrame } from './hud/fpsTracker';
 import { initUI, isPaused } from './ui';
 import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
@@ -85,8 +86,10 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
 
 let last = performance.now();
 function loop(now: number): void {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const rawDt = (now - last) / 1000;
+  const dt = Math.min(0.05, rawDt);
   last = now;
+  sampleFrame(rawDt);
   try {
     // polled unconditionally (even while paused) so the controls panel's device list and
     // wiggle-to-bind capture keep working while the sim itself is frozen

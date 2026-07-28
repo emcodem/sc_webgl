@@ -37,6 +37,24 @@ function flashCtrlDisabledWarning(): void {
 
 const keyboardLockSupported = !!(navigator.keyboard && navigator.keyboard.lock);
 
+// Best-effort: Chromium only actually withholds Ctrl+W/Q from the browser UI while the document
+// is also in fullscreen — outside fullscreen this request has no visible effect, but it's
+// harmless to ask regardless of that state. Shared by both the pointer-lock capture path below
+// and buttonBar.ts's F2 fullscreen toggle, since either one alone can put the page in a state
+// where these combos should be withheld.
+export function requestKeyboardLock(): void {
+  if (keyboardLockSupported) {
+    navigator.keyboard!.lock(['ControlLeft', 'ControlRight', 'KeyW', 'KeyQ']).catch((err) => {
+      console.warn('Keyboard lock failed:', err);
+    });
+  }
+}
+export function releaseKeyboardLock(): void {
+  if (keyboardLockSupported) {
+    try { navigator.keyboard!.unlock(); } catch { /* ignore */ }
+  }
+}
+
 export function initInput(canvas: HTMLCanvasElement): void {
   window.addEventListener('keydown', (e) => {
     const isCtrlCode = e.code === 'ControlLeft' || e.code === 'ControlRight';
@@ -73,18 +91,10 @@ export function initInput(canvas: HTMLCanvasElement): void {
   });
   document.addEventListener('pointerlockchange', () => {
     captured = document.pointerLockElement === canvas;
-    if (captured) {
-      // Best-effort: Chromium only actually withholds Ctrl+W/Q from the browser UI while the
-      // document is also in fullscreen (F2) — outside fullscreen this request has no visible
-      // effect, but it's harmless to ask regardless of that state.
-      if (keyboardLockSupported) {
-        navigator.keyboard!.lock(['ControlLeft', 'ControlRight', 'KeyW', 'KeyQ']).catch((err) => {
-          console.warn('Keyboard lock failed:', err);
-        });
-      }
-    } else if (keyboardLockSupported) {
-      try { navigator.keyboard!.unlock(); } catch { /* ignore */ }
-    }
+    // Keyboard lock is also requested/released by buttonBar.ts's fullscreenchange handler — only
+    // release here if fullscreen isn't independently holding it too.
+    if (captured) requestKeyboardLock();
+    else if (!document.fullscreenElement) releaseKeyboardLock();
   });
   document.addEventListener('mousemove', (e) => {
     if (!captured) return;

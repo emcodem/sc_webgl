@@ -574,18 +574,20 @@ html, body {
   pointer-events: none;
 }
 
-/* Position the gauge container so its track (280px tall) is centered on screen middle. */
-#speed-gauge { left: calc(50% - 10vw); top: calc(50% - 105px); }
-#boost-gauge { right: calc(50% - 10vw); top: calc(50% - 105px); }
+/* Position the gauge container so its track (19.44vh tall, 210px/1080px) is centered on screen
+   middle. vh-relative (not fixed px) so it scales with the rest of the UI on tall/UHD screens,
+   mirroring the existing vw-relative left/right. */
+#speed-gauge { left: calc(50% - 10vw); top: calc(50% - 9.72vh); }
+#boost-gauge { right: calc(50% - 10vw); top: calc(50% - 9.72vh); }
 
-/* Track = dark background bar the fill sits on top of. Fills entire container (210px) with no offset —
-   its center lands at screen middle because the container's top is at calc(50% - 105px). */
+/* Track = dark background bar the fill sits on top of. Fills entire container (19.44vh) with no
+   offset — its center lands at screen middle because the container's top is at calc(50% - 9.72vh). */
 .gauge-track {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   width: 6px;
-  height: 210px;
+  height: 19.44vh;
   background: rgba(143, 211, 199, 0.08);
   border-radius: 3px;
 }
@@ -628,7 +630,7 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   width: 6px;
-  height: 210px;
+  height: 19.44vh;
 }
 
 /* Each tick is a small horizontal line */
@@ -642,10 +644,10 @@ html, body {
   background: rgba(143, 211, 199, 0.4);
 }
 
-/* Label below the bar — sits just under the track bottom (which is at screen middle + 105px) */
+/* Label below the bar — sits just under the track bottom (which is at screen middle + 9.72vh) */
 .gauge-label {
   position: absolute;
-  top: 216px;                      /* 210px track + 6px gap */
+  top: calc(19.44vh + 6px);        /* track height + 6px gap */
   left: 50%;
   transform: translateX(-50%);
   font-size: 12px;
