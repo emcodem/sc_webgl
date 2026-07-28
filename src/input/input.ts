@@ -12,7 +12,10 @@
 // capture alone only makes Ctrl live as game input, it doesn't make it safe.
 // ============================================================================================
 
-// Keyboard Lock API — Chromium-only, experimental, not in lib.dom.d.ts.
+// Keyboard Lock API — Chromium's navigator.keyboard.lock(), experimental, not in lib.dom.d.ts.
+// Firefox has declined to implement this; its own equivalent is a `keyboardLock` option on
+// Element.requestFullscreen() instead (Firefox 151+) — see buttonBar.ts's toggleFullscreen(),
+// which attempts that path and reports success here via setFullscreenKeyboardLockArmed().
 declare global {
   interface Navigator {
     keyboard?: {
@@ -37,16 +40,32 @@ function flashCtrlWarning(message: string): void {
   ctrlFlashTimeout = setTimeout(() => { el.style.opacity = '0'; }, 1400);
 }
 
+const keyboardLockSupported = !!(navigator.keyboard && navigator.keyboard.lock);
+
+// Firefox's fullscreen-scoped keyboardLock option (Firefox 151+) is a separate mechanism from
+// Chromium's navigator.keyboard.lock() above, requested/reported by buttonBar.ts's
+// toggleFullscreen(). `Armed` reflects whether it's active *right now* (reset on fullscreen
+// exit, below); `EverArmed` is sticky for the session and only used to pick warning copy — once
+// we've proven this browser can do it at all, keep recommending F2 even after leaving fullscreen.
+let fullscreenKeyboardLockArmed = false;
+let fullscreenKeyboardLockEverArmed = false;
+export function setFullscreenKeyboardLockArmed(armed: boolean): void {
+  fullscreenKeyboardLockArmed = armed;
+  if (armed) fullscreenKeyboardLockEverArmed = true;
+}
+
 // Keyboard Lock (the only thing that can stop Ctrl+W reaching the browser) only arms in
 // fullscreen — pointer lock alone doesn't count, and neither does merely blocking Ctrl from
 // game input (that preventDefault is on the Ctrl keydown, not the browser's own Ctrl+W handling
 // of the following W). So the same warning applies whether Ctrl is blocked or live: outside
 // fullscreen, Ctrl+W is never actually safe. Specifically F2, not F11 — F11 is the browser's own
 // native fullscreen, invisible to document.fullscreenElement/fullscreenchange, so it never arms
-// Keyboard Lock; only the page-driven Fullscreen API (what F2 calls) does.
-const CTRL_UNSAFE_MSG = '⚠ Ctrl+W still closes this tab here — press F2 (not F11) to protect it';
-
-const keyboardLockSupported = !!(navigator.keyboard && navigator.keyboard.lock);
+// either Keyboard Lock mechanism; only the page-driven Fullscreen API (what F2 calls) does.
+const CTRL_UNSAFE_MSG = '⚠ Ctrl+W closes the tab — press F2 (not F11) to protect it';
+// Neither Keyboard Lock mechanism is available in this browser (or none has ever armed
+// successfully this session yet) — fullscreen genuinely won't help, so point at the one thing
+// that actually helps instead: rebinding Strafe Down off Ctrl.
+const CTRL_UNSUPPORTED_MSG = '⚠ Ctrl+W can close this tab — this browser can\'t protect it; rebind Strafe Down (F4) off Ctrl';
 
 // Best-effort: Chromium only actually withholds Ctrl+W/Q from the browser UI while the document
 // is also in fullscreen — outside fullscreen this request has no visible effect, but it's
@@ -75,20 +94,31 @@ export function initInput(canvas: HTMLCanvasElement): void {
     // on `captured` alone used to leave fullscreen-only sessions with Ctrl wrongly blocked.
     const inputEnabled = captured || fullscreen;
 
+    // True only while fullscreen AND some Keyboard Lock mechanism is actually active right now
+    // (Chromium's navigator.keyboard.lock(), requested on capture/fullscreen-entry below and in
+    // buttonBar.ts; or Firefox 151+'s fullscreen keyboardLock option, reported via
+    // setFullscreenKeyboardLockArmed() by buttonBar.ts's toggleFullscreen()).
+    const protectedNow = fullscreen && (keyboardLockSupported || fullscreenKeyboardLockArmed);
+    // Whether fullscreen (F2) is worth recommending at all — either mechanism is known to work
+    // in this browser, even if we're not currently in the protected state.
+    const canEverProtect = keyboardLockSupported || fullscreenKeyboardLockEverArmed;
+
     // Browsers won't let any page block Ctrl+W (close tab) or Ctrl+Q (quit) via preventDefault
     // outside this state, so keep Ctrl out of game input entirely until capture or fullscreen
     // engages — that's the only thing this branch buys: not letting a bare Ctrl register as
     // game input while you're not playing.
     if (isCtrlCode && !inputEnabled) {
       e.preventDefault();
-      if (!e.repeat) flashCtrlWarning(CTRL_UNSAFE_MSG);
+      if (!e.repeat) flashCtrlWarning(canEverProtect ? CTRL_UNSAFE_MSG : CTRL_UNSUPPORTED_MSG);
       return;
     }
 
-    // Playing but not fullscreen: Ctrl is live game input below, but Ctrl+W genuinely can still
-    // close the tab here. Keep warning on every press rather than just once — this is the state
-    // most likely to cause an accidental close.
-    if (isCtrlCode && !fullscreen && !e.repeat) flashCtrlWarning(CTRL_UNSAFE_MSG);
+    // Playing but not actually protected right now: Ctrl is live game input below, but Ctrl+W
+    // genuinely can still close the tab here. Keep warning on every press rather than just once,
+    // since this is the state most likely to cause an accidental close.
+    if (isCtrlCode && !protectedNow && !e.repeat) {
+      flashCtrlWarning(canEverProtect ? CTRL_UNSAFE_MSG : CTRL_UNSUPPORTED_MSG);
+    }
 
     // While not playing, Ctrl isn't bound to any game action, so a Ctrl/Cmd-held combo (Ctrl+C,
     // Ctrl+V, Ctrl+A, etc.) is standard browser behavior, not game input — leave it alone
@@ -120,6 +150,13 @@ export function initInput(canvas: HTMLCanvasElement): void {
     if (!captured) return;
     mouseDX += e.movementX;
     mouseDY += e.movementY;
+  });
+  // Firefox's fullscreen keyboardLock only applies to the session that requested it — clear the
+  // "armed" flag on exit so a later captured-but-windowed stretch doesn't keep reporting
+  // protection it no longer has. buttonBar.ts's toggleFullscreen() re-sets it true on a fresh
+  // fullscreen entry that successfully requests it again.
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) fullscreenKeyboardLockArmed = false;
   });
 
   // dropping focus/visibility clears held keys so nothing sticks "on"
