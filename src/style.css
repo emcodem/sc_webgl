@@ -135,6 +135,37 @@ html, body {
   transition: opacity 0.15s ease;
 }
 
+/* One-time dismissible FPS/OBS hint (see hud/perfHint.ts) — top-center, below #title, pointer
+   events enabled (unlike #capture-hint) so its dismiss button is clickable. */
+#perf-hint {
+  position: fixed;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 32px 8px 16px;
+  background: rgba(5, 7, 10, 0.85);
+  border: 1px solid rgba(255, 200, 80, 0.4);
+  border-radius: 4px;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  color: var(--hud-fg);
+  z-index: 40;
+  pointer-events: auto;
+}
+#perf-hint b { color: #ffc850; }
+#perf-hint-dismiss {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+}
+
 /* Manual-recording indicator (see replay/recorder.ts) — top-center, below #title */
 #rec-indicator {
   position: fixed;

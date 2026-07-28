@@ -25,10 +25,11 @@ describe('dampingFactorForDistance', () => {
     expect(dampingFactorForDistance(0)).toBeCloseTo(0.3, 6);
   });
 
-  it('ramps linearly between center and the circle edge', () => {
+  it('ramps by an eased (sqrt) curve between center and the circle edge', () => {
     setCircleRadius(100);
     setDampeningStrength(0.5);
-    expect(dampingFactorForDistance(50)).toBeCloseTo(0.75, 6); // halfway: 1 - 0.5*0.5
+    // halfway: proximity 0.5, eased sqrt(0.5) ~= 0.7071 -> 1 - 0.5*0.7071
+    expect(dampingFactorForDistance(50)).toBeCloseTo(1 - 0.5 * Math.sqrt(0.5), 6);
   });
 
   it('never dampens when circleRadiusPx <= 0', () => {

@@ -59,6 +59,15 @@
     <!-- Manual-recording indicator — see replay/recorder.ts, hud/hud.ts's updateRecordingIndicator -->
     <div id="rec-indicator" style="display:none">&#9679; REC <span id="rec-indicator-time">0:00</span></div>
 
+    <!-- One-time dismissible tip when FPS looks suspiciously capped while windowed (e.g. OBS's
+         Desktop Duplication capture halving the compositor's presentation rate) — see
+         hud/perfHint.ts. Hidden until the heuristic fires; permanently dismissible via localStorage. -->
+    <div id="perf-hint" style="display:none">
+      Frame rate looks capped — if a screen-capture tool (OBS, etc.) is running, try
+      <b>F2 Fullscreen</b> to restore a stable rate.
+      <button id="perf-hint-dismiss" aria-label="Dismiss">&times;</button>
+    </div>
+
     <!-- HUD overlay (DOM, layered over the canvas) — ported from the original project's
          starcitizen_flightsim/index.html: a bottom-left flight-stats panel plus top-center
          mission-stats (scenario) and PIP Trainer panels. See hud/hud.ts. -->
@@ -137,7 +146,7 @@
     <!-- Top-right toggle row: F1 restart, F2 fullscreen, F3 menu, F4 controls -->
     <div id="toggle-bar">
       <button id="restart-toggle" class="toggle-btn">F1 RESTART</button>
-      <button id="fullscreen-toggle" class="toggle-btn">F2 FULLSCREEN</button>
+      <button id="fullscreen-toggle" class="toggle-btn" title="Tip: if the frame rate looks capped (e.g. ~30fps) while a screen-capture tool like OBS is running, Fullscreen fixes it — windowed capture forces an extra compositor sync step this app can't control.">F2 FULLSCREEN</button>
       <button id="menu-toggle" class="toggle-btn">F3 MENU</button>
       <button id="controls-toggle" class="toggle-btn">F4 CONTROLS</button>
       <button id="replay-toggle" class="toggle-btn">F6 REPLAY</button>

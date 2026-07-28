@@ -27,12 +27,16 @@ export function setDampeningStrength(v: number): void {
   dampeningStrength = v;
 }
 
-// 1 = no dampening (at/beyond the circle radius), ramping linearly down to (1 - dampeningStrength)
-// at dead center.
+// 1 = no dampening (at/beyond the circle radius), ramping down to (1 - dampeningStrength) at dead
+// center. The ramp is eased (sqrt) rather than linear: a purely linear ramp only reaches full
+// strength exactly at dead center, so a target sitting anywhere but the precise middle of even a
+// maxed-out circle barely felt dampened at all (GitHub #4). Squaring the proximity's square root
+// front-loads the effect so most of the circle's interior already sits close to full strength.
 export function dampingFactorForDistance(screenDist: number): number {
   if (screenDist >= circleRadiusPx || circleRadiusPx <= 0) return 1;
   const proximity = 1 - screenDist / circleRadiusPx; // 0 at edge, 1 at center
-  return 1 - dampeningStrength * proximity;
+  const eased = Math.sqrt(proximity);
+  return 1 - dampeningStrength * eased;
 }
 
 // Effective pitch/yaw damping for a tick — dampening only kicks in while BOTH the PIP and the

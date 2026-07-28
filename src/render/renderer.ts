@@ -479,12 +479,18 @@ export class Renderer {
   // the trail data source only has meaning against a loaded clip.
   private updateTrails(world: World, eye: Vec3): void {
     const active = ReplayPlayer.isActive();
-    this.playerTrailMesh.visible = active;
+    // the player's own trail sits directly ahead of the camera in cockpit view whenever the
+    // recorded flight was backstrafing (recent-past positions along the nose, current position
+    // behind them) — only worth showing from an external vantage where it can't self-obscure.
+    const playerTrailVisible = active && (world.player.mode !== 'pilot' || FreeCamera.isActive());
+    this.playerTrailMesh.visible = playerTrailVisible;
     for (const mesh of this.enemyTrailMeshes.values()) mesh.visible = active;
     if (!active) return;
 
     const ship = world.player.ship;
-    this.writeTrail(this.playerTrailMesh, ReplayPlayer.getPlayerTrail(TRAIL_WINDOW_SEC), ship, eye);
+    if (playerTrailVisible) {
+      this.writeTrail(this.playerTrailMesh, ReplayPlayer.getPlayerTrail(TRAIL_WINDOW_SEC), ship, eye);
+    }
 
     world.enemies.forEach((enemy, i) => {
       const mesh = this.enemyTrailMeshes.get(enemy);

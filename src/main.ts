@@ -13,6 +13,7 @@ import { updatePipTrainer, startPipTrainer, PIP_TRAINER_DEFAULTS } from './comba
 import { checkScenarioResult, checkPipTrainerResult } from './ui/scenarioMenu';
 import { updateHUD } from './hud/hud';
 import { sampleFrame } from './hud/fpsTracker';
+import { updatePerfHint } from './hud/perfHint';
 import { initUI, isPaused } from './ui';
 import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
@@ -90,6 +91,7 @@ function loop(now: number): void {
   const dt = Math.min(0.05, rawDt);
   last = now;
   sampleFrame(rawDt);
+  updatePerfHint(rawDt);
   try {
     // polled unconditionally (even while paused) so the controls panel's device list and
     // wiggle-to-bind capture keep working while the sim itself is frozen
