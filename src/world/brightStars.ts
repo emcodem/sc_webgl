@@ -31,7 +31,9 @@ const DEG2RAD = Math.PI / 180;
 // star maxes out the size/brightness curve, and MAG_CUTOFF trims the faintest tail — both tuned by
 // eye via a temporary slider panel (since removed).
 const MAG_BRIGHTEST = -3.0;
-const MAG_CUTOFF = 6.6;
+// 6.6 kept 8777 stars; 6.31 keeps 7008 (-20.2%, the closest step to an exact 20% reduction) —
+// dropped 2026-07-29 per a request to thin the starfield.
+const MAG_CUTOFF = 6.31;
 
 function clamp01(x: number): number {
   return x < 0 ? 0 : x > 1 ? 1 : x;
