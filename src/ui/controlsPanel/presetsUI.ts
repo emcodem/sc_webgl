@@ -7,6 +7,12 @@ const presetSelect = document.getElementById('ctrl-preset-list') as HTMLSelectEl
 const presetStatus = document.getElementById('ctrl-preset-status') as HTMLElement;
 const presetFileStatus = document.getElementById('ctrl-preset-file-status') as HTMLElement;
 
+// The preset the dropdown should show as selected — rebuilding <select> options (every
+// refreshPresetList call, including the one show() runs each time the panel is opened) resets
+// selectedIndex to 0 otherwise, which is why the picker used to always snap back to the first
+// stored preset even though the *loaded* config was still whichever one was actually active.
+let activePresetName: string | null = null;
+
 export async function refreshPresetList(): Promise<void> {
   if (!PresetStore.hasPresetStorage) {
     presetSelect.innerHTML = '';
@@ -16,6 +22,7 @@ export async function refreshPresetList(): Promise<void> {
   try {
     const names = await PresetStore.listPresets();
     presetSelect.innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('');
+    if (activePresetName && names.includes(activePresetName)) presetSelect.value = activePresetName;
   } catch (err) {
     presetStatus.textContent = 'Could not list presets: ' + (err as Error).message;
   }
@@ -27,10 +34,10 @@ export async function refreshPresetList(): Promise<void> {
 export async function restoreLastPreset(): Promise<void> {
   const name = await PresetStore.restoreLastPreset();
   if (!name) return;
+  activePresetName = name;
   presetNameInput.value = name;
   presetStatus.textContent = `Restored preset "${name}" from last session.`;
   await refreshPresetList();
-  presetSelect.value = name;
 }
 
 export function initPresetsUI(): void {
@@ -39,8 +46,9 @@ export function initPresetsUI(): void {
     if (!name) { presetStatus.textContent = 'Enter a preset name first.'; return; }
     try {
       await PresetStore.savePreset(name);
+      activePresetName = name;
       presetStatus.textContent = `Saved preset "${name}".`;
-      refreshPresetList();
+      await refreshPresetList();
     } catch (err) {
       presetStatus.textContent = (err as Error).message === 'no-storage'
         ? 'Browser storage unavailable here (private browsing or storage disabled) — use export/import file instead.'
@@ -53,6 +61,8 @@ export function initPresetsUI(): void {
     if (!name) { presetStatus.textContent = 'Select a preset first.'; return; }
     try {
       await PresetStore.loadPreset(name);
+      activePresetName = name;
+      presetNameInput.value = name;
       presetStatus.textContent = `Loaded preset "${name}".`;
     } catch (err) {
       presetStatus.textContent = 'Load failed: ' + (err as Error).message;
@@ -64,8 +74,9 @@ export function initPresetsUI(): void {
     if (!name) { presetStatus.textContent = 'Select a preset first.'; return; }
     try {
       await PresetStore.deletePreset(name);
+      if (activePresetName === name) activePresetName = null;
       presetStatus.textContent = `Deleted preset "${name}".`;
-      refreshPresetList();
+      await refreshPresetList();
     } catch (err) {
       presetStatus.textContent = 'Delete failed: ' + (err as Error).message;
     }
