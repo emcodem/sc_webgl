@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { freshCapacitors, freshCapacitorCooldowns } from '../src/combat/weapons';
 import { findActivePip } from '../src/combat/pipTargeting';
 import { createHealth } from '../src/combat/health';
 import { getShipType } from '../src/physics/ships';
@@ -19,7 +20,7 @@ function makeEnemy(pos: { x: number; y: number; z: number }, overrides: Partial<
     angVel: { pitch: 0, yaw: 0, roll: 0 }, angAccel: { pitch: 0, yaw: 0, roll: 0 },
     boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), behavior: 'cruiser',
-    fireCooldown: 0, weaponCapacitor: TYPE.weaponType.capacitorCapacity, weaponCapacitorCooldownTimer: 0,
+    fireCooldown: 0, weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(), muzzleIndex: 0,
     respawnTimer: 0, spawnPos: pos, spawnQuat: { x: 0, y: 0, z: 0, w: 1 }, ...overrides
   };
 }

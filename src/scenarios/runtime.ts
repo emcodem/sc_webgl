@@ -10,7 +10,9 @@ import {
   ORBITER_TUNING, DRIFTER_TUNING, driftThink, orbiterThink, spawnDriftState, spawnOrbitState
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
-import { spawnProjectileFrom, updateProjectiles, WEAPON, tryFireWeapon } from '../combat/weapons';
+import {
+  spawnProjectileFrom, updateProjectiles, WEAPON, tryFireWeapon, freshCapacitors, freshCapacitorCooldowns
+} from '../combat/weapons';
 import { findActivePip } from '../combat/pipTargeting';
 import { computeLeadPoint } from '../combat/leadIndicator';
 import { computeAxes, lookAtQuat, rotateTowards } from '../math/quaternion';
@@ -49,8 +51,9 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
     turnRateRadPerSec: spawn.turnRateRadPerSec,
     ai: spawn.behavior === 'fighter' ? spawnFighterAI(spawn.tuning) : undefined,
     fireCooldown: 0,
-    weaponCapacitor: spawn.type.weaponType.capacitorCapacity,
-    weaponCapacitorCooldownTimer: 0,
+    weaponCapacitors: freshCapacitors(spawn.type.weaponType),
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+    muzzleIndex: 0,
     respawnTimer: 0,
     // unused by scenarios — updateScenario() never resets a dead enemy to a spawn point (see the
     // loop below); only combatSystem.ts's free-flight stepCombat reads spawnPos/spawnQuat.
@@ -84,8 +87,9 @@ export function startScenario(world: World, config: ScenarioConfig): void {
   ship.verticalSpoolTime = 0;
   ship.hitFlash = 0;
   ship.fireCooldown = 0;
-  ship.weaponCapacitor = ship.type.weaponType.capacitorCapacity;
-  ship.weaponCapacitorCooldownTimer = 0;
+  ship.weaponCapacitors = freshCapacitors(ship.type.weaponType);
+  ship.weaponCapacitorCooldownTimers = freshCapacitorCooldowns();
+  ship.muzzleIndex = 0;
   ship.respawnTimer = 0;
   ship.health = createHealth(config.hitsToKillPlayer);
 
@@ -189,8 +193,8 @@ export function updateScenario(world: World, dt: number): void {
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           const aimed = decision.wantsToFire &&
             canFireWithinTolerance(forward, decision.aimDir, dist, CHASER_TUNING.fireRange, CHASER_TUNING.fireLateralTolerance);
-          tryFireWeapon(enemy.type.weaponType, enemy, aimed, dt, () => {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType);
+          tryFireWeapon(enemy.type.weaponType, enemy, aimed, dt, (mount) => {
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType, mount);
           });
         }
         break;
@@ -211,8 +215,8 @@ export function updateScenario(world: World, dt: number): void {
           const { forward, right, up } = computeAxes(enemy.quat);
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           const aimed = decision.wantsToFire && canFire(forward, decision.aimDir, dist, enemy.ai.tuning);
-          tryFireWeapon(enemy.type.weaponType, enemy, aimed, dt, () => {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType);
+          tryFireWeapon(enemy.type.weaponType, enemy, aimed, dt, (mount) => {
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType, mount);
           });
         }
         break;
@@ -242,8 +246,8 @@ export function updateScenario(world: World, dt: number): void {
         const aimDot = (toPlayer.x * forward.x + toPlayer.y * forward.y + toPlayer.z * forward.z) / dist;
         const aimAngle = Math.acos(Math.min(1, Math.max(-1, aimDot)));
 
-        tryFireWeapon(enemy.type.weaponType, enemy, aimAngle <= AIM_FIRE_CONE_RAD, dt, () => {
-          spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType);
+        tryFireWeapon(enemy.type.weaponType, enemy, aimAngle <= AIM_FIRE_CONE_RAD, dt, (mount) => {
+          spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType, mount);
         });
         break;
       }
@@ -263,8 +267,8 @@ export function updateScenario(world: World, dt: number): void {
           const dist = Math.hypot(player.pos.x - enemy.pos.x, player.pos.y - enemy.pos.y, player.pos.z - enemy.pos.z);
           const aimed = decision.wantsToFire &&
             canFireWithinTolerance(forward, decision.aimDir, dist, EVASIVE_TUNING.fireRange, EVASIVE_TUNING.fireLateralTolerance);
-          tryFireWeapon(enemy.type.weaponType, enemy, aimed, dt, () => {
-            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType);
+          tryFireWeapon(enemy.type.weaponType, enemy, aimed, dt, (mount) => {
+            spawnProjectileFrom(enemy.pos, enemy.vel, forward, right, up, 'enemy', world.projectiles, dist, enemy.type.weaponType, mount);
           });
         }
         break;

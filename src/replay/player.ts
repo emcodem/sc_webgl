@@ -5,7 +5,7 @@ import { getShipType, tryGetShipType, DEFAULT_SHIP_TYPE_ID } from '../physics/sh
 import { lerp } from '../math/vec';
 import { slerp } from '../math/quaternion';
 import { createHealth } from '../combat/health';
-import { WEAPON } from '../combat/weapons';
+import { WEAPON, freshCapacitors, freshCapacitorCooldowns } from '../combat/weapons';
 import { EXPLOSION_DURATION, IMPACT_DURATION } from '../combat/effects';
 
 // ============================================================================================
@@ -64,8 +64,9 @@ function makePlaceholderEnemy(shipTypeId: string): EnemyShip {
     health: createHealth(100), // fine-grained enough that healthFrac rounding never spuriously hits 0
     behavior: 'cruiser',
     fireCooldown: 0,
-    weaponCapacitor: type.weaponType.capacitorCapacity,
-    weaponCapacitorCooldownTimer: 0,
+    weaponCapacitors: freshCapacitors(type.weaponType),
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+    muzzleIndex: 0,
     respawnTimer: 0,
     spawnPos: { x: 0, y: 0, z: 0 },
     spawnQuat: { x: 0, y: 0, z: 0, w: 1 }

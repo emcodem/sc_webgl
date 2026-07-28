@@ -152,6 +152,7 @@ export function validateShipType(t: ShipType, id: string): void {
   finite(t.weaponType.convergeDist, 'weaponType.convergeDist');
   finite(t.weaponType.minConvergeDist, 'weaponType.minConvergeDist');
   finite(t.weaponType.capacitorCapacity, 'weaponType.capacitorCapacity');
+  finite(t.weaponType.capacitorCostPerShot, 'weaponType.capacitorCostPerShot');
   finite(t.weaponType.capacitorRechargeRate, 'weaponType.capacitorRechargeRate');
   finite(t.weaponType.capacitorRechargeDelaySec, 'weaponType.capacitorRechargeDelaySec');
 }

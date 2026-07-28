@@ -495,17 +495,17 @@ describe('boost-meter drain + recharge (re-measured 2026-07-25, no red-zone asym
 // Weapon capacitor (GitHub #2) — locks in PANTHER_S3's measured (SUSPECT, see panther.ts) constants
 // against resolveCapacitor's pure step function, same "measured constants can't silently drift"
 // intent as the boost-meter block above.
-describe('weapon capacitor drain + recharge', () => {
-  it('firing drains exactly 1 shot and starts the post-fire recharge dwell', () => {
+describe('weapon capacitor drain + recharge (per gun — see combat/weapons.ts NUM_GUNS)', () => {
+  it('firing drains exactly capacitorCostPerShot and starts the post-fire recharge dwell', () => {
     const w = PANTHER_S3;
     const r = resolveCapacitor(w, w.capacitorCapacity, 0, 1 / 60, true);
-    expect(r.capacitor).toBeCloseTo(w.capacitorCapacity - 1, 6);
+    expect(r.capacitor).toBeCloseTo(w.capacitorCapacity - w.capacitorCostPerShot, 6);
     expect(r.cooldownTimer).toBeCloseTo(w.capacitorRechargeDelaySec, 6);
   });
 
   it('does not recharge until the post-fire dwell has fully elapsed', () => {
     const w = PANTHER_S3;
-    let capacitor = w.capacitorCapacity - 1;
+    let capacitor = w.capacitorCapacity - w.capacitorCostPerShot;
     let cooldown = w.capacitorRechargeDelaySec;
     const dt = 1 / 60;
     for (let i = 0; i < 60 * w.capacitorRechargeDelaySec - 1; i++) {
@@ -513,7 +513,7 @@ describe('weapon capacitor drain + recharge', () => {
       capacitor = r.capacitor;
       cooldown = r.cooldownTimer;
     }
-    expect(capacitor).toBeCloseTo(w.capacitorCapacity - 1, 6); // unchanged — still dwelling
+    expect(capacitor).toBeCloseTo(w.capacitorCapacity - w.capacitorCostPerShot, 6); // unchanged — still dwelling
     expect(cooldown).toBeGreaterThan(0);
   });
 

@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { WEAPON, spawnProjectileFrom, updateProjectiles, tryFireWeapon } from '../src/combat/weapons';
+import {
+  WEAPON, NUM_GUNS, spawnProjectileFrom, updateProjectiles, tryFireWeapon,
+  freshCapacitors, freshCapacitorCooldowns
+} from '../src/combat/weapons';
 import type { Projectile } from '../src/core/world';
 
 const FORWARD = { x: 0, y: 0, z: 1 };
@@ -89,30 +92,54 @@ describe('updateProjectiles', () => {
 
 describe('tryFireWeapon', () => {
   function freshState() {
-    return { fireCooldown: 0, weaponCapacitor: WEAPON.capacitorCapacity, weaponCapacitorCooldownTimer: 0 };
+    return {
+      fireCooldown: 0,
+      weaponCapacitors: freshCapacitors(WEAPON),
+      weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+      muzzleIndex: 0
+    };
   }
 
-  it('fires up to capacity, then refuses the next shot', () => {
+  it('drains only the firing gun by capacitorCostPerShot and starts its own recharge dwell', () => {
     const state = freshState();
     let shots = 0;
-    // hold the trigger at the weapon's own fire cadence until the capacitor runs dry
-    const dt = 1 / WEAPON.fireRate;
-    for (let i = 0; i < 100 && state.weaponCapacitor >= 1; i++) {
-      if (tryFireWeapon(WEAPON, state, true, dt, () => { shots++; })) continue;
+    expect(tryFireWeapon(WEAPON, state, true, 0, () => { shots++; })).toBe(true);
+    expect(shots).toBe(1);
+    expect(state.weaponCapacitors[0]).toBeCloseTo(WEAPON.capacitorCapacity - WEAPON.capacitorCostPerShot, 6);
+    expect(state.weaponCapacitorCooldownTimers[0]).toBeCloseTo(WEAPON.capacitorRechargeDelaySec, 6);
+    expect(state.muzzleIndex).toBe(1); // advanced to the next gun
+    // the other guns are untouched
+    for (let i = 1; i < NUM_GUNS; i++) {
+      expect(state.weaponCapacitors[i]).toBeCloseTo(WEAPON.capacitorCapacity, 6);
+      expect(state.weaponCapacitorCooldownTimers[i]).toBe(0);
     }
-    expect(shots).toBeGreaterThan(0);
-    expect(state.weaponCapacitor).toBeLessThan(1);
-    // out of charge — holding the trigger fires nothing more
-    const before = shots;
-    expect(tryFireWeapon(WEAPON, state, true, dt, () => { shots++; })).toBe(false);
-    expect(shots).toBe(before);
+  });
+
+  it('cycles through every gun before repeating one, then refuses once all are under cost', () => {
+    const state = freshState();
+    let shots = 0;
+    // fire at the weapon's own cadence — dt=0 between shots would never let fireCooldown clear
+    const fireDt = 1 / WEAPON.fireRate;
+    for (let i = 0; i < NUM_GUNS; i++) {
+      expect(tryFireWeapon(WEAPON, state, true, fireDt, () => { shots++; })).toBe(true);
+    }
+    expect(shots).toBe(NUM_GUNS);
+    expect(state.muzzleIndex).toBe(0); // wrapped back to the first gun
+    for (const c of state.weaponCapacitors) {
+      expect(c).toBeCloseTo(WEAPON.capacitorCapacity - WEAPON.capacitorCostPerShot, 6);
+      expect(c).toBeLessThan(WEAPON.capacitorCostPerShot); // can't afford another shot yet
+    }
+    // every gun is now under cost — holding the trigger fires nothing more
+    expect(tryFireWeapon(WEAPON, state, true, fireDt, () => { shots++; })).toBe(false);
+    expect(shots).toBe(NUM_GUNS);
   });
 
   it('refuses to fire through the post-fire recharge delay, then allows firing again once recharged', () => {
     const state = freshState();
-    // drain to empty with one shot (capacitorCapacity < 2, per panther.ts's provisional numbers)
-    expect(tryFireWeapon(WEAPON, state, true, 0, () => {})).toBe(true);
-    expect(state.weaponCapacitor).toBeLessThan(1);
+    // drain every gun with one shot each, at the weapon's own fire cadence
+    const fireDt = 1 / WEAPON.fireRate;
+    for (let i = 0; i < NUM_GUNS; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
+    expect(state.weaponCapacitors.every((c) => c < WEAPON.capacitorCostPerShot)).toBe(true);
 
     // still within the recharge delay — no amount of held trigger fires a round
     let firedDuringDelay = false;
@@ -123,12 +150,13 @@ describe('tryFireWeapon', () => {
     }
     expect(firedDuringDelay).toBe(false);
 
-    // enough additional time for the capacitor to recharge back above 1 shot
-    const rechargeSeconds = (1 - state.weaponCapacitor) / WEAPON.capacitorRechargeRate + 1;
+    // enough additional time for gun 0 (muzzleIndex wrapped back to it) to recharge back above cost
+    const need = WEAPON.capacitorCostPerShot - state.weaponCapacitors[0];
+    const rechargeSeconds = need / WEAPON.capacitorRechargeRate + 1;
     for (let i = 0; i < Math.ceil(rechargeSeconds / dt); i++) {
       tryFireWeapon(WEAPON, state, false, dt, () => {});
     }
-    expect(state.weaponCapacitor).toBeGreaterThanOrEqual(1);
+    expect(state.weaponCapacitors[0]).toBeGreaterThanOrEqual(WEAPON.capacitorCostPerShot);
     expect(tryFireWeapon(WEAPON, state, true, dt, () => {})).toBe(true);
   });
 });

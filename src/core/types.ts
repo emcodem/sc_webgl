@@ -239,10 +239,13 @@ export interface ShipType {
 }
 
 // A ship's fitted gun — ballistics + fire-rate values (previously a single hardcoded WEAPON const
-// in combat/weapons.ts) plus a capacitor: a charge pool that drains per shot and, after a post-fire
-// dwell, recharges over time (GitHub #2). Per-ship via ShipType.weaponType rather than global, since
-// ships will eventually carry different guns. See physics/weapons/panther.ts for the one weapon that
-// exists today and its provenance.
+// in combat/weapons.ts) plus a capacitor: EACH individual gun has its own charge pool (in raw ammo
+// units, matching real SC's per-weapon capacitor, not a ship-wide pool) that drains per shot and,
+// after a post-fire dwell, recharges over time (GitHub #2). A ship mounts combat/weapons.ts's
+// NUM_GUNS of this WeaponType (today: 3, matching the existing left-wing/right-wing/nose muzzle
+// cycling) — see core/world.ts's ShipBody.weaponCapacitors (one entry per gun). Per-ship via
+// ShipType.weaponType rather than global, since ships will eventually carry different guns. See
+// physics/weapons/panther.ts for the one weapon that exists today and its provenance.
 export interface WeaponType {
   name: string;
   muzzleSpeed: number;   // m/s, added on top of the shooter's own velocity
@@ -256,7 +259,8 @@ export interface WeaponType {
   convergeDist: number;    // metres — default harmonization range
   minConvergeDist: number; // clamp: closer than this the toe-in angle gets silly
 
-  capacitorCapacity: number;          // max charge, in shots
-  capacitorRechargeRate: number;      // shots/sec recharged once the post-fire delay has elapsed
-  capacitorRechargeDelaySec: number;  // s after the LAST shot before recharge begins
+  capacitorCapacity: number;          // max charge PER GUN, in raw ammo units (real SC's max_ammo_load)
+  capacitorCostPerShot: number;       // ammo consumed by that gun per shot it fires
+  capacitorRechargeRate: number;      // ammo/s a gun recharges once its post-fire delay has elapsed
+  capacitorRechargeDelaySec: number;  // s after a GUN's own last shot before that gun starts recharging
 }

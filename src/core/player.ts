@@ -4,6 +4,7 @@ import { getShipType, DEFAULT_SHIP_TYPE_ID } from '../physics/ships';
 import { BODIES, ENEMY_SPAWN, SPAWN } from '../world/celestial';
 import { createHealth } from '../combat/health';
 import { spawnFighterAI } from '../combat/enemyAI';
+import { freshCapacitors, freshCapacitorCooldowns } from '../combat/weapons';
 
 const SHIP_MAX_HEALTH = 1000; // free-flight sandbox only — scenarios override via config.hitsToKillPlayer
 const ENEMY_MAX_HEALTH = 10;
@@ -27,8 +28,9 @@ export function makeShipBody(type: ShipType): ShipBody {
     health: createHealth(SHIP_MAX_HEALTH),
     hitFlash: 0,
     fireCooldown: 0,
-    weaponCapacitor: type.weaponType.capacitorCapacity,
-    weaponCapacitorCooldownTimer: 0,
+    weaponCapacitors: freshCapacitors(type.weaponType),
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+    muzzleIndex: 0,
     respawnTimer: 0
   };
 }
@@ -55,8 +57,9 @@ function makeEnemyShip(type: ShipType, pos: Vec3, quat: Quat, moving: boolean): 
     behavior: moving ? 'fighter' : 'cruiser',
     ai: moving ? spawnFighterAI() : undefined,
     fireCooldown: 0,
-    weaponCapacitor: type.weaponType.capacitorCapacity,
-    weaponCapacitorCooldownTimer: 0,
+    weaponCapacitors: freshCapacitors(type.weaponType),
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+    muzzleIndex: 0,
     respawnTimer: 0,
     spawnPos: { x: pos.x, y: pos.y, z: pos.z },
     spawnQuat: { x: quat.x, y: quat.y, z: quat.z, w: quat.w }

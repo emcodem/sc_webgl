@@ -38,7 +38,7 @@ export function firePlayerWeaponIfRequested(world: World, dt: number): boolean {
     (mouseReady && MouseButtons.isPressed('primaryFire'));
   const weapon = ship.type.weaponType;
   const requested = player.mode === 'pilot' && firing;
-  return tryFireWeapon(weapon, ship, requested, dt, () => {
+  return tryFireWeapon(weapon, ship, requested, dt, (mount) => {
     const axes = computeAxes(ship.quat);
     // Converge the offset guns at the soft-locked target's range (the PIP's firing solution) so
     // rounds meet right at the pip; with no lock, spawnProjectileFrom falls back to the weapon's
@@ -46,7 +46,7 @@ export function firePlayerWeaponIfRequested(world: World, dt: number): boolean {
     const cam = { pos: ship.pos, axes };
     const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
     const convergeDist = pip ? length(sub(pip.lead, ship.pos)) : weapon.convergeDist;
-    spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles, convergeDist, weapon);
+    spawnProjectileFrom(ship.pos, ship.vel, axes.forward, axes.right, axes.up, 'player', world.projectiles, convergeDist, weapon, mount);
   });
 }
 
@@ -96,12 +96,14 @@ export function stepCombat(world: World, dt: number): void {
     enemy.lastInputs = decision.inputs; // see core/world.ts's EnemyShip.lastInputs
     // Free-flight opponents fly and maneuver but never fire — this is a sandbox to practice flying
     // and shooting AT them, not a dogfight where they shoot back. Scenarios (updateScenario) are the
-    // only place enemies actually open fire. Still tick the capacitor (never a "just fired" edge, so
-    // this only ever recharges) so a free-flight enemy's capacitor behaves correctly if/when these
-    // ships are ever allowed to shoot.
-    const cap = resolveCapacitor(enemy.type.weaponType, enemy.weaponCapacitor, enemy.weaponCapacitorCooldownTimer, dt, false);
-    enemy.weaponCapacitor = cap.capacitor;
-    enemy.weaponCapacitorCooldownTimer = cap.cooldownTimer;
+    // only place enemies actually open fire. Still tick every gun's capacitor (never a "just fired"
+    // edge, so this only ever recharges) so a free-flight enemy's capacitors behave correctly if/when
+    // these ships are ever allowed to shoot.
+    for (let i = 0; i < enemy.weaponCapacitors.length; i++) {
+      const cap = resolveCapacitor(enemy.type.weaponType, enemy.weaponCapacitors[i], enemy.weaponCapacitorCooldownTimers[i], dt, false);
+      enemy.weaponCapacitors[i] = cap.capacitor;
+      enemy.weaponCapacitorCooldownTimers[i] = cap.cooldownTimer;
+    }
   }
 
   updateProjectiles(world.projectiles, dt);

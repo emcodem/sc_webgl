@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { freshCapacitors, freshCapacitorCooldowns } from '../src/combat/weapons';
 import { PIP_TRAINER_DEFAULTS, updatePipTrainer, type PipTrainerState } from '../src/combat/pipTrainer';
 import { createHealth } from '../src/combat/health';
 import { getShipType } from '../src/physics/ships';
@@ -16,7 +17,7 @@ function makePlayer(pos = ZERO, quat = IDENTITY): ShipBody {
     angAccel: { pitch: 0, yaw: 0, roll: 0 },
     throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), hitFlash: 0, fireCooldown: 0,
-    weaponCapacitor: TYPE.weaponType.capacitorCapacity, weaponCapacitorCooldownTimer: 0,
+    weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(), muzzleIndex: 0,
     respawnTimer: 0
   };
 }

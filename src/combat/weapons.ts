@@ -15,9 +15,9 @@ export const WEAPON: WeaponType = PANTHER_S3;
 
 // Three visually distinct hardpoints, cycled through in order on every shot: left wing, right
 // wing, nose (underslung, centered). Each entry is an absolute (right, down) offset in metres,
-// applied on top of forward/muzzleForward in spawnProjectileFrom. Shared across every shooter
-// (player and all enemies) — which specific ship's shot advances the cycle doesn't matter, only
-// that consecutive rounds from the same ship visibly rotate through its own three guns.
+// applied on top of forward/muzzleForward in spawnProjectileFrom. Each is also its OWN independent
+// gun for capacitor purposes (GitHub #2) — see ShipBody/EnemyShip's weaponCapacitors, one entry per
+// mount here, NOT a single ship-wide pool.
 //
 // The offsets are solved from the camera's own 70 deg vertical FOV (see render/renderer.ts) at
 // muzzleForward's 8m spawn depth, assuming a representative 16:9 window: half-height there is
@@ -33,12 +33,21 @@ const MUZZLE_MOUNTS: { right: number; down: number }[] = [
   { right: 9.96, down: 3.36 },  // right wing — right border, 20% up from bottom
   { right: 0, down: 5.6 }       // nose — bottom-center of screen
 ];
-let muzzleIndex = 0;
+
+// Number of independent guns (and independent capacitors) a ship mounts — see core/world.ts's
+// ShipBody.weaponCapacitors/weaponCapacitorCooldownTimers, both arrays of this length.
+export const NUM_GUNS = MUZZLE_MOUNTS.length;
+
+// Fallback cycle used only when a caller doesn't know/care which specific mount is firing (e.g. a
+// test calling spawnProjectileFrom directly). Real per-shooter fire (tryFireWeapon below) tracks its
+// OWN muzzleIndex per ship instead of sharing this, so simultaneous shooters don't clobber each
+// other's gun-rotation.
+let fallbackMuzzleIndex = 0;
 
 // Spawns one round into `out`, generic over the shooter — any ShipBody or EnemyShip, since both
-// carry pos/vel and a (forward, right, up) basis from computeAxes. The round leaves from whichever
-// hardpoint is next in MUZZLE_MOUNTS's cycle, so consecutive shots visibly rotate between the two
-// wing guns and the nose gun rather than all leaving from one spot.
+// carry pos/vel and a (forward, right, up) basis from computeAxes. `mountIndex` selects which
+// MUZZLE_MOUNTS hardpoint fires (the caller — tryFireWeapon — tracks this per-shooter); omit it to
+// fall back to a shared auto-cycling index, useful for callers that don't track per-gun state.
 //
 // Convergence: rather than firing parallel to the nose, each barrel aims from its own muzzle toward
 // a single convergence point sitting `convergeDist` metres straight ahead on the boresight, so the
@@ -58,9 +67,14 @@ export function spawnProjectileFrom(
   owner: Projectile['owner'],
   out: Projectile[],
   convergeDist: number = WEAPON.convergeDist,
-  weapon: WeaponType = WEAPON
+  weapon: WeaponType = WEAPON,
+  mountIndex?: number
 ): void {
-  const mount = MUZZLE_MOUNTS[muzzleIndex];
+  if (mountIndex === undefined) {
+    mountIndex = fallbackMuzzleIndex;
+    fallbackMuzzleIndex = (fallbackMuzzleIndex + 1) % MUZZLE_MOUNTS.length;
+  }
+  const mount = MUZZLE_MOUNTS[mountIndex];
   const muzzleX = pos.x + right.x * mount.right - up.x * mount.down + forward.x * weapon.muzzleForward;
   const muzzleY = pos.y + right.y * mount.right - up.y * mount.down + forward.y * weapon.muzzleForward;
   const muzzleZ = pos.z + right.z * mount.right - up.z * mount.down + forward.z * weapon.muzzleForward;
@@ -88,7 +102,6 @@ export function spawnProjectileFrom(
     age: 0,
     owner
   });
-  muzzleIndex = (muzzleIndex + 1) % MUZZLE_MOUNTS.length;
 }
 
 // Advances every round by dt and removes any that have outlived the weapon's lifetime.
@@ -106,11 +119,21 @@ export function updateProjectiles(projectiles: Projectile[], dt: number, weapon:
   }
 }
 
+// Fresh per-gun capacitor state for a newly (re)spawned ship — NUM_GUNS entries, each starting full.
+// Paired with an equal-length all-zero cooldown-timers array and muzzleIndex 0.
+export function freshCapacitors(weapon: WeaponType): number[] {
+  return new Array(NUM_GUNS).fill(weapon.capacitorCapacity);
+}
+export function freshCapacitorCooldowns(): number[] {
+  return new Array(NUM_GUNS).fill(0);
+}
+
 // ---------- Weapon capacitor (GitHub #2) ----------
-// A charge pool that drains one unit per shot and, after a post-fire dwell
-// (capacitorRechargeDelaySec), recharges at capacitorRechargeRate. Pure step function mirroring
-// physics/flightModel.ts's resolveBoost, but reacting to a discrete "did a shot just fire" edge
-// rather than a held-input percentage drain.
+// EACH gun has its own charge pool (raw ammo units, matching real SC) that drains by
+// capacitorCostPerShot when IT fires and, after a post-fire dwell (capacitorRechargeDelaySec),
+// recharges at capacitorRechargeRate. Pure step function mirroring physics/flightModel.ts's
+// resolveBoost, but reacting to a discrete "did THIS gun just fire" edge rather than a held-input
+// percentage drain.
 export function resolveCapacitor(
   weapon: WeaponType,
   capacitor: number,
@@ -119,7 +142,7 @@ export function resolveCapacitor(
   justFired: boolean
 ): { capacitor: number; cooldownTimer: number } {
   if (justFired) {
-    return { capacitor: capacitor - 1, cooldownTimer: weapon.capacitorRechargeDelaySec };
+    return { capacitor: capacitor - weapon.capacitorCostPerShot, cooldownTimer: weapon.capacitorRechargeDelaySec };
   }
   if (cooldownTimer > 0) {
     return { capacitor, cooldownTimer: Math.max(0, cooldownTimer - dt) };
@@ -128,25 +151,38 @@ export function resolveCapacitor(
   return { capacitor: Math.min(weapon.capacitorCapacity, next), cooldownTimer: 0 };
 }
 
-// Consolidates the fire-cooldown + capacitor gating that used to be hand-duplicated across 5 call
-// sites (the player in combat/combatSystem.ts, and four enemy behaviors in scenarios/runtime.ts).
-// Always ticks fireCooldown/capacitor bookkeeping regardless of whether a shot fires this frame, same
-// "always ticks" convention as the old per-site `fireCooldown -= dt`. `spawn` is the caller's own
-// spawnProjectileFrom(...) call so each site keeps its own aim/convergeDist logic.
+// Consolidates the fire-cooldown + per-gun-capacitor gating that used to be hand-duplicated across 5
+// call sites (the player in combat/combatSystem.ts, and four enemy behaviors in scenarios/runtime.ts).
+// Ticks EVERY gun's capacitor every frame (only the one about to fire, `state.muzzleIndex`, ever gets
+// `justFired`), same "always ticks" convention as the old per-site `fireCooldown -= dt` — so a gun
+// mid-recharge keeps recharging even on frames nothing fires. `spawn` is the caller's own
+// spawnProjectileFrom(...) call (passed the firing mount index) so each site keeps its own
+// aim/convergeDist logic.
 export function tryFireWeapon(
   weapon: WeaponType,
-  state: { fireCooldown: number; weaponCapacitor: number; weaponCapacitorCooldownTimer: number },
+  state: {
+    fireCooldown: number;
+    weaponCapacitors: number[];
+    weaponCapacitorCooldownTimers: number[];
+    muzzleIndex: number;
+  },
   requested: boolean,
   dt: number,
-  spawn: () => void
+  spawn: (mountIndex: number) => void
 ): boolean {
   state.fireCooldown -= dt;
-  const canFire = requested && state.fireCooldown <= 0 && state.weaponCapacitor >= 1;
-  const res = resolveCapacitor(weapon, state.weaponCapacitor, state.weaponCapacitorCooldownTimer, dt, canFire);
-  state.weaponCapacitor = res.capacitor;
-  state.weaponCapacitorCooldownTimer = res.cooldownTimer;
+  const mount = state.muzzleIndex;
+  const canFire = requested && state.fireCooldown <= 0 && state.weaponCapacitors[mount] >= weapon.capacitorCostPerShot;
+  for (let i = 0; i < state.weaponCapacitors.length; i++) {
+    const res = resolveCapacitor(
+      weapon, state.weaponCapacitors[i], state.weaponCapacitorCooldownTimers[i], dt, canFire && i === mount
+    );
+    state.weaponCapacitors[i] = res.capacitor;
+    state.weaponCapacitorCooldownTimers[i] = res.cooldownTimer;
+  }
   if (!canFire) return false;
-  spawn();
+  spawn(mount);
   state.fireCooldown = 1 / weapon.fireRate;
+  state.muzzleIndex = (mount + 1) % state.weaponCapacitors.length;
   return true;
 }

@@ -199,10 +199,16 @@ function updateStatsPanel(world: World): void {
   boostEl.className = ship.boosting ? 'value on' : 'value';
   (el('bar-boost')).style.width = `${boostPct}%`;
 
-  const capPct = Math.round((ship.weaponCapacitor / ship.type.weaponType.capacitorCapacity) * 100);
+  // Averaged across all guns (each has its own independent capacitor — see core/world.ts's
+  // ShipBody.weaponCapacitors) for one representative readout, same single-row shape as BOOST.
+  const capacitors = ship.weaponCapacitors;
+  const avgCapacitor = capacitors.reduce((sum, c) => sum + c, 0) / capacitors.length;
+  const capPct = Math.round((avgCapacitor / ship.type.weaponType.capacitorCapacity) * 100);
   const capEl = el('s-capacitor');
   capEl.textContent = `${capPct}%`;
-  capEl.className = ship.weaponCapacitor < 1 ? 'value on' : 'value'; // can't currently fire
+  // "on" (warning) when the NEXT gun due to fire can't afford another shot right now.
+  const nextGunReady = capacitors[ship.muzzleIndex] >= ship.type.weaponType.capacitorCostPerShot;
+  capEl.className = nextGunReady ? 'value' : 'value on';
   (el('bar-capacitor')).style.width = `${Math.max(0, capPct)}%`;
 
   el('s-speed').textContent = `${speed.toFixed(1)} m/s`;
