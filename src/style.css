@@ -237,8 +237,23 @@ html, body {
 .label { color: rgba(143, 211, 199, 0.6); }
 .value { color: var(--hud-fg); }
 .value.on { color: var(--hud-accent); font-weight: bold; }
-.bar-bg { background: rgba(255, 255, 255, 0.06); height: 4px; width: 100%; margin-top: 2px; }
+.bar-bg { position: relative; background: rgba(255, 255, 255, 0.06); height: 4px; width: 100%; margin-top: 2px; }
 .bar-fill { background: var(--hud-fg); height: 4px; }
+
+/* Weapon capacitor's post-fire dwell indicator (see hud.ts's updateStatsPanel) — sits on top of
+   #bar-capacitor, anchored to the right edge. A fixed 50% opaque panel-colored overlay; its WIDTH is
+   set each frame from 100% (just fired — whole bar dimmed) down to 0% (dwell elapsed) over the
+   weapon's capacitorRechargeDelaySec, so the covered region visibly wipes away left-to-right as the
+   remaining wait shrinks. */
+.bar-dwell-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: #05070a;
+  opacity: 0.5;
+  pointer-events: none;
+}
 
 /* DECOUPLED row doubles as a click target (same effect as the decoupleToggle keybind) */
 #mode-flag { pointer-events: auto; cursor: pointer; align-items: center; }

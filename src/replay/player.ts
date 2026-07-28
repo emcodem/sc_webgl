@@ -65,8 +65,7 @@ function makePlaceholderEnemy(shipTypeId: string): EnemyShip {
     behavior: 'cruiser',
     fireCooldown: 0,
     weaponCapacitors: freshCapacitors(type.weaponType),
-    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
-    muzzleIndex: 0,
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0,
     spawnPos: { x: 0, y: 0, z: 0 },
     spawnQuat: { x: 0, y: 0, z: 0, w: 1 }

@@ -29,8 +29,7 @@ export function makeShipBody(type: ShipType): ShipBody {
     hitFlash: 0,
     fireCooldown: 0,
     weaponCapacitors: freshCapacitors(type.weaponType),
-    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
-    muzzleIndex: 0,
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0
   };
 }
@@ -58,8 +57,7 @@ function makeEnemyShip(type: ShipType, pos: Vec3, quat: Quat, moving: boolean): 
     ai: moving ? spawnFighterAI() : undefined,
     fireCooldown: 0,
     weaponCapacitors: freshCapacitors(type.weaponType),
-    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
-    muzzleIndex: 0,
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0,
     spawnPos: { x: pos.x, y: pos.y, z: pos.z },
     spawnQuat: { x: quat.x, y: quat.y, z: quat.z, w: quat.w }

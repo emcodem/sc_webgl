@@ -101,13 +101,12 @@
           <div class="row"><span class="label">THROTTLE</span><span class="value" id="s-throttle">0%</span></div>
           <div class="bar-bg"><div class="bar-fill" id="bar-throttle" style="width:0%"></div></div>
           <br>
-          <div class="row"><span class="label">BOOST</span><span class="value" id="s-boost">100%</span></div>
-          <div class="bar-bg"><div class="bar-fill" id="bar-boost" style="width:100%"></div></div>
-          <br>
+          <!-- CAPACITOR bar-dwell-overlay: see hud.ts's updateStatsPanel — dims the fill to 50%
+               opaque right after a volley, then wipes left-to-right to 0% opaque as the per-gun
+               post-fire delay (capacitorRechargeDelaySec) elapses, before recharge can begin. -->
           <div class="row"><span class="label">CAPACITOR</span><span class="value" id="s-capacitor">100%</span></div>
-          <div class="bar-bg"><div class="bar-fill" id="bar-capacitor" style="width:100%"></div></div>
+          <div class="bar-bg"><div class="bar-fill" id="bar-capacitor" style="width:100%"></div><div class="bar-dwell-overlay" id="bar-capacitor-dwell" style="width:0%"></div></div>
           <br>
-          <div class="row"><span class="label">SPEED</span><span class="value" id="s-speed">0 m/s</span></div>
           <div class="row"><span class="label">YAW RATE</span><span class="value" id="s-yawrate">0°/s</span></div>
           <div class="row"><span class="label">PITCH RATE</span><span class="value" id="s-pitchrate">0°/s</span></div>
           <div class="row"><span class="label">TURN RATE</span><span class="value" id="s-turnrate">0°/s</span></div>

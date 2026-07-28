@@ -13,11 +13,13 @@ import { PANTHER_S3 } from '../physics/weapons/panther';
 // ship.type.weaponType the same way the fire call sites below now are.
 export const WEAPON: WeaponType = PANTHER_S3;
 
-// Three visually distinct hardpoints, cycled through in order on every shot: left wing, right
-// wing, nose (underslung, centered). Each entry is an absolute (right, down) offset in metres,
-// applied on top of forward/muzzleForward in spawnProjectileFrom. Each is also its OWN independent
-// gun for capacitor purposes (GitHub #2) — see ShipBody/EnemyShip's weaponCapacitors, one entry per
-// mount here, NOT a single ship-wide pool.
+// Three hardpoints that fire TOGETHER every cycle (matches the real gun's 3-barrel repeater
+// behavior — see tryFireWeapon): left wing, right wing, nose (underslung, centered). Each entry is
+// an absolute (right, down) offset in metres, applied on top of forward/muzzleForward in
+// spawnProjectileFrom. Each is also its OWN independent gun for capacitor purposes (GitHub #2) — see
+// ShipBody/EnemyShip's weaponCapacitors, one entry per mount here, NOT a single ship-wide pool —
+// though since all 3 always fire together they stay in lockstep, never partially depleted relative
+// to each other.
 //
 // The offsets are solved from the camera's own 70 deg vertical FOV (see render/renderer.ts) at
 // muzzleForward's 8m spawn depth, assuming a representative 16:9 window: half-height there is
@@ -39,9 +41,8 @@ const MUZZLE_MOUNTS: { right: number; down: number }[] = [
 export const NUM_GUNS = MUZZLE_MOUNTS.length;
 
 // Fallback cycle used only when a caller doesn't know/care which specific mount is firing (e.g. a
-// test calling spawnProjectileFrom directly). Real per-shooter fire (tryFireWeapon below) tracks its
-// OWN muzzleIndex per ship instead of sharing this, so simultaneous shooters don't clobber each
-// other's gun-rotation.
+// test calling spawnProjectileFrom directly with no mountIndex). Real fire (tryFireWeapon below)
+// always passes an explicit mountIndex — every mount fires every tick, so there's nothing to cycle.
 let fallbackMuzzleIndex = 0;
 
 // Spawns one round into `out`, generic over the shooter — any ShipBody or EnemyShip, since both
@@ -120,7 +121,7 @@ export function updateProjectiles(projectiles: Projectile[], dt: number, weapon:
 }
 
 // Fresh per-gun capacitor state for a newly (re)spawned ship — NUM_GUNS entries, each starting full.
-// Paired with an equal-length all-zero cooldown-timers array and muzzleIndex 0.
+// Paired with an equal-length all-zero cooldown-timers array.
 export function freshCapacitors(weapon: WeaponType): number[] {
   return new Array(NUM_GUNS).fill(weapon.capacitorCapacity);
 }
@@ -153,36 +154,36 @@ export function resolveCapacitor(
 
 // Consolidates the fire-cooldown + per-gun-capacitor gating that used to be hand-duplicated across 5
 // call sites (the player in combat/combatSystem.ts, and four enemy behaviors in scenarios/runtime.ts).
-// Ticks EVERY gun's capacitor every frame (only the one about to fire, `state.muzzleIndex`, ever gets
-// `justFired`), same "always ticks" convention as the old per-site `fireCooldown -= dt` — so a gun
-// mid-recharge keeps recharging even on frames nothing fires. `spawn` is the caller's own
-// spawnProjectileFrom(...) call (passed the firing mount index) so each site keeps its own
-// aim/convergeDist logic.
+// The real Panther S3 fires all 3 barrels together on every cycle (matches its real 12.5 rounds/sec
+// cadence draining a single barrel's own 75-round capacitor in ~6s — a real single-stream
+// interpretation left each gun firing only 1-in-3 rounds, stretching that to ~18s), so every
+// successful tick spawns from EVERY mount and drains EVERY gun's capacitor together — they stay in
+// lockstep, never partially depleted relative to each other. Ticks every gun's capacitor every frame
+// regardless of whether the volley fires this frame (same "always ticks" convention as the old
+// per-site `fireCooldown -= dt`), so recharge bookkeeping keeps running on frames nothing fires.
+// `spawn` is the caller's own spawnProjectileFrom(...) call, invoked once per mount index so each
+// site keeps its own aim/convergeDist logic.
 export function tryFireWeapon(
   weapon: WeaponType,
   state: {
     fireCooldown: number;
     weaponCapacitors: number[];
     weaponCapacitorCooldownTimers: number[];
-    muzzleIndex: number;
   },
   requested: boolean,
   dt: number,
   spawn: (mountIndex: number) => void
 ): boolean {
   state.fireCooldown -= dt;
-  const mount = state.muzzleIndex;
-  const canFire = requested && state.fireCooldown <= 0 && state.weaponCapacitors[mount] >= weapon.capacitorCostPerShot;
+  const canFire = requested && state.fireCooldown <= 0 &&
+    state.weaponCapacitors.every((c) => c >= weapon.capacitorCostPerShot);
   for (let i = 0; i < state.weaponCapacitors.length; i++) {
-    const res = resolveCapacitor(
-      weapon, state.weaponCapacitors[i], state.weaponCapacitorCooldownTimers[i], dt, canFire && i === mount
-    );
+    const res = resolveCapacitor(weapon, state.weaponCapacitors[i], state.weaponCapacitorCooldownTimers[i], dt, canFire);
     state.weaponCapacitors[i] = res.capacitor;
     state.weaponCapacitorCooldownTimers[i] = res.cooldownTimer;
   }
   if (!canFire) return false;
-  spawn(mount);
+  for (let i = 0; i < state.weaponCapacitors.length; i++) spawn(i);
   state.fireCooldown = 1 / weapon.fireRate;
-  state.muzzleIndex = (mount + 1) % state.weaponCapacitors.length;
   return true;
 }

@@ -189,29 +189,28 @@ function updateStatsPanel(world: World): void {
   // hidden while flying — the panel leads straight into the flight readout.
   statsModeEl.style.display = 'none';
 
-  const speed = length(ship.vel);
   el('s-throttle').textContent = `${Math.round(ship.throttle * 100)}%`;
   (el('bar-throttle')).style.width = `${Math.round(Math.abs(ship.throttle) * 100)}%`;
 
-  const boostPct = Math.round((ship.boostMeter / ship.type.boostCapacity) * 100);
-  const boostEl = el('s-boost');
-  boostEl.textContent = `${boostPct}%`;
-  boostEl.className = ship.boosting ? 'value on' : 'value';
-  (el('bar-boost')).style.width = `${boostPct}%`;
-
-  // Averaged across all guns (each has its own independent capacitor — see core/world.ts's
-  // ShipBody.weaponCapacitors) for one representative readout, same single-row shape as BOOST.
+  // All guns fire (and drain/dwell) together every tick — see combat/weapons.ts's tryFireWeapon —
+  // so any one gun's capacitor/cooldown represents the whole weapon system's state.
   const capacitors = ship.weaponCapacitors;
-  const avgCapacitor = capacitors.reduce((sum, c) => sum + c, 0) / capacitors.length;
-  const capPct = Math.round((avgCapacitor / ship.type.weaponType.capacitorCapacity) * 100);
+  const weapon = ship.type.weaponType;
+  const capPct = Math.round((capacitors[0] / weapon.capacitorCapacity) * 100);
   const capEl = el('s-capacitor');
   capEl.textContent = `${capPct}%`;
-  // "on" (warning) when the NEXT gun due to fire can't afford another shot right now.
-  const nextGunReady = capacitors[ship.muzzleIndex] >= ship.type.weaponType.capacitorCostPerShot;
-  capEl.className = nextGunReady ? 'value' : 'value on';
+  const gunReady = capacitors[0] >= weapon.capacitorCostPerShot;
+  capEl.className = gunReady ? 'value' : 'value on';
   (el('bar-capacitor')).style.width = `${Math.max(0, capPct)}%`;
+  // Post-fire dwell wipe (see style.css's .bar-dwell-overlay doc comment): a fixed-opacity overlay
+  // anchored to the right, its width shrinking from 100% (freshly fired) to 0% (dwell elapsed) over
+  // capacitorRechargeDelaySec, so the covered region visibly recedes left-to-right as the wait ends.
+  const dwellRemaining = ship.weaponCapacitorCooldownTimers[0];
+  const dwellFrac = weapon.capacitorRechargeDelaySec > 0
+    ? Math.max(0, Math.min(1, dwellRemaining / weapon.capacitorRechargeDelaySec))
+    : 0;
+  (el('bar-capacitor-dwell')).style.width = `${dwellFrac * 100}%`;
 
-  el('s-speed').textContent = `${speed.toFixed(1)} m/s`;
   const yawRateDeg = ship.angVel.yaw * (180 / Math.PI);
   const pitchRateDeg = ship.angVel.pitch * (180 / Math.PI);
   // combined nose-turn rate — roll doesn't move the boresight, so it's excluded

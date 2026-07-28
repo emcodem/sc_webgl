@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { freshCapacitors, freshCapacitorCooldowns } from '../src/combat/weapons';
+import { WEAPON, freshCapacitors, freshCapacitorCooldowns } from '../src/combat/weapons';
 import { resolveHits } from '../src/combat/hitDetection';
 import { createHealth } from '../src/combat/health';
 import { getShipType } from '../src/physics/ships';
@@ -14,7 +14,7 @@ function makeShip(pos = { x: 0, y: 0, z: 0 }): ShipBody {
     throttle: 0, decoupled: false, spaceBrakeOn: false,
     boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0, throttleSpoolTime: 0, verticalSpoolTime: 0,
     health: createHealth(10), hitFlash: 0, fireCooldown: 0,
-    weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(), muzzleIndex: 0, respawnTimer: 0
+    weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(), respawnTimer: 0
   };
 }
 
@@ -24,7 +24,7 @@ function makeEnemy(pos = { x: 0, y: 0, z: 0 }, overrides: Partial<EnemyShip> = {
     angVel: { pitch: 0, yaw: 0, roll: 0 }, angAccel: { pitch: 0, yaw: 0, roll: 0 },
     boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), behavior: 'cruiser',
-    fireCooldown: 0, weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(), muzzleIndex: 0,
+    fireCooldown: 0, weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0, spawnPos: pos, spawnQuat: { x: 0, y: 0, z: 0, w: 1 }, ...overrides
   };
 }
@@ -42,7 +42,7 @@ describe('resolveHits', () => {
     const projectiles = [enemyProjectile()];
     let hitCalled = false;
     resolveHits(projectiles, ship, [], undefined, undefined, () => { hitCalled = true; });
-    expect(ship.health.points).toBe(9);
+    expect(ship.health.points).toBeCloseTo(10 - WEAPON.damage, 6);
     expect(projectiles).toHaveLength(0);
     expect(hitCalled).toBe(true);
   });
@@ -68,7 +68,8 @@ describe('resolveHits', () => {
   });
 
   it('destroys an enemy and fires onEnemyDestroyed exactly when health reaches 0', () => {
-    const enemy = makeEnemy({ x: 0, y: 0, z: 0 }, { health: createHealth(1) });
+    // exactly WEAPON.damage of health, so this one hit lands exactly on the destroy threshold
+    const enemy = makeEnemy({ x: 0, y: 0, z: 0 }, { health: createHealth(WEAPON.damage) });
     const projectiles = [playerProjectile()];
     let destroyed = false;
     resolveHits(projectiles, makeShip(), [enemy], undefined, () => { destroyed = true; });
@@ -85,7 +86,7 @@ describe('resolveHits', () => {
     // both damage instances land — the "one projectile per enemy per *iteration*" break only
     // matters when multiple enemies overlap the same round, not multiple rounds on one enemy.
     expect(projectiles).toHaveLength(0);
-    expect(enemy.health.points).toBe(8);
+    expect(enemy.health.points).toBeCloseTo(10 - 2 * WEAPON.damage, 6);
   });
 
   it('does not damage an enemy outside its hull radius', () => {
@@ -104,7 +105,7 @@ describe('resolveHits', () => {
       { pos: { x: 60, y: 0, z: 0 }, prevPos: { x: -60, y: 0, z: 0 }, vel: { x: 2400, y: 0, z: 0 }, age: 0, owner: 'player' }
     ];
     resolveHits(projectiles, makeShip({ x: 5000, y: 0, z: 0 }), [enemy]);
-    expect(enemy.health.points).toBe(9);
+    expect(enemy.health.points).toBeCloseTo(10 - WEAPON.damage, 6);
     expect(projectiles).toHaveLength(0);
   });
 });

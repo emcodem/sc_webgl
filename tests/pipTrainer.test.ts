@@ -17,7 +17,7 @@ function makePlayer(pos = ZERO, quat = IDENTITY): ShipBody {
     angAccel: { pitch: 0, yaw: 0, roll: 0 },
     throttle: 0, decoupled: false, spaceBrakeOn: false, boostMeter: TYPE.boostCapacity, boosting: false, boostCooldownTimer: 0,
     throttleSpoolTime: 0, verticalSpoolTime: 0, health: createHealth(10), hitFlash: 0, fireCooldown: 0,
-    weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(), muzzleIndex: 0,
+    weaponCapacitors: freshCapacitors(TYPE.weaponType), weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0
   };
 }

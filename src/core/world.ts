@@ -63,10 +63,9 @@ export interface ShipBody {
   fireCooldown: number;  // seconds until the next shot may fire (see combat/weapons.ts WEAPON.fireRate)
   // One independent capacitor PER GUN (combat/weapons.ts's NUM_GUNS entries — today 3: left wing,
   // right wing, nose), each 0..type.weaponType.capacitorCapacity ammo — NOT a single ship-wide pool.
-  // muzzleIndex is which gun fires next; see combat/weapons.ts's tryFireWeapon/resolveCapacitor.
+  // All 3 guns fire (and drain) together every tick — see combat/weapons.ts's tryFireWeapon.
   weaponCapacitors: number[];
   weaponCapacitorCooldownTimers: number[]; // s until each gun's recharge resumes, parallel to weaponCapacitors
-  muzzleIndex: number;
   respawnTimer: number;  // >0 while destroyed and waiting to respawn; 0 = alive/flyable
   // The FlightInputs actually fed to integrateFlight this frame (set in control/pilot.ts) —
   // transient bookkeeping, same convention as hitFlash/fireCooldown above, read by
@@ -123,7 +122,6 @@ export interface EnemyShip {
   fireCooldown: number;
   weaponCapacitors: number[];               // see ShipBody's field of the same name
   weaponCapacitorCooldownTimers: number[];  // see ShipBody's field of the same name
-  muzzleIndex: number;                      // see ShipBody's field of the same name
   respawnTimer: number; // >0 while destroyed and waiting to respawn; 0 = alive/flyable. Only the
                          // free-flight sandbox fighter (core/player.ts) and scenario enemies whose
                          // behavior has no in-place respawn ever use this — orbiter/drifter respawn

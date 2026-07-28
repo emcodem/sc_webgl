@@ -53,7 +53,6 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
     fireCooldown: 0,
     weaponCapacitors: freshCapacitors(spawn.type.weaponType),
     weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
-    muzzleIndex: 0,
     respawnTimer: 0,
     // unused by scenarios — updateScenario() never resets a dead enemy to a spawn point (see the
     // loop below); only combatSystem.ts's free-flight stepCombat reads spawnPos/spawnQuat.
@@ -89,7 +88,6 @@ export function startScenario(world: World, config: ScenarioConfig): void {
   ship.fireCooldown = 0;
   ship.weaponCapacitors = freshCapacitors(ship.type.weaponType);
   ship.weaponCapacitorCooldownTimers = freshCapacitorCooldowns();
-  ship.muzzleIndex = 0;
   ship.respawnTimer = 0;
   ship.health = createHealth(config.hitsToKillPlayer);
 

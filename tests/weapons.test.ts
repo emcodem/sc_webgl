@@ -95,63 +95,54 @@ describe('tryFireWeapon', () => {
     return {
       fireCooldown: 0,
       weaponCapacitors: freshCapacitors(WEAPON),
-      weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
-      muzzleIndex: 0
+      weaponCapacitorCooldownTimers: freshCapacitorCooldowns()
     };
   }
 
-  it('drains only the firing gun by capacitorCostPerShot and starts its own recharge dwell', () => {
+  it('fires every gun simultaneously, draining each by capacitorCostPerShot and starting its dwell', () => {
     const state = freshState();
-    let shots = 0;
-    expect(tryFireWeapon(WEAPON, state, true, 0, () => { shots++; })).toBe(true);
-    expect(shots).toBe(1);
-    expect(state.weaponCapacitors[0]).toBeCloseTo(WEAPON.capacitorCapacity - WEAPON.capacitorCostPerShot, 6);
-    expect(state.weaponCapacitorCooldownTimers[0]).toBeCloseTo(WEAPON.capacitorRechargeDelaySec, 6);
-    expect(state.muzzleIndex).toBe(1); // advanced to the next gun
-    // the other guns are untouched
-    for (let i = 1; i < NUM_GUNS; i++) {
-      expect(state.weaponCapacitors[i]).toBeCloseTo(WEAPON.capacitorCapacity, 6);
-      expect(state.weaponCapacitorCooldownTimers[i]).toBe(0);
+    const mountsFired: number[] = [];
+    expect(tryFireWeapon(WEAPON, state, true, 0, (mount) => { mountsFired.push(mount); })).toBe(true);
+    expect(mountsFired.slice().sort()).toEqual(Array.from({ length: NUM_GUNS }, (_, i) => i));
+    for (const c of state.weaponCapacitors) {
+      expect(c).toBeCloseTo(WEAPON.capacitorCapacity - WEAPON.capacitorCostPerShot, 6);
+    }
+    for (const t of state.weaponCapacitorCooldownTimers) {
+      expect(t).toBeCloseTo(WEAPON.capacitorRechargeDelaySec, 6);
     }
   });
 
-  it('cycles through every gun round-robin, then refuses once every gun is drained under cost', () => {
+  it('refuses once every gun is drained under cost', () => {
     const state = freshState();
     let shots = 0;
     // fire at the weapon's own cadence — dt=0 between shots would never let fireCooldown clear
     const fireDt = 1 / WEAPON.fireRate;
-    // enough shots to drain EVERY gun below cost, cycling round-robin the whole way
-    const shotsPerGunToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
-    const totalShotsToEmptyAll = shotsPerGunToEmpty * NUM_GUNS;
-    for (let i = 0; i < totalShotsToEmptyAll; i++) {
+    const shotsToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
+    for (let i = 0; i < shotsToEmpty; i++) {
       expect(tryFireWeapon(WEAPON, state, true, fireDt, () => { shots++; })).toBe(true);
     }
-    expect(shots).toBe(totalShotsToEmptyAll);
-    expect(state.muzzleIndex).toBe(0); // wrapped back to the first gun
+    expect(shots).toBe(shotsToEmpty * NUM_GUNS);
     for (const c of state.weaponCapacitors) {
-      expect(c).toBeLessThan(WEAPON.capacitorCostPerShot); // can't afford another shot yet
+      expect(c).toBeLessThan(WEAPON.capacitorCostPerShot); // can't afford another volley yet
     }
     // every gun is now under cost — holding the trigger fires nothing more
     expect(tryFireWeapon(WEAPON, state, true, fireDt, () => { shots++; })).toBe(false);
-    expect(shots).toBe(totalShotsToEmptyAll);
+    expect(shots).toBe(shotsToEmpty * NUM_GUNS);
   });
 
   it('refuses to fire through the post-fire recharge delay, then allows firing again once recharged', () => {
     const state = freshState();
-    // drain every gun below cost, cycling round-robin, at the weapon's own fire cadence
     const fireDt = 1 / WEAPON.fireRate;
-    const shotsPerGunToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
-    for (let i = 0; i < shotsPerGunToEmpty * NUM_GUNS; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
+    const shotsToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
+    for (let i = 0; i < shotsToEmpty; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
     expect(state.weaponCapacitors.every((c) => c < WEAPON.capacitorCostPerShot)).toBe(true);
 
-    // the next gun due to fire (state.muzzleIndex) may already be partway through its dwell — other
-    // guns' turns kept elapsing dt after this one's own last shot — so read its ACTUAL remaining
-    // cooldown rather than assuming a freshly-reset capacitorRechargeDelaySec.
+    // every gun fired on the same tick, so their dwell timers are in lockstep — read any one.
     const dt = 1 / 60;
-    const remainingDelay = state.weaponCapacitorCooldownTimers[state.muzzleIndex];
-    expect(remainingDelay).toBeGreaterThan(0);
+    const remainingDelay = state.weaponCapacitorCooldownTimers[0];
+    expect(remainingDelay).toBeCloseTo(WEAPON.capacitorRechargeDelaySec, 6); // just fired, freshly reset
 
-    // still within that gun's recharge delay — no amount of held trigger fires a round
+    // still within the recharge delay — no amount of held trigger fires a volley
     let firedDuringDelay = false;
     const delayFrames = Math.ceil(remainingDelay / dt) - 1;
     for (let i = 0; i < delayFrames; i++) {
@@ -159,13 +150,13 @@ describe('tryFireWeapon', () => {
     }
     expect(firedDuringDelay).toBe(false);
 
-    // enough additional time for that gun to recharge back above cost
-    const need = WEAPON.capacitorCostPerShot - state.weaponCapacitors[state.muzzleIndex];
+    // enough additional time for every gun to recharge back above cost
+    const need = WEAPON.capacitorCostPerShot - state.weaponCapacitors[0];
     const rechargeSeconds = need / WEAPON.capacitorRechargeRate + 1;
     for (let i = 0; i < Math.ceil(rechargeSeconds / dt); i++) {
       tryFireWeapon(WEAPON, state, false, dt, () => {});
     }
-    expect(state.weaponCapacitors[state.muzzleIndex]).toBeGreaterThanOrEqual(WEAPON.capacitorCostPerShot);
+    expect(state.weaponCapacitors.every((c) => c >= WEAPON.capacitorCostPerShot)).toBe(true);
     expect(tryFireWeapon(WEAPON, state, true, dt, () => {})).toBe(true);
   });
 });
