@@ -325,8 +325,9 @@ html, body {
   font-size: 13px;
   margin-bottom: 20px;
 }
-#main-menu-buttons { display: flex; gap: 10px; justify-content: center; }
-#main-menu-buttons button {
+#main-menu-links { display: flex; gap: 10px; justify-content: center; }
+.menu-link-btn {
+  display: inline-block;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(143, 211, 199, 0.3);
   color: var(--hud-fg);
@@ -334,8 +335,9 @@ html, body {
   font-size: 12px;
   padding: 8px 16px;
   cursor: pointer;
+  text-decoration: none;
 }
-#main-menu-buttons button:hover { border-color: var(--hud-accent); color: var(--hud-accent); }
+.menu-link-btn:hover { border-color: var(--hud-accent); color: var(--hud-accent); }
 
 /* ---------- F3 main menu: training scenario picker / results ---------- */
 #scenario-menu-picker { text-align: left; margin-top: 20px; }

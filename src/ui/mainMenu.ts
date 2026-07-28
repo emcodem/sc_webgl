@@ -6,9 +6,11 @@ import { startScenario } from '../scenarios/runtime';
 import { startPipTrainer } from '../combat/pipTrainer';
 
 // ============================================================================================
-// F3 main menu — a dimmed full-screen overlay (Resume / Restart Flight, plus the training
+// F3 main menu — a dimmed full-screen overlay (source/feedback links, plus the training
 // scenario picker rendered below it — see ui/scenarioMenu.ts). Opening it pauses the sim (see
-// main.ts's isPaused()) and releases pointer lock so the cursor is free to click it.
+// main.ts's isPaused()) and releases pointer lock so the cursor is free to click it. Resuming is
+// F3/Escape (toggle/hide below); restarting is the F1 button (see ui/buttonBar.ts) — this menu
+// doesn't duplicate either as its own button.
 // ============================================================================================
 
 let open = false;
@@ -30,8 +32,6 @@ export function notifyScenarioResult(): void {
 export function initMainMenu(world: World): void {
   const overlay = document.getElementById('main-menu-overlay') as HTMLElement;
   const toggleBtn = document.getElementById('menu-toggle') as HTMLElement;
-  const resumeBtn = document.getElementById('main-menu-resume') as HTMLElement;
-  const restartBtn = document.getElementById('main-menu-restart') as HTMLElement;
 
   function hide(): void {
     open = false;
@@ -69,11 +69,6 @@ export function initMainMenu(world: World): void {
   }
 
   toggleBtn.addEventListener('click', toggle);
-  resumeBtn.addEventListener('click', hide);
-  restartBtn.addEventListener('click', () => {
-    resetWorld(world);
-    hide();
-  });
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'F3') { e.preventDefault(); toggle(); }

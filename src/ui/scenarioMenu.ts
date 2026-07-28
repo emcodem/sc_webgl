@@ -30,7 +30,7 @@ let picker: HTMLElement;
 let list: HTMLElement;
 let resultEl: HTMLElement;
 let subtitleEl: HTMLElement;
-let mainMenuButtonsEl: HTMLElement;
+let mainMenuLinksEl: HTMLElement;
 let handlers: ScenarioMenuHandlers;
 let world: World;
 let hideOverlay: () => void;
@@ -409,7 +409,7 @@ export function showPicker(): void {
   resultEl.style.display = 'none';
   resultEl.className = '';
   subtitleEl.style.display = '';
-  mainMenuButtonsEl.style.display = '';
+  mainMenuLinksEl.style.display = '';
   renderList();
 }
 
@@ -421,15 +421,15 @@ export function initScenarioMenu(w: World, h: ScenarioMenuHandlers, hide: () => 
   list = document.getElementById('scenario-menu-list') as HTMLElement;
   resultEl = document.getElementById('scenario-menu-result') as HTMLElement;
   subtitleEl = document.getElementById('main-menu-subtitle') as HTMLElement;
-  mainMenuButtonsEl = document.getElementById('main-menu-buttons') as HTMLElement;
+  mainMenuLinksEl = document.getElementById('main-menu-links') as HTMLElement;
 }
 
-// Hides the Resume/Restart row and subtitle for the results view — RETRY/BACK TO MENU (appended
-// below in showScenarioResult/showPipTrainerResult) already cover both, so repeating them read as
-// clutter right above the outcome text.
-function hideResumeRestartRow(): void {
+// Hides the source/feedback link row and subtitle for the results view — RETRY/BACK TO MENU
+// (appended below in showScenarioResult/showPipTrainerResult) already cover both, so repeating
+// them read as clutter right above the outcome text.
+function hideMenuLinksRow(): void {
   subtitleEl.style.display = 'none';
-  mainMenuButtonsEl.style.display = 'none';
+  mainMenuLinksEl.style.display = 'none';
 }
 
 export function showScenarioResult(
@@ -442,7 +442,7 @@ export function showScenarioResult(
   picker.style.display = 'none';
   resultEl.style.display = 'block';
   resultEl.className = outcome;
-  hideResumeRestartRow();
+  hideMenuLinksRow();
 
   const isGates = config.winCondition === 'gates';
   const isSurvive = config.winCondition === 'survive';
@@ -511,7 +511,7 @@ export function showPipTrainerResult(state: PipTrainerState, opts: PipTrainerOpt
   picker.style.display = 'none';
   resultEl.style.display = 'block';
   resultEl.className = 'won'; // PIP Trainer has no lose state — it only ends by running out the clock
-  hideResumeRestartRow();
+  hideMenuLinksRow();
 
   const perMinute = state.elapsedSec > 0 ? (state.reps / state.elapsedSec) * 60 : 0;
   const scoreLine = `Score: ${state.reps} reps (${perMinute.toFixed(1)}/min over ${state.elapsedSec.toFixed(1)}s).`;
