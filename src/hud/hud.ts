@@ -3,7 +3,7 @@ import { length, sub, clamp } from '../math/vec';
 import { getStatusMessage } from '../control/mode';
 import * as Input from '../input/input';
 import { computeAxes } from '../math/quaternion';
-import { project, type Camera } from '../combat/projection';
+import { project, edgeIndicatorDirection, type Camera } from '../combat/projection';
 import { findActivePip } from '../combat/pipTargeting';
 import * as MouseLook from '../input/mouseLook';
 import * as RemoteMouseInput from '../input/remoteMouseInput';
@@ -582,26 +582,22 @@ function drawEnemyInfo(ctx: CanvasRenderingContext2D, enemy: EnemyShip, ship: Sh
   ctx.fillText(`${closingRate >= 0 ? '+' : ''}${closingRate.toFixed(0)} m/s`, p.x, p.y + offsetY + 16);
 }
 
-// Edge arrow for a target that's off-screen or behind the camera: recomputes the target's
-// camera-space direction (mirroring both axes when it's behind, so the arrow points the way you
-// must actually turn), clamps a ray from screen center to the inner edge rectangle (inset by
-// EDGE_INDICATOR_MARGIN), and draws a triangle arrowhead plus a distance label there.
+// Edge arrow for a target that's off-screen or behind the camera: gets the target's direction via
+// edgeIndicatorDirection (see combat/projection.ts for why that's a raw axis projection rather than
+// project()'s perspective-divided one — that distinction is what keeps this pointing the shortest
+// way to turn across a full 360° sweep instead of flipping sides spuriously), clamps a ray from
+// screen center to the inner edge rectangle (inset by EDGE_INDICATOR_MARGIN), then draws a triangle
+// arrowhead plus a distance label there.
 function drawOffscreenArrow(ctx: CanvasRenderingContext2D, pos: { x: number; y: number; z: number }, cam: Camera, W: number, H: number, arrowColor: string, labelColor: string): void {
   const cx = W / 2, cy = H / 2;
   const halfW = cx - EDGE_INDICATOR_MARGIN, halfH = cy - EDGE_INDICATOR_MARGIN;
-  const { forward, right, up } = cam.axes;
 
   const p = project(pos.x, pos.y, pos.z, cam, W, H);
   const onScreen = p !== null && p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H;
   if (onScreen) return;
 
   const dx = pos.x - cam.pos.x, dy = pos.y - cam.pos.y, dz = pos.z - cam.pos.z;
-  const camX = dx * right.x + dy * right.y + dz * right.z;
-  const camY = dx * up.x + dy * up.y + dz * up.z;
-  const camZ = dx * forward.x + dy * forward.y + dz * forward.z;
-
-  let dirX = camX, dirY = -camY;
-  if (camZ < 0) { dirX = -dirX; dirY = -dirY; }
+  let { dirX, dirY } = edgeIndicatorDirection(pos.x, pos.y, pos.z, cam);
   if (Math.abs(dirX) < 1e-6 && Math.abs(dirY) < 1e-6) dirY = 1;
 
   const angle = Math.atan2(dirY, dirX);
