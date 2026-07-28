@@ -100,7 +100,7 @@ export function stepCombat(world: World, dt: number): void {
     // edge, so this only ever recharges) so a free-flight enemy's capacitors behave correctly if/when
     // these ships are ever allowed to shoot.
     for (let i = 0; i < enemy.weaponCapacitors.length; i++) {
-      const cap = resolveCapacitor(enemy.type.weaponType, enemy.weaponCapacitors[i], enemy.weaponCapacitorCooldownTimers[i], dt, false);
+      const cap = resolveCapacitor(enemy.type.weaponType, enemy.weaponCapacitors[i], enemy.weaponCapacitorCooldownTimers[i], dt, false, false);
       enemy.weaponCapacitors[i] = cap.capacitor;
       enemy.weaponCapacitorCooldownTimers[i] = cap.cooldownTimer;
     }

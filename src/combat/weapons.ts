@@ -135,15 +135,27 @@ export function freshCapacitorCooldowns(): number[] {
 // recharges at capacitorRechargeRate. Pure step function mirroring physics/flightModel.ts's
 // resolveBoost, but reacting to a discrete "did THIS gun just fire" edge rather than a held-input
 // percentage drain.
+//
+// `held` (the raw trigger-requested state, independent of whether THIS tick's shot actually landed)
+// matters because the per-shot fireRate gate blocks most individual frames between two consecutive
+// shots (fireRate's own cadence is far coarser than a typical frame's dt) — without `held`, those
+// in-between frames would see `justFired === false` and start ticking the dwell down/recharging
+// even while the trigger is still held, well before the player has actually let go. While `held` is
+// true but this tick didn't fire (mid-cadence, or momentarily out of charge), the dwell/recharge
+// clock FREEZES instead — it only starts counting down once the trigger is genuinely released.
 export function resolveCapacitor(
   weapon: WeaponType,
   capacitor: number,
   cooldownTimer: number,
   dt: number,
-  justFired: boolean
+  justFired: boolean,
+  held: boolean
 ): { capacitor: number; cooldownTimer: number } {
   if (justFired) {
     return { capacitor: capacitor - weapon.capacitorCostPerShot, cooldownTimer: weapon.capacitorRechargeDelaySec };
+  }
+  if (held) {
+    return { capacitor, cooldownTimer }; // frozen — still holding the trigger, just not this tick
   }
   if (cooldownTimer > 0) {
     return { capacitor, cooldownTimer: Math.max(0, cooldownTimer - dt) };
@@ -178,7 +190,9 @@ export function tryFireWeapon(
   const canFire = requested && state.fireCooldown <= 0 &&
     state.weaponCapacitors.every((c) => c >= weapon.capacitorCostPerShot);
   for (let i = 0; i < state.weaponCapacitors.length; i++) {
-    const res = resolveCapacitor(weapon, state.weaponCapacitors[i], state.weaponCapacitorCooldownTimers[i], dt, canFire);
+    const res = resolveCapacitor(
+      weapon, state.weaponCapacitors[i], state.weaponCapacitorCooldownTimers[i], dt, canFire, requested
+    );
     state.weaponCapacitors[i] = res.capacitor;
     state.weaponCapacitorCooldownTimers[i] = res.cooldownTimer;
   }

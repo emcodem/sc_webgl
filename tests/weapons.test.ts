@@ -130,7 +130,25 @@ describe('tryFireWeapon', () => {
     expect(shots).toBe(shotsToEmpty * NUM_GUNS);
   });
 
-  it('refuses to fire through the post-fire recharge delay, then allows firing again once recharged', () => {
+  it('does not begin the post-fire recharge dwell while the trigger is still held, even once empty', () => {
+    const state = freshState();
+    const fireDt = 1 / WEAPON.fireRate;
+    const shotsToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
+    for (let i = 0; i < shotsToEmpty; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
+    expect(state.weaponCapacitors.every((c) => c < WEAPON.capacitorCostPerShot)).toBe(true);
+    const frozenAt = state.weaponCapacitorCooldownTimers[0];
+    expect(frozenAt).toBeCloseTo(WEAPON.capacitorRechargeDelaySec, 6); // just fired, freshly reset
+
+    // keep holding the (now-empty, can't-actually-fire) trigger for a long stretch — the dwell timer
+    // must stay frozen at exactly its last-reset value the whole time, not tick down just because
+    // fireCooldown/capacitor happens to block firing on any given frame.
+    const dt = 1 / 60;
+    for (let i = 0; i < 600; i++) tryFireWeapon(WEAPON, state, true, dt, () => {});
+    expect(state.weaponCapacitorCooldownTimers.every((t) => t === frozenAt)).toBe(true);
+    expect(state.weaponCapacitors.every((c) => c < WEAPON.capacitorCostPerShot)).toBe(true); // no recharge either
+  });
+
+  it('refuses to fire through the post-fire recharge delay once released, then fires again once recharged', () => {
     const state = freshState();
     const fireDt = 1 / WEAPON.fireRate;
     const shotsToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
@@ -142,11 +160,11 @@ describe('tryFireWeapon', () => {
     const remainingDelay = state.weaponCapacitorCooldownTimers[0];
     expect(remainingDelay).toBeCloseTo(WEAPON.capacitorRechargeDelaySec, 6); // just fired, freshly reset
 
-    // still within the recharge delay — no amount of held trigger fires a volley
+    // trigger released (requested=false) — still within the recharge delay, so no volley fires
     let firedDuringDelay = false;
     const delayFrames = Math.ceil(remainingDelay / dt) - 1;
     for (let i = 0; i < delayFrames; i++) {
-      if (tryFireWeapon(WEAPON, state, true, dt, () => { firedDuringDelay = true; })) firedDuringDelay = true;
+      if (tryFireWeapon(WEAPON, state, false, dt, () => { firedDuringDelay = true; })) firedDuringDelay = true;
     }
     expect(firedDuringDelay).toBe(false);
 

@@ -498,7 +498,7 @@ describe('boost-meter drain + recharge (re-measured 2026-07-25, no red-zone asym
 describe('weapon capacitor drain + recharge (per gun — see combat/weapons.ts NUM_GUNS)', () => {
   it('firing drains exactly capacitorCostPerShot and starts the post-fire recharge dwell', () => {
     const w = PANTHER_S3;
-    const r = resolveCapacitor(w, w.capacitorCapacity, 0, 1 / 60, true);
+    const r = resolveCapacitor(w, w.capacitorCapacity, 0, 1 / 60, true, true);
     expect(r.capacitor).toBeCloseTo(w.capacitorCapacity - w.capacitorCostPerShot, 6);
     expect(r.cooldownTimer).toBeCloseTo(w.capacitorRechargeDelaySec, 6);
   });
@@ -509,7 +509,7 @@ describe('weapon capacitor drain + recharge (per gun — see combat/weapons.ts N
     let cooldown = w.capacitorRechargeDelaySec;
     const dt = 1 / 60;
     for (let i = 0; i < 60 * w.capacitorRechargeDelaySec - 1; i++) {
-      const r = resolveCapacitor(w, capacitor, cooldown, dt, false);
+      const r = resolveCapacitor(w, capacitor, cooldown, dt, false, false);
       capacitor = r.capacitor;
       cooldown = r.cooldownTimer;
     }
@@ -524,7 +524,7 @@ describe('weapon capacitor drain + recharge (per gun — see combat/weapons.ts N
     const dt = 1 / 60;
     let secondsToFull = -1;
     for (let i = 0; i < 60 * 60 && capacitor < w.capacitorCapacity; i++) {
-      const r = resolveCapacitor(w, capacitor, cooldown, dt, false);
+      const r = resolveCapacitor(w, capacitor, cooldown, dt, false, false);
       capacitor = r.capacitor;
       cooldown = r.cooldownTimer;
       if (secondsToFull < 0 && capacitor >= w.capacitorCapacity) secondsToFull = (i + 1) * dt;
