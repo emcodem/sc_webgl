@@ -45,18 +45,32 @@ describe('Gladius measured tuning invariants', () => {
     expect(g.boostLinearThrust.retro).toBeGreaterThan(g.boostSpeedBack * g.boostLinearDrag * g.mass);
   });
 
+  // boostManeuveringSpeedCap CORRECTED 2026-07-28 (per user go-ahead — see gladius.ts's
+  // "boostManeuveringSpeedCap CORRECTED" note): strafe/vertical boost thrust used to be drag-limited
+  // (settling under its own cap, making the cap decorative) — now governor-limited like main/retro.
+  it('boost is governor-limited for strafe/vertical too: boostLinearThrust exceeds boostManeuveringSpeedCap * boostLinearDrag * mass', () => {
+    expect(g.boostLinearThrust.strafe).toBeGreaterThan(g.boostManeuveringSpeedCap * g.boostLinearDrag * g.mass);
+    expect(g.boostLinearThrust.verticalUp).toBeGreaterThan(g.boostManeuveringSpeedCap * g.boostLinearDrag * g.mass);
+    expect(g.boostLinearThrust.verticalDown).toBeGreaterThan(g.boostManeuveringSpeedCap * g.boostLinearDrag * g.mass);
+  });
+
   it('verticalDown thrust is exactly half verticalUp', () => {
     expect(g.linearThrust.verticalDown).toBeCloseTo(g.linearThrust.verticalUp / 2, 5);
   });
 
-  // Boosted lateral/vertical (applied 2026-07-25, per user go-ahead — see shipTypes.ts's "Boosted
-  // lateral/vertical" note): keeps the same measured verticalDown == verticalUp/2 ratio.
-  it('boosted verticalDown thrust is exactly half boosted verticalUp', () => {
-    expect(g.boostLinearThrust.verticalDown).toBeCloseTo(g.boostLinearThrust.verticalUp / 2, 5);
+  // verticalDown CORRECTED 2026-07-28 (per user go-ahead — see gladius.ts's "verticalDown CORRECTED"
+  // note): the unboosted half ratio above was a real measurement, but carrying it over to boost was
+  // an untested extrapolation with an outsized effect, since boosted lateral/vertical is drag-limited
+  // (halving thrust halves top speed) unlike the governor-limited unboosted case. No real-game boosted
+  // downstrafe capture exists (and likely never will — holding it induces pilot black/red-out), so
+  // boosted verticalDown is set equal to verticalUp absent contrary data.
+  it('boosted verticalDown thrust equals boosted verticalUp (no measured asymmetry)', () => {
+    expect(g.boostLinearThrust.verticalDown).toBeCloseTo(g.boostLinearThrust.verticalUp, 5);
   });
 
-  // Only measured/claimed relative to boostSpeedForward (see gladius.ts's "Boosted lateral/vertical"
-  // note) — it's actually higher than boostSpeedBack (268), which isn't a claim the finding makes.
+  // Only measured/claimed relative to boostSpeedForward (see gladius.ts's "boostManeuveringSpeedCap
+  // CORRECTED" note) — it's actually higher than boostSpeedBack (268), which isn't a claim the finding
+  // makes.
   it('boostManeuveringSpeedCap is lower than boostSpeedForward', () => {
     expect(g.boostManeuveringSpeedCap).toBeLessThan(g.boostSpeedForward);
   });
@@ -100,8 +114,8 @@ describe('Gladius measured tuning invariants', () => {
       boostAngularThrust: { pitch: 14.7021, yaw: 14.3721, roll: 22.4409 },
       boostAngularSpoolOmega: { pitch: 8.009, yaw: 8.186 },
       boostAngularSpoolZeta: { pitch: 0.916, yaw: 0.560 },
-      boostLinearThrust: { main: 420, retro: 216.5, strafe: 190.5, verticalUp: 190.5, verticalDown: 95.25 },
-      boostManeuveringSpeedCap: 385,
+      boostLinearThrust: { main: 420, retro: 216.5, strafe: 318.3, verticalUp: 318.3, verticalDown: 318.3 },
+      boostManeuveringSpeedCap: 394,
       hullRadius: 10,
       weaponType: PANTHER_S3
     };

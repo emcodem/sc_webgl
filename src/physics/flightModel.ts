@@ -376,8 +376,8 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
   // Boosted maneuvering cap: the governor above bounds TOTAL speed magnitude, selected by the sign of
   // the forward component — so it only ever applies boostSpeedForward/Back (520/268), letting pure
   // sideways/vertical boosted flight reach the same speed as pure forward boost. Real Gladius governs
-  // the lateral+vertical (non-longitudinal) component on its own, lower cap instead (measured ~385 m/s
-  // — see shipTypes.ts's "Boosted lateral/vertical" note). Same bounded-bleed-rate shape as the
+  // the lateral+vertical (non-longitudinal) component on its own, lower cap instead (measured 394 m/s
+  // — see gladius.ts's "boostManeuveringSpeedCap CORRECTED" note). Same bounded-bleed-rate shape as the
   // governor above (never snaps in a single frame); the natural bleed rate reuses the unboosted strafe
   // thruster's own accel, same idea as the longitudinal governor falling back to unboosted retro/main.
   if (body.boosting) {

@@ -176,31 +176,55 @@ import { PANTHER_S3 } from '../weapons/panther';
 //   - Boosted lateral/vertical (APPLIED 2026-07-25, per user go-ahead — previously a gated
 //     candidateRefinements finding): boosted strafe/vertical accel measured at ~127 m/s^2 (~x1.3 over
 //     the ~97-98 m/s^2 unboosted strafe/verticalUp accel), alongside a separate boosted-maneuvering
-//     speed cap of ~385 m/s that governs the lateral+vertical (non-longitudinal) velocity component —
-//     distinct from and lower than boostSpeedForward (520), since without it boosted sideways/vertical
-//     flight was ungoverned up to the much higher forward cap. Converted to thrust units (accel *
-//     mass = 127 * 1.5 = 190.5) for boostLinearThrust.strafe/verticalUp; verticalDown keeps the same
-//     half-of-up ratio measured for unboosted thrust (verticalDown = verticalUp / 2 = 95.25) since no
-//     separate boosted-down figure was captured. See flightModel.ts's boosted-maneuvering-cap governor
-//     block and capture/MEASUREMENTS.md / BOOST_FINDINGS.md §6 gap #2/#3.
+//     speed cap that governs the lateral+vertical (non-longitudinal) velocity component — distinct
+//     from and lower than boostSpeedForward (520), since without it boosted sideways/vertical flight
+//     was ungoverned up to the much higher forward cap.
+//   - verticalDown CORRECTED 2026-07-28 (per user go-ahead): previously set to half of verticalUp,
+//     carrying over the unboosted verticalDown = verticalUp / 2 ratio. That ratio is a real
+//     measurement for unboosted thrust, but no boosted-down figure was ever captured — and there's a
+//     concrete reason none exists: holding boosted downstrafe in real SC induces pilot black/red-out,
+//     the same GLOC risk MEASUREMENTS.md's "Down accel / coast decel, full power" row flags for even
+//     the gentler unboosted case (that hold was deliberately kept to 2.5s). So the halved figure was an
+//     untested extrapolation, not data (the ship's downward RCS thrusters have no reason to be weaker
+//     under boost; only the pilot's tolerance for the resulting G-load differs, which this sim doesn't
+//     model) — verticalDown is set equal to verticalUp absent any real measurement to the contrary.
+//   - boostManeuveringSpeedCap CORRECTED 2026-07-28 (per user go-ahead): the real measured max for
+//     boosted lateral/up/down strafe is 394 m/s (supersedes the earlier ~385 reading in
+//     capture/MEASUREMENTS.md). Landing on 394 exposed a second, independent bug: boostLinearThrust.
+//     strafe/verticalUp/verticalDown (190.5, i.e. accel*mass from the ~127 m/s^2 reading taken in
+//     isolation) combined with boostLinearDrag (0.38) settles at a drag-limited equilibrium of only
+//     ~334 m/s (thrust/(drag*mass)) — well under the cap, so the governor never actually engaged; the
+//     cap was purely decorative. This contradicts the ship's own established boost architecture (see
+//     the "boost is GOVERNOR-limited, not drag-limited" invariant below, confirmed for main/retro).
+//     Both boosted main and retro share one consistent ratio between their thrust and their own speed
+//     cap: thrust / (cap * boostLinearDrag * mass) ~= 1.417 (420/(520*0.57) = 1.4170; 216.5/(268*0.57)
+//     = 1.4172) — i.e. thrust is set ~42% past the cap's drag-equilibrium point so the governor (not
+//     drag) is what actually stops the ship. Applying that same ratio to the corrected 394 m/s cap
+//     gives strafe/verticalUp/verticalDown thrust = 1.417 * 394 * 0.38 * 1.5 ~= 318.3, which is what's
+//     used below — treating the original ~127 m/s^2 accel reading the same way boosted-forward's own
+//     early undershoot was treated (see the Boosted-forward-thrust note above): an early-hold artifact,
+//     not the true steady thrust, now superseded by the governor-consistent derivation.
 //
 // Summary of the invariants that MUST hold (see the original project's CLAUDE.md) — guarded by
 // tests/shipTuning.test.ts (and, for the structural ones, by buildShipType.ts at load time):
 //   - angularThrust == maxAngVel * angularDrag  (per axis) — derived by buildShipType, true by construction.
 //   - boostAngularThrust == boostMaxAngVel * angularDrag  (per axis) — likewise derived.
-//   - boost is GOVERNOR-limited (like forward), not drag-limited: boostLinearThrust EXCEEDS
-//     boostSpeed * boostLinearDrag * mass, so the speed>speedCap governor is what caps boost. The
-//     old "boostLinearThrust == boostSpeed*drag*mass" equality no longer holds (re-measured
-//     2026-07-15 — see the Boosted-forward-thrust note above).
+//   - boost is GOVERNOR-limited (like forward), not drag-limited, for EVERY boosted linear axis
+//     (main/retro/strafe/verticalUp/verticalDown): each boostLinearThrust EXCEEDS its own speed cap *
+//     boostLinearDrag * mass, so the speed>speedCap (or, for strafe/vertical, the
+//     boostManeuveringSpeedCap) governor is what caps boost — NOT drag. Main/retro re-measured
+//     2026-07-15; strafe/vertical corrected 2026-07-28 to close the same gap (see the
+//     boostManeuveringSpeedCap note above) — before that fix, strafe/vertical was the one boosted axis
+//     that was actually drag-limited, settling well under its own cap.
 //   - linearDrag is essentially negligible; the flight-computer governor (the speed>speedCap block
 //     in flightModel.ts) is what stops the ship exactly at scmSpeed — NOT drag. Do not raise
 //     linearDrag to make it "settle"; that has been tried twice and contradicts the measured data.
 //   - coastDecel is a FLAT m/s^2 rate (measured 40), not proportional drag.
 //   - main/retro/verticalSpoolDelay are three separately-timed thruster startup lags — don't merge.
-//   - verticalDown thrust is exactly half verticalUp (measured) — same ratio kept for the boosted
-//     values, though only the unboosted ratio was directly measured (see boosted lateral/vertical note
-//     above).
-//   - boostManeuveringSpeedCap (385) governs the lateral+vertical velocity component while boosting,
+//   - verticalDown thrust is exactly half verticalUp for UNBOOSTED thrust only (measured). Boosted
+//     verticalDown is instead set equal to boosted verticalUp (see the verticalDown CORRECTED note
+//     above) — the half ratio does NOT carry over to boost.
+//   - boostManeuveringSpeedCap (394) governs the lateral+vertical velocity component while boosting,
 //     separately from and below boostSpeedForward/Back (520/268), which govern only the forward-axis
 //     component — see flightModel.ts's governor block.
 
@@ -276,8 +300,8 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   boostSpeedForward: 520,
   boostSpeedBack: 268,
   boostLinearDrag: 0.38,
-  boostLinearThrust: { main: 420, retro: 216.5, strafe: 190.5, verticalUp: 190.5, verticalDown: 95.25 },
-  boostManeuveringSpeedCap: 385,
+  boostLinearThrust: { main: 420, retro: 216.5, strafe: 318.3, verticalUp: 318.3, verticalDown: 318.3 },
+  boostManeuveringSpeedCap: 394,
   // boostMaxAngVel.yaw corrected 2026-07-24: the old 1.082 (62deg/s) was a uniform x1.2 assumption
   // over maxAngVel.yaw (0.91), never independently measured. Three clean reps at the 1920-count clamp
   // boundary (capture/MEASUREMENTS.md's "Yaw afterburner ratio" section) agree tightly at 53.26/53.29/
