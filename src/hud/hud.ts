@@ -231,7 +231,10 @@ function updateStatsPanel(world: World): void {
   brakeEl.className = ship.spaceBrakeOn ? 'value on' : 'value';
 
   const hullEl = el('s-hull');
-  hullEl.textContent = `${ship.health.points}/${ship.health.maxPoints}`;
+  // health.points accumulates float damage amounts (fractional weapon/capacitor damage), so it can
+  // land a hair off an integer (e.g. 16.999999999999996) — round for display only, the underlying
+  // float stays exact for damage math.
+  hullEl.textContent = `${Math.round(ship.health.points)}/${Math.round(ship.health.maxPoints)}`;
   hullEl.className = ship.health.points <= ship.health.maxPoints * 0.3 ? 'value on' : 'value';
   el('s-target').textContent = targetReadout(world);
 
@@ -288,14 +291,16 @@ function updateScenarioHUD(world: World): void {
     el('scenario-hud-accuracy').textContent = `${accuracy}%`;
     if (showPlayerHits) el('scenario-hud-player-hits').textContent = `${stats.hitsTaken}`;
   } else {
+    // health.points/maxPoints accumulate float damage amounts, so their difference can land a hair
+    // off an integer — round for display only (same reasoning as the #s-hull panel above).
     const enemy = world.enemies[0];
-    const enemyHits = enemy ? enemy.health.maxPoints - enemy.health.points : 0;
-    const enemyMax = enemy ? enemy.health.maxPoints : 0;
+    const enemyHits = enemy ? Math.round(enemy.health.maxPoints - enemy.health.points) : 0;
+    const enemyMax = enemy ? Math.round(enemy.health.maxPoints) : 0;
     el('scenario-hud-enemy-hits').textContent = `${enemyHits}/${enemyMax}`;
 
     const ship = world.player.ship;
-    const playerHits = ship.health.maxPoints - ship.health.points;
-    el('scenario-hud-player-hits').textContent = `${playerHits}/${ship.health.maxPoints}`;
+    const playerHits = Math.round(ship.health.maxPoints - ship.health.points);
+    el('scenario-hud-player-hits').textContent = `${playerHits}/${Math.round(ship.health.maxPoints)}`;
   }
 }
 
