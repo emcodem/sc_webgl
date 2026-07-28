@@ -309,6 +309,6 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   hullRadius: 10,
   // 3 CF-337 Panther Repeater S3s (left wing, right wing, nose — matches combat/weapons.ts's
   // MUZZLE_MOUNTS) — see physics/weapons/panther.ts for provenance (ballistics carried over
-  // unchanged; capacitor fields are new, per-gun, and SUSPECT pending a real capture).
+  // unchanged; capacitor fields are new, per-gun, and hand-tuned/estimated pending a real capture).
   weaponType: PANTHER_S3
 };

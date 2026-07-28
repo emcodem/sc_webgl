@@ -115,30 +115,33 @@ describe('tryFireWeapon', () => {
     }
   });
 
-  it('cycles through every gun before repeating one, then refuses once all are under cost', () => {
+  it('cycles through every gun round-robin, then refuses once every gun is drained under cost', () => {
     const state = freshState();
     let shots = 0;
     // fire at the weapon's own cadence — dt=0 between shots would never let fireCooldown clear
     const fireDt = 1 / WEAPON.fireRate;
-    for (let i = 0; i < NUM_GUNS; i++) {
+    // enough shots to drain EVERY gun below cost, cycling round-robin the whole way
+    const shotsPerGunToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
+    const totalShotsToEmptyAll = shotsPerGunToEmpty * NUM_GUNS;
+    for (let i = 0; i < totalShotsToEmptyAll; i++) {
       expect(tryFireWeapon(WEAPON, state, true, fireDt, () => { shots++; })).toBe(true);
     }
-    expect(shots).toBe(NUM_GUNS);
+    expect(shots).toBe(totalShotsToEmptyAll);
     expect(state.muzzleIndex).toBe(0); // wrapped back to the first gun
     for (const c of state.weaponCapacitors) {
-      expect(c).toBeCloseTo(WEAPON.capacitorCapacity - WEAPON.capacitorCostPerShot, 6);
       expect(c).toBeLessThan(WEAPON.capacitorCostPerShot); // can't afford another shot yet
     }
     // every gun is now under cost — holding the trigger fires nothing more
     expect(tryFireWeapon(WEAPON, state, true, fireDt, () => { shots++; })).toBe(false);
-    expect(shots).toBe(NUM_GUNS);
+    expect(shots).toBe(totalShotsToEmptyAll);
   });
 
   it('refuses to fire through the post-fire recharge delay, then allows firing again once recharged', () => {
     const state = freshState();
-    // drain every gun with one shot each, at the weapon's own fire cadence
+    // drain every gun below cost, cycling round-robin, at the weapon's own fire cadence
     const fireDt = 1 / WEAPON.fireRate;
-    for (let i = 0; i < NUM_GUNS; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
+    const shotsPerGunToEmpty = Math.ceil(WEAPON.capacitorCapacity / WEAPON.capacitorCostPerShot);
+    for (let i = 0; i < shotsPerGunToEmpty * NUM_GUNS; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
     expect(state.weaponCapacitors.every((c) => c < WEAPON.capacitorCostPerShot)).toBe(true);
 
     // still within the recharge delay — no amount of held trigger fires a round
