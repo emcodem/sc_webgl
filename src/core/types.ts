@@ -249,8 +249,7 @@ export interface ShipType {
 export interface WeaponType {
   name: string;
   muzzleSpeed: number;   // m/s, added on top of the shooter's own velocity
-  fireRate: number;      // rounds/sec while the trigger is held (arcade-balance value, not
-                         // necessarily the real RPM — see panther.ts's note)
+  fireRate: number;      // rounds/sec while the trigger is held — see panther.ts's note
   lifetime: number;      // s before a round despawns
   muzzleForward: number; // spawn offset ahead of the ship so tracers don't clip through the hull
   damage: number;

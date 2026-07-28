@@ -144,22 +144,28 @@ describe('tryFireWeapon', () => {
     for (let i = 0; i < shotsPerGunToEmpty * NUM_GUNS; i++) tryFireWeapon(WEAPON, state, true, fireDt, () => {});
     expect(state.weaponCapacitors.every((c) => c < WEAPON.capacitorCostPerShot)).toBe(true);
 
-    // still within the recharge delay — no amount of held trigger fires a round
-    let firedDuringDelay = false;
+    // the next gun due to fire (state.muzzleIndex) may already be partway through its dwell — other
+    // guns' turns kept elapsing dt after this one's own last shot — so read its ACTUAL remaining
+    // cooldown rather than assuming a freshly-reset capacitorRechargeDelaySec.
     const dt = 1 / 60;
-    const delayFrames = Math.ceil(WEAPON.capacitorRechargeDelaySec / dt) - 1;
+    const remainingDelay = state.weaponCapacitorCooldownTimers[state.muzzleIndex];
+    expect(remainingDelay).toBeGreaterThan(0);
+
+    // still within that gun's recharge delay — no amount of held trigger fires a round
+    let firedDuringDelay = false;
+    const delayFrames = Math.ceil(remainingDelay / dt) - 1;
     for (let i = 0; i < delayFrames; i++) {
       if (tryFireWeapon(WEAPON, state, true, dt, () => { firedDuringDelay = true; })) firedDuringDelay = true;
     }
     expect(firedDuringDelay).toBe(false);
 
-    // enough additional time for gun 0 (muzzleIndex wrapped back to it) to recharge back above cost
-    const need = WEAPON.capacitorCostPerShot - state.weaponCapacitors[0];
+    // enough additional time for that gun to recharge back above cost
+    const need = WEAPON.capacitorCostPerShot - state.weaponCapacitors[state.muzzleIndex];
     const rechargeSeconds = need / WEAPON.capacitorRechargeRate + 1;
     for (let i = 0; i < Math.ceil(rechargeSeconds / dt); i++) {
       tryFireWeapon(WEAPON, state, false, dt, () => {});
     }
-    expect(state.weaponCapacitors[0]).toBeGreaterThanOrEqual(WEAPON.capacitorCostPerShot);
+    expect(state.weaponCapacitors[state.muzzleIndex]).toBeGreaterThanOrEqual(WEAPON.capacitorCostPerShot);
     expect(tryFireWeapon(WEAPON, state, true, dt, () => {})).toBe(true);
   });
 });

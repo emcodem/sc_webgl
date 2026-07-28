@@ -9,11 +9,14 @@ import { getWeaponType, DEFAULT_WEAPON_TYPE_ID } from '../physics/weapons';
 const WEAPON_DAMAGE = getWeaponType(DEFAULT_WEAPON_TYPE_ID).damage;
 
 // Swept segment-vs-sphere: does the round's path this frame (prevPos → pos) pass within `radius` of
-// `center`? A round travels up to ~70 m per frame (1400 m/s × the 50 ms dt clamp) against hulls only
-// ~10 m across, so a bare point-in-sphere test at pos alone would let rounds tunnel clean through a
-// target between frames. We test the closest point on the travel segment instead. Returns that
-// contact point (clamped onto the segment) so the caller can spawn the impact where the path grazes
-// the sphere rather than wherever the round happened to land past it.
+// `center`? A frame's sim step is never longer than main.ts's 50ms dt clamp regardless of the
+// browser's actual frame rate (a slow/laggy real frame just gets clamped down for physics purposes,
+// same as every other integrator in this project) — so a round can travel up to but never more than
+// ~74 m in one step (1480 m/s × 50 ms) against hulls only ~10 m across. A bare point-in-sphere test
+// at pos alone would let rounds tunnel clean through a target between steps at that speed, so we
+// test the closest point on the travel segment instead. Returns that contact point (clamped onto the
+// segment) so the caller can spawn the impact where the path grazes the sphere rather than wherever
+// the round happened to land past it.
 function sweepHitsSphere(prev: Vec3, pos: Vec3, center: Vec3, radius: number): Vec3 | null {
   const seg = sub(pos, prev);
   const toStart = sub(prev, center);
