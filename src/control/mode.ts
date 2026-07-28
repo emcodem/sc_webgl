@@ -6,6 +6,7 @@ import * as Keybinds from '../input/keybinds';
 import * as Joystick from '../input/joystickMap';
 import * as Input from '../input/input';
 import * as MouseLook from '../input/mouseLook';
+import { saveDecoupledPreference } from '../input/decoupledPreference';
 
 // ============================================================================================
 // The seamless ship <-> on-foot transition. Pressing F toggles between piloting and walking; C
@@ -38,6 +39,7 @@ export function handleEdgeActions(world: World): void {
   const decoupleToggled = Keybinds.justPressed('decoupleToggle') || Joystick.buttonJustPressed('decoupleToggle');
   if (decoupleToggled && p.mode === 'pilot') {
     p.ship.decoupled = !p.ship.decoupled;
+    saveDecoupledPreference(p.ship.decoupled);
   }
 
   const interacted = Keybinds.justPressed('interact') || Joystick.buttonJustPressed('interact');

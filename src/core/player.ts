@@ -5,6 +5,7 @@ import { BODIES, ENEMY_SPAWN, SPAWN } from '../world/celestial';
 import { createHealth } from '../combat/health';
 import { spawnFighterAI } from '../combat/enemyAI';
 import { freshCapacitors, freshCapacitorCooldowns } from '../combat/weapons';
+import { loadDecoupledPreference } from '../input/decoupledPreference';
 
 const SHIP_MAX_HEALTH = 1000; // free-flight sandbox only — scenarios override via config.hitsToKillPlayer
 const ENEMY_MAX_HEALTH = 10;
@@ -18,7 +19,7 @@ export function makeShipBody(type: ShipType): ShipBody {
     angVel: { pitch: 0, yaw: 0, roll: 0 },
     angAccel: { pitch: 0, yaw: 0, roll: 0 },
     throttle: 0,
-    decoupled: false,
+    decoupled: loadDecoupledPreference(),
     spaceBrakeOn: false,
     boostMeter: type.boostCapacity,
     boosting: false,
@@ -29,7 +30,7 @@ export function makeShipBody(type: ShipType): ShipBody {
     hitFlash: 0,
     fireCooldown: 0,
     weaponCapacitors: freshCapacitors(type.weaponType),
-    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0
   };
 }
@@ -57,7 +58,7 @@ function makeEnemyShip(type: ShipType, pos: Vec3, quat: Quat, moving: boolean): 
     ai: moving ? spawnFighterAI() : undefined,
     fireCooldown: 0,
     weaponCapacitors: freshCapacitors(type.weaponType),
-    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
+    weaponCapacitorCooldownTimers: freshCapacitorCooldowns(),
     respawnTimer: 0,
     spawnPos: { x: pos.x, y: pos.y, z: pos.z },
     spawnQuat: { x: quat.x, y: quat.y, z: quat.z, w: quat.w }

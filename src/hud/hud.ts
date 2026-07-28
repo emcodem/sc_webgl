@@ -13,6 +13,7 @@ import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer
 import { getFps } from './fpsTracker';
 import * as Recorder from '../replay/recorder';
 import * as ReplayPlayer from '../replay/player';
+import { saveDecoupledPreference } from '../input/decoupledPreference';
 
 // DOM HUD overlay — ported from the original project's starcitizen_flightsim/index.html +
 // render/render.ts's updateHUD: a bottom-left flight-stats panel (#stats), a top-center mission
@@ -68,7 +69,10 @@ export function updateHUD(world: World): void {
   // once, lazily, the first time the HUD updates (mirrors the original project's initModeToggle).
   if (!modeFlagWired) {
     modeFlagWired = true;
-    el('mode-flag').addEventListener('click', () => { ship.decoupled = !ship.decoupled; });
+    el('mode-flag').addEventListener('click', () => {
+      ship.decoupled = !ship.decoupled;
+      saveDecoupledPreference(ship.decoupled);
+    });
   }
 
   updateScenarioHUD(world);
