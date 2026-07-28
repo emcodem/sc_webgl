@@ -44,18 +44,17 @@ export function stepPilot(world: World, dt: number): void {
   const strafeX = Keybinds.digitalAxis('strafeLeft', 'strafeRight') + Joystick.readAxis('strafeLateral');
   const strafeY = Keybinds.digitalAxis('strafeDown', 'strafeUp') + Joystick.readAxis('strafeVertical');
 
-  // ESP: dampen the already-combined pitch/yaw once the crosshair nears the active PIP, but only
-  // while the stick itself is also near center — see espAssist.ts's dampingFactor doc comment.
+  // ESP: dampen the already-combined pitch/yaw purely by crosshair-to-PIP proximity (see
+  // espAssist.ts's module doc comment) — stepped every tick, PIP or not, so the smoothed
+  // multiplier decays back to 1 rather than snapping when a target is lost.
   const cam = { pos: ship.pos, axes: computeAxes(ship.quat) };
   const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
-  if (pip) {
-    const screenDist = Math.hypot(pip.screenX - window.innerWidth / 2, pip.screenY - window.innerHeight / 2);
-    const stickOffset = MouseLook.getOffset();
-    const stickDist = Math.hypot(stickOffset.x, stickOffset.y);
-    const factor = EspAssist.dampingFactor(screenDist, stickDist);
-    pitchInput *= factor;
-    yawInput *= factor;
-  }
+  const pipScreenDist = pip
+    ? Math.hypot(pip.screenX - window.innerWidth / 2, pip.screenY - window.innerHeight / 2)
+    : null;
+  const factor = EspAssist.stepDamping(pipScreenDist, dt);
+  pitchInput *= factor;
+  yawInput *= factor;
 
   ship.spaceBrakeOn = Keybinds.isActive('spaceBrake') || Joystick.isButtonPressed('spaceBrake') || MouseButtons.isPressed('spaceBrake');
 

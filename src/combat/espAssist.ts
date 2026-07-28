@@ -2,9 +2,13 @@
 // ESP — "Enhanced Stick Precision"-style aim assist. Always active: whenever the crosshair's
 // current lead-indicator (see combat/pipTargeting.ts) falls within a configurable circle around
 // screen center, yaw/pitch input is dampened the closer it gets to dead center. This is meant to
-// curb overshoot when sweeping onto a fast-moving target, not to aim for the player — outside the
-// circle, input passes through completely unmodified. Ported from the original project's
-// combat/espAssist.ts.
+// curb overshoot when sweeping onto a fast-moving target, not to aim for the player. Modeled on
+// real SC's actual ESP (per a player's first-hand description, 2026-07-29): it dampens purely by
+// crosshair/PIP proximity, INCLUDING full-deflection stick input — there is no separate "is the
+// player's own stick also near center" gate. An earlier version of this file (ported from the
+// original 2D-canvas project) added such a gate, plus let dampening reach a hard 0 (full input
+// lockout) at max strength; both read as the game actively fighting the player rather than the
+// "magnetic, feels like a good pilot" sensation real ESP gives, so both are gone here.
 // =====================================================================
 
 import { registerConfig } from '../input/configRegistry';
@@ -13,6 +17,17 @@ const DEFAULT_CIRCLE_RADIUS_PX = 45; // px around screen center — smaller than
 const DEFAULT_DAMPENING_STRENGTH = 0.7; // 0..1 — fraction of input speed removed at dead center
 let circleRadiusPx = DEFAULT_CIRCLE_RADIUS_PX;
 let dampeningStrength = DEFAULT_DAMPENING_STRENGTH;
+
+// Never fully zeroes input, even at dampeningStrength's max — real ESP lowers sensitivity, it
+// doesn't lock the player out. Starting guess pending in-game feel-testing, not a measured value
+// (ESP has no real-SC capture data the way flight tuning does).
+const MIN_SCALE = 0.25;
+// How fast the applied multiplier itself catches up to its target value, in 1/s. Without this, a
+// PIP dancing right at the zone boundary (a jittery/fast-moving target) snaps the multiplier
+// between ~1 and MIN_SCALE every frame it crosses the edge, which reads as twitchy resistance
+// rather than a smooth "sticky" pull. Also a starting guess, not measured.
+const SMOOTH_SPEED = 15;
+let smoothedScalar = 1;
 
 export function getCircleRadius(): number {
   return circleRadiusPx;
@@ -27,28 +42,33 @@ export function setDampeningStrength(v: number): void {
   dampeningStrength = v;
 }
 
-// 1 = no dampening (at/beyond the circle radius), ramping down to (1 - dampeningStrength) at dead
+// 1 = no dampening (at/beyond the circle radius), ramping down to MIN_SCALE (never lower) at dead
 // center. The ramp is eased (sqrt) rather than linear: a purely linear ramp only reaches full
 // strength exactly at dead center, so a target sitting anywhere but the precise middle of even a
-// maxed-out circle barely felt dampened at all (GitHub #4). Squaring the proximity's square root
-// front-loads the effect so most of the circle's interior already sits close to full strength.
-export function dampingFactorForDistance(screenDist: number): number {
+// maxed-out circle barely felt dampened at all (GitHub #4 in the original project). Squaring the
+// proximity's square root front-loads the effect so most of the circle's interior already sits
+// close to full strength.
+export function targetScalarForDistance(screenDist: number): number {
   if (screenDist >= circleRadiusPx || circleRadiusPx <= 0) return 1;
   const proximity = 1 - screenDist / circleRadiusPx; // 0 at edge, 1 at center
   const eased = Math.sqrt(proximity);
-  return 1 - dampeningStrength * eased;
+  const maxRemoval = (1 - MIN_SCALE) * dampeningStrength;
+  return 1 - maxRemoval * eased;
 }
 
-// Effective pitch/yaw damping for a tick — dampening only kicks in while BOTH the PIP and the
-// player's own stick (mouse-look's virtual joystick, or any other absolute-position input) sit
-// inside the assist circle. Gating on the stick too matters: without it, slamming the stick to
-// full deflection to snap onto a new target still got dampened the instant the PIP swept past
-// center, robbing the player of full pitch/yaw authority exactly when they threw the biggest
-// input. ESP is meant to steady fine tracking on a target you're already mostly on, not to
-// override a deliberate large input.
-export function dampingFactor(pipScreenDist: number, stickScreenDist: number): number {
-  if (stickScreenDist >= circleRadiusPx) return 1;
-  return dampingFactorForDistance(pipScreenDist);
+// Advances the smoothed multiplier one tick toward its target (1 if there's no active PIP, i.e.
+// pipScreenDist is null) and returns it. Call this every tick regardless of whether a PIP is
+// currently locked, so the multiplier decays smoothly back to 1 when a target is lost instead of
+// snapping.
+export function stepDamping(pipScreenDist: number | null, dt: number): number {
+  const target = pipScreenDist === null ? 1 : targetScalarForDistance(pipScreenDist);
+  const rate = Math.min(1, Math.max(0, dt) * SMOOTH_SPEED);
+  smoothedScalar += (target - smoothedScalar) * rate;
+  return smoothedScalar;
+}
+
+export function resetDamping(): void {
+  smoothedScalar = 1;
 }
 
 interface EspConfig {
