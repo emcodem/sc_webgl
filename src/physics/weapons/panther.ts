@@ -45,6 +45,11 @@ export const PANTHER_S3: WeaponType = {
   damage: 1 / 3,          // cut from 1 to compensate for firing 3x as many rounds/tick — see note above
   convergeDist: 800,
   minConvergeDist: 150,
+  // Per user correction, matching the real gun's stated spread: 0.6 degrees, randomly chosen per
+  // shot. Below ~800m (this weapon's own convergeDist) the 3-barrel toe-in dominates and shots land
+  // essentially on top of each other; past it the 0.6-degree cone widens faster than the toe-in
+  // converges, so it's normal for only 1 of 3 rounds in a volley to actually connect at long range.
+  spreadDeg: 0.6,
 
   capacitorCapacity: 75,          // ammo (== shots), per gun — ESTIMATED, see note above
   capacitorCostPerShot: 1,        // ammo per shot (75 shots/gun to empty) — ESTIMATED, see note above

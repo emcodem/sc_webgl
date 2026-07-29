@@ -45,6 +45,41 @@ export const NUM_GUNS = MUZZLE_MOUNTS.length;
 // always passes an explicit mountIndex — every mount fires every tick, so there's nothing to cycle.
 let fallbackMuzzleIndex = 0;
 
+const DEG_TO_RAD = Math.PI / 180;
+
+// Randomly deviates a unit direction by up to `spreadRad`, uniform over the cone's solid angle (not
+// just its boresight-plane cross-section, which would bias toward the edge) — see WeaponType.spreadDeg.
+// Builds an arbitrary orthonormal basis (t, b) perpendicular to `dir` via the same "cross with world
+// up, or a fallback axis if dir is too close to parallel with it" trick as render/impactEffects.ts's
+// computeFrame, then samples a cap-uniform (cosTheta, phi) pair — cosTheta uniform on
+// [cos(spreadRad), 1] is what makes the distribution uniform per unit solid angle, not per unit angle.
+function applySpread(dirX: number, dirY: number, dirZ: number, spreadRad: number): [number, number, number] {
+  if (spreadRad <= 0) return [dirX, dirY, dirZ];
+
+  let tx: number, ty: number, tz: number;
+  if (Math.abs(dirY) < 0.99) { // t = normalize(worldUp x dir)
+    tx = dirZ; ty = 0; tz = -dirX;
+  } else {
+    tx = 1; ty = 0; tz = 0; // dir ~ vertical — worldUp x dir degenerates, use an arbitrary perpendicular
+  }
+  const tLen = Math.hypot(tx, ty, tz) || 1;
+  tx /= tLen; ty /= tLen; tz /= tLen;
+  // b = dir x t
+  const bx = dirY * tz - dirZ * ty, by = dirZ * tx - dirX * tz, bz = dirX * ty - dirY * tx;
+
+  const cosSpread = Math.cos(spreadRad);
+  const cosTheta = 1 - Math.random() * (1 - cosSpread);
+  const sinTheta = Math.sqrt(Math.max(0, 1 - cosTheta * cosTheta));
+  const phi = Math.random() * Math.PI * 2;
+  const ct = Math.cos(phi), st = Math.sin(phi);
+
+  return [
+    dirX * cosTheta + tx * sinTheta * ct + bx * sinTheta * st,
+    dirY * cosTheta + ty * sinTheta * ct + by * sinTheta * st,
+    dirZ * cosTheta + tz * sinTheta * ct + bz * sinTheta * st,
+  ];
+}
+
 // Spawns one round into `out`, generic over the shooter — any ShipBody or EnemyShip, since both
 // carry pos/vel and a (forward, right, up) basis from computeAxes. `mountIndex` selects which
 // MUZZLE_MOUNTS hardpoint fires (the caller — tryFireWeapon — tracks this per-shooter); omit it to
@@ -91,6 +126,10 @@ export function spawnProjectileFrom(
   let dirX = convX - muzzleX, dirY = convY - muzzleY, dirZ = convZ - muzzleZ;
   const invLen = 1 / (Math.hypot(dirX, dirY, dirZ) || 1);
   dirX *= invLen; dirY *= invLen; dirZ *= invLen;
+
+  // Per-shot mechanical spread: randomly cone the otherwise-perfectly-converged aim by up to
+  // weapon.spreadDeg (see WeaponType.spreadDeg's doc comment).
+  [dirX, dirY, dirZ] = applySpread(dirX, dirY, dirZ, weapon.spreadDeg * DEG_TO_RAD);
 
   out.push({
     pos: { x: muzzleX, y: muzzleY, z: muzzleZ },

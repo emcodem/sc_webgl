@@ -257,6 +257,10 @@ export interface WeaponType {
   // point on the boresight this far ahead when no target range is known.
   convergeDist: number;    // metres — default harmonization range
   minConvergeDist: number; // clamp: closer than this the toe-in angle gets silly
+  // Per-shot mechanical inaccuracy: each round's convergence-aimed direction is randomly deviated by
+  // up to this many degrees (uniform over the solid angle of the cone, not just the boresight plane)
+  // — see combat/weapons.ts's applySpread. 0 = perfectly aimed every shot.
+  spreadDeg: number;
 
   capacitorCapacity: number;          // max charge PER GUN, in raw ammo units (real SC's max_ammo_load)
   capacitorCostPerShot: number;       // ammo consumed by that gun per shot it fires

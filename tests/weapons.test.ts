@@ -10,6 +10,9 @@ const RIGHT = { x: 1, y: 0, z: 0 };
 const UP = { x: 0, y: 1, z: 0 };
 const ORIGIN = { x: 0, y: 0, z: 0 };
 const ZERO_VEL = { x: 0, y: 0, z: 0 };
+// A zero-spread copy of the real weapon, for tests that assert exact aim direction — spread is
+// covered separately below and would otherwise make every direction-exactness assertion flaky.
+const NO_SPREAD_WEAPON = { ...WEAPON, spreadDeg: 0 };
 
 describe('spawnProjectileFrom', () => {
   it('cycles through the 3 muzzle mounts in order across consecutive calls', () => {
@@ -33,10 +36,11 @@ describe('spawnProjectileFrom', () => {
     const out: Projectile[] = [];
     const shooterVel = { x: 5, y: 0, z: 0 };
     // A very long convergence range makes the toe-in negligible, so the round leaves ~straight
-    // down the nose (+Z) with muzzleSpeed added on top of the shooter's own velocity.
-    spawnProjectileFrom(ORIGIN, shooterVel, FORWARD, RIGHT, UP, 'player', out, 1e7);
+    // down the nose (+Z) with muzzleSpeed added on top of the shooter's own velocity. Spread is
+    // zeroed here (see NO_SPREAD_WEAPON) since it would otherwise perturb this exact-aim check.
+    spawnProjectileFrom(ORIGIN, shooterVel, FORWARD, RIGHT, UP, 'player', out, 1e7, NO_SPREAD_WEAPON);
     const relSpeed = Math.hypot(out[0].vel.x - 5, out[0].vel.y, out[0].vel.z);
-    expect(relSpeed).toBeCloseTo(WEAPON.muzzleSpeed, 3); // shot-relative speed is exactly muzzleSpeed
+    expect(relSpeed).toBeCloseTo(NO_SPREAD_WEAPON.muzzleSpeed, 3); // shot-relative speed is exactly muzzleSpeed
     expect(out[0].vel.x).toBeCloseTo(5, 1);              // inherits shooter velocity
     expect(out[0].vel.z).toBeCloseTo(WEAPON.muzzleSpeed, 0); // aimed essentially along the nose
   });
@@ -44,20 +48,45 @@ describe('spawnProjectileFrom', () => {
   it('toes each gun in so its bore line passes through the shared convergence point', () => {
     const out: Projectile[] = [];
     const convergeDist = 500;
-    // fire all three mounts; each round's direction must point exactly at pos + forward*convergeDist
-    spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist);
-    spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist);
-    spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist);
+    // fire all three mounts; each round's direction must point exactly at pos + forward*convergeDist.
+    // Spread zeroed (see NO_SPREAD_WEAPON) — it's checked separately below.
+    spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist, NO_SPREAD_WEAPON);
+    spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist, NO_SPREAD_WEAPON);
+    spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist, NO_SPREAD_WEAPON);
     const conv = { x: 0, y: 0, z: convergeDist }; // ORIGIN + FORWARD*convergeDist
     for (const pr of out) {
       // direction from the muzzle toward the convergence point, and the round's own direction
       const toConv = { x: conv.x - pr.pos.x, y: conv.y - pr.pos.y, z: conv.z - pr.pos.z };
       const lenToConv = Math.hypot(toConv.x, toConv.y, toConv.z);
-      const dir = { x: pr.vel.x / WEAPON.muzzleSpeed, y: pr.vel.y / WEAPON.muzzleSpeed, z: pr.vel.z / WEAPON.muzzleSpeed };
+      const dir = { x: pr.vel.x / NO_SPREAD_WEAPON.muzzleSpeed, y: pr.vel.y / NO_SPREAD_WEAPON.muzzleSpeed, z: pr.vel.z / NO_SPREAD_WEAPON.muzzleSpeed };
       expect(dir.x).toBeCloseTo(toConv.x / lenToConv, 6);
       expect(dir.y).toBeCloseTo(toConv.y / lenToConv, 6);
       expect(dir.z).toBeCloseTo(toConv.z / lenToConv, 6);
     }
+  });
+
+  it('deviates the aim by up to spreadDeg, uniformly around the convergence direction', () => {
+    // Long convergence range so the "true" aim direction is ~straight down the nose (+Z); any
+    // deviation observed is then attributable to spread alone.
+    const trials = 500;
+    const spreadRad = (WEAPON.spreadDeg * Math.PI) / 180;
+    let maxAngle = 0;
+    let sumAngle = 0;
+    for (let i = 0; i < trials; i++) {
+      const out: Projectile[] = [];
+      spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, 1e7);
+      const dir = { x: out[0].vel.x, y: out[0].vel.y, z: out[0].vel.z };
+      const len = Math.hypot(dir.x, dir.y, dir.z);
+      const cosAngle = dir.z / len; // dot with true aim (0,0,1)
+      const angle = Math.acos(Math.min(1, Math.max(-1, cosAngle)));
+      maxAngle = Math.max(maxAngle, angle);
+      sumAngle += angle;
+    }
+    // Never exceeds the weapon's cone (small numerical slack for float error).
+    expect(maxAngle).toBeLessThanOrEqual(spreadRad + 1e-9);
+    // With a real cone, some meaningful fraction of shots should land off-dead-center — this would
+    // be ~0 if applySpread were a no-op.
+    expect(sumAngle / trials).toBeGreaterThan(spreadRad * 0.1);
   });
 
   it('tags the round with the given owner and starts age at 0', () => {
