@@ -66,18 +66,31 @@ describe('spawnProjectileFrom', () => {
   });
 
   it('deviates the aim by up to spreadDeg, uniformly around the convergence direction', () => {
-    // Long convergence range so the "true" aim direction is ~straight down the nose (+Z); any
-    // deviation observed is then attributable to spread alone.
+    // Deviation is measured against each shot's OWN pre-spread aim — the line from its muzzle to the
+    // shared convergence point — not against the nose axis (+Z).
+    //
+    // Assuming +Z made this test flaky at ~5% of runs. A long convergence range makes the toe-in
+    // small but not zero: no mountIndex is passed, so every trial cycles to a different muzzle (see
+    // spawnProjectileFrom's fallback index), and a wing mount sitting 10.5 m off-axis while aiming
+    // 1e7 m ahead is toed in by ~1.05e-6 rad — a thousand times the 1e-9 float slack below. Measuring
+    // from +Z therefore reported toe-in + spread, so any trial that happened to draw a near-cone-edge
+    // deviation pointing the same way as its toe-in tripped the assertion. Taking the muzzle position
+    // from the returned round (out[0].pos) removes the bias exactly, without duplicating the
+    // production offset math or exporting MUZZLE_MOUNTS, and makes 1e-9 an honest float tolerance.
     const trials = 500;
+    const convergeDist = 1e7;
+    const conv = { x: 0, y: 0, z: convergeDist }; // ORIGIN + FORWARD*convergeDist
     const spreadRad = (WEAPON.spreadDeg * Math.PI) / 180;
     let maxAngle = 0;
     let sumAngle = 0;
     for (let i = 0; i < trials; i++) {
       const out: Projectile[] = [];
-      spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, 1e7);
+      spawnProjectileFrom(ORIGIN, ZERO_VEL, FORWARD, RIGHT, UP, 'player', out, convergeDist);
       const dir = { x: out[0].vel.x, y: out[0].vel.y, z: out[0].vel.z };
       const len = Math.hypot(dir.x, dir.y, dir.z);
-      const cosAngle = dir.z / len; // dot with true aim (0,0,1)
+      const aim = { x: conv.x - out[0].pos.x, y: conv.y - out[0].pos.y, z: conv.z - out[0].pos.z };
+      const aimLen = Math.hypot(aim.x, aim.y, aim.z);
+      const cosAngle = (dir.x * aim.x + dir.y * aim.y + dir.z * aim.z) / (len * aimLen);
       const angle = Math.acos(Math.min(1, Math.max(-1, cosAngle)));
       maxAngle = Math.max(maxAngle, angle);
       sumAngle += angle;
