@@ -620,22 +620,24 @@ html, body {
   position: fixed;
   width: 40px;
   pointer-events: none;
+  /* Scales with viewport height like the rest of the HUD's vw-relative left/right, but capped at
+     210px (its original fixed-px size, ==19.44vh at 1080p) — every other HUD element (stats panel
+     text, buttons, labels) is still fixed-px, so letting this grow past that on tall/UHD screens
+     makes the gauge balloon relative to everything next to it. */
+  --gauge-h: min(19.44vh, 210px);
 }
 
-/* Position the gauge container so its track (19.44vh tall, 210px/1080px) is centered on screen
-   middle. vh-relative (not fixed px) so it scales with the rest of the UI on tall/UHD screens,
-   mirroring the existing vw-relative left/right. */
-#speed-gauge { left: calc(50% - 10vw); top: calc(50% - 9.72vh); }
-#boost-gauge { right: calc(50% - 10vw); top: calc(50% - 9.72vh); }
+#speed-gauge { left: calc(50% - 10vw); top: calc(50% - var(--gauge-h) / 2); }
+#boost-gauge { right: calc(50% - 10vw); top: calc(50% - var(--gauge-h) / 2); }
 
-/* Track = dark background bar the fill sits on top of. Fills entire container (19.44vh) with no
-   offset — its center lands at screen middle because the container's top is at calc(50% - 9.72vh). */
+/* Track = dark background bar the fill sits on top of. Fills entire container with no offset —
+   its center lands at screen middle because the container's top is at calc(50% - var(--gauge-h)/2). */
 .gauge-track {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
   width: 6px;
-  height: 19.44vh;
+  height: var(--gauge-h);
   background: rgba(143, 211, 199, 0.08);
   border-radius: 3px;
 }
@@ -678,7 +680,7 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   width: 6px;
-  height: 19.44vh;
+  height: var(--gauge-h);
 }
 
 /* Each tick is a small horizontal line */
@@ -692,10 +694,10 @@ html, body {
   background: rgba(143, 211, 199, 0.4);
 }
 
-/* Label below the bar — sits just under the track bottom (which is at screen middle + 9.72vh) */
+/* Label below the bar — sits just under the track bottom */
 .gauge-label {
   position: absolute;
-  top: calc(19.44vh + 6px);        /* track height + 6px gap */
+  top: calc(var(--gauge-h) + 6px);        /* track height + 6px gap */
   left: 50%;
   transform: translateX(-50%);
   font-size: 12px;
