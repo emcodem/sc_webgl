@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { SmoothBloomPass } from './smoothBloomPass';
+import { DitheredOutputPass } from './ditheredOutputPass';
 import type { World, CelestialBody, EnemyShip, ShipBody, VisualEffect } from '../core/world';
 import type { Quat, Vec3 } from '../core/types';
 import type { FlightGate } from '../scenarios/types';
@@ -109,7 +109,7 @@ export class Renderer {
   private sunLight: THREE.DirectionalLight;
   private fillLight: THREE.DirectionalLight;
   private composer: EffectComposer;
-  private bloom: UnrealBloomPass;
+  private bloom: SmoothBloomPass;
   // `uTime` uniforms of any animated body material (the sun's photosphere + corona) — advanced from
   // the shared clock each frame in render() so their shaders churn in real time.
   private timeUniforms: { value: number }[] = [];
@@ -239,14 +239,20 @@ export class Renderer {
     // post: bloom (only bright things — sun, engine glow, bright stars) + tone-mapping output pass
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(
+    // SmoothBloomPass, not UnrealBloomPass: three's stock kernel is truncated at 1 sigma, which makes
+    // each mip a soft box — square-cornered, with a hard edge at its support boundary that reads as a
+    // ring in the sun's shine. Same width, same cost, actually Gaussian. See render/smoothBloomPass.ts.
+    this.bloom = new SmoothBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
       0.6,  // strength
       0.5,  // radius
       0.85  // luminance threshold — keep it high so only genuinely bright emitters glow
     );
     this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
+    // Tone-map + sRGB-encode to the 8-bit canvas, WITH dithering — the sun's glare is a very wide,
+    // very shallow gradient, and undithered it quantizes into visible contour rings on any display
+    // good enough to resolve single code values near black (see render/ditheredOutputPass.ts).
+    this.composer.addPass(new DitheredOutputPass());
 
     this.impacts = new ImpactEffects(this.scene);
 
