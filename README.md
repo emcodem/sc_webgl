@@ -76,6 +76,24 @@ On foot: mouse = look · `WASD` walk · `Space` jump · `F` board (when near the
 
 ---
 
+## Desktop build (Electron)
+
+The same build also runs as a native window via Electron — `index.html` / GitHub Pages stays the
+primary deployment target, this is additive.
+
+```bash
+npm run electron:dev      # Vite dev server + Electron pointed at it, live-reloading
+npm run electron:preview  # builds dist/ and opens it in Electron, no packaging
+npm run electron:build    # builds dist/ and packages an installer via electron-builder → release/
+```
+
+`electron/main.cjs` just opens `dist/index.html` (`file://`, no dev server) in a `BrowserWindow`
+with the native menu bar hidden — the game has its own F3 menu. No preload APIs are exposed;
+everything the app needs (pointer lock, fullscreen, gamepad, `<input type="file">`) is a standard
+web API that works unchanged under Electron's Chromium.
+
+---
+
 ## Architecture at a glance
 
 Three strictly-separated layers so "in a ship" vs "on foot" is a **mode over shared state**, not a
