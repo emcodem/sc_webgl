@@ -1,56 +1,91 @@
-# Vector — WebGL Universe
+# Vector — Star Citizen Dogfight Trainer
 
-A Newtonian, Star Citizen–inspired space sim rebuilt on **three.js / WebGL**, architected from the
-start to grow into a whole explorable universe: fly your ship, **get out and walk** on a moon,
-seamlessly, over one shared world.
+**Vector is a free, browser-based dogfight combat trainer for Star Citizen pilots.** It rebuilds
+Star Citizen's Gladius flight model from frame-counted, real-measured data and wraps it in a
+gunnery/maneuvering gym: aim-training drones, evasive and turret drills, AI fighter intercepts,
+barrel-roll escape courses, a bare PIP-tracking mode, and a flight recorder for reviewing your own
+runs — all running as a **three.js / WebGL** app with no install required.
 
 **▶ Play the live build: https://emcodem.github.io/sc_webgl/** (auto-deployed from `master` — see
 `.github/workflows/deploy.yml`). Requires a WebGL2 browser.
 
-This is the WebGL successor to the original 2D-canvas project at
+It's also architected to grow past pure trainer scope into a whole explorable universe: fly your
+ship, **get out and walk** on a moon, seamlessly, over one shared world. That expansion is real and
+playable today (see Milestones below) but the trainer is the reason this exists.
+
+This is the WebGL successor to an original 2D-canvas prototype at
 **`C:\dev\starcitizen_flightsim`** (referred to below as "the original"). It **reuses the original's
 frame-counted, real-measured Gladius flight model** but is otherwise a ground-up universe-scale
 architecture.
 
-> This README is the **pick-up-the-work handoff**. For architecture rationale and load-bearing
-> invariants, also read `CLAUDE.md` in this folder. The original's `CLAUDE.md` / `HANDOFF.md` remain
-> the source of truth for *why* the flight tuning is the way it is.
+> For architecture rationale and load-bearing invariants, read `CLAUDE.md` in this folder.
 
 ---
 
-## The goal
+## Why this exists
 
-A single game where the same world holds:
+Star Citizen's own flight/combat systems are hard to practice deliberately — you can't isolate
+"just the merge" or "just PIP tracking" without spinning up a full match. Vector reproduces the
+actual Gladius handling (thrust, drag, spool delays, speed governor — measured directly from the
+game, not guessed) and layers **training scenarios** on top of it, so you can drill specific
+skills in a tight loop:
+
+- **Aim training** — drone swarms with a lead-indicator PIP to track.
+- **Merge / evasive drills** — close, break, and reposition against a maneuvering bogey.
+- **Turret drills** — attack a stationary or ship-mounted turret.
+- **Fighter intercept** (rookie/ace) — a full AI dogfight opponent flying the same flight model.
+- **Barrel-roll gate-path courses** — precision-flying drills through ring gates while evading.
+- **PIP Trainer** — a ship-less bare aim-tracking drill, isolated from the flight model entirely.
+- **Flight Recorder (F6)** — a rolling background buffer plus manual recording, so you can scrub
+  back through a run, watch it in free camera, and export/share a `.vreplay` clip.
+
+You can also **import your real Star Citizen `actionmaps.xml`** (F4 → Controls) so the trainer uses
+your actual bindings, and it detects joystick/HOTAS hardware by USB vendor/product ID to cross-check
+against what your profile expects.
+
+---
+
+## The universe-scale goal
+
+Beyond the trainer, the same world is meant to hold:
 - **Newtonian ship flight** (the real Gladius handling), and
 - **On-foot movement** (walk on planets/moons/stations under local gravity), with
 - a **seamless transition** between them (leave the cockpit and walk around; climb back in),
 - at **universe scale** (a solar system that spans hundreds of millions of metres, and eventually
   more), rendered with real 3D graphics (lighting, materials, atmospheres, bloom).
 
-The long-term vision the user stated: "the game will become a whole universe … one can leave the
-ship, walk on a planet or station etc."
-
 ---
 
-## Where we are right now  (as of 2026-07-12)
+## Where we are right now
 
-**Milestone 1 — seamless ship ↔ on-foot — is DONE and verified in a real headless browser.**
+**Milestone 1 — seamless ship ↔ on-foot — DONE**, verified in a real headless browser. Spawn
+piloting the Gladius above a small moon (Cellin) with a sun, distant planet, and starfield. Press
+**F** near the surface to auto-land belly-down and step out; walk the moon's curved surface under
+radial gravity; **F** again by the ship to re-board and fly off.
 
-Playable loop today:
-1. Spawn **piloting** the Gladius above a small moon (Cellin), sun + distant planet + starfield.
-2. Fly with the ported flight model (settles at exactly 226 m/s SCM — confirmed).
-3. Press **F** near the surface → the ship **auto-lands belly-down** and you **step out**.
-4. **Walk** the moon's curved surface under radial gravity (mouse-look, WASD, jump).
-5. Press **F** by the ship → **climb back in** and fly off.
+**Visual-realism pass — DONE.** Filmic tone mapping (ACES) + bloom; procedurally displaced/mottled
+planets & moons with a Fresnel atmosphere rim; a layered sun (HDR limb-brightened core + warm
+corona billboards); glowing, size-varied stars. All asset-free (procedural/canvas-generated).
 
-**Visual-realism pass — DONE.** Filmic tone mapping (ACES) + **bloom**; procedurally
-displaced/mottled planets & moons with a **Fresnel atmosphere rim**; a proper **sun** (HDR
-limb-brightened core shader + layered warm corona billboards); glowing, size-varied stars. All
-asset-free (procedural / canvas-generated). The user is happy with the planets and the sun.
+**Combat & scenarios — DONE.** Weapons/projectiles, hit detection, lead-indicator PIP, always-on
+ESP aim-assist (dampens yaw/pitch near the lead solution, tuned to match real SC's feel), ship
+health/hitflash/respawn, and 8 data-driven training scenarios with results screens, reachable from
+the F3 menu's scenario picker. Enemy AI includes simple chaser/cruiser, orbiter/drifter, an MPC-based
+evasive dodge planner, and turret behavior.
+
+**Input & controls — DONE.** Keyboard/mouse (SC-style absolute virtual-joystick mouse-look with
+expo curve and deadzone), gamepad, and joystick/HOTAS support; a full F4 rebind panel with
+save/load/import/export presets and direct **actionmaps.xml import** from a real SC profile.
+
+**Flight Recorder — DONE.** Always-on rolling buffer + manual recording, scrubbable playback with
+free camera, `.vreplay` export/import for sharing clips.
+
+**Desktop build — DONE.** Runs as a native window via Electron alongside the primary web deploy.
 
 **Known-crude / next up:** the **ship model** (still boxy primitives — the biggest remaining
-eyesore) and close-up moon-surface detail (kept deliberately subtle so the visual surface stays
-matched to the collision sphere).
+eyesore) and close-up moon-surface detail; station-interior walking, atmosphere/terrain, and
+universe streaming (bodies are currently a static list) are not built yet — see `CLAUDE.md` for
+the full scope boundary.
 
 ---
 
@@ -66,13 +101,18 @@ npm run build    # tsc typecheck gate + static build to dist/
 Requires a WebGL2 browser. Only runtime dependency: **three.js** (`^0.169`).
 
 ### Controls
+
 **Click** the view to capture the mouse.
 
 Flying: mouse = aim (yaw/pitch) · `W`/`S` throttle · `A`/`D` roll · `Q`/`E` yaw · arrows = strafe
 (L/R + up/down) · `Shift` boost · `Space` brake · `C` decouple · `F` disembark (auto-lands near a
-surface).
+surface) · fire with mouse click.
 
 On foot: mouse = look · `WASD` walk · `Space` jump · `F` board (when near the ship).
+
+Top-right toggle bar: **F1** restart · **F2** fullscreen · **F3** menu / scenario picker · **F4**
+controls (rebinding, actionmaps import, joystick detection, mouse/ESP tuning) · **F6** flight
+recorder.
 
 ---
 
@@ -92,6 +132,11 @@ with the native menu bar hidden — the game has its own F3 menu. No preload API
 everything the app needs (pointer lock, fullscreen, gamepad, `<input type="file">`) is a standard
 web API that works unchanged under Electron's Chromium.
 
+Pushing a `v*` tag (e.g. `v0.1.0`) triggers `.github/workflows/electron-release.yml`, which builds
+Windows/macOS/Linux installers (unsigned) and attaches them to a GitHub Release for that tag. The
+workflow can also be run manually via `workflow_dispatch` to smoke-test packaging without cutting
+a release.
+
 ---
 
 ## Architecture at a glance
@@ -106,12 +151,16 @@ core/       renderer-agnostic sim state — ABSOLUTE f64 world coords, NO three.
   world.ts    World, CelestialBody, ShipBody, Player (mode: 'pilot' | 'onfoot')
   player.ts   makeWorld() / makeShipBody()
 math/        vec.ts, quaternion.ts             (ported + universe-scale helpers)
-physics/     flightModel.ts (PORTED VERBATIM), shipTypes.ts (PORTED), characterController.ts (NEW)
-world/       celestial.ts — starter system (SUN, PLANET, MOON) + SPAWN, as data
-input/       input.ts — minimal keyboard held/justPressed + pointer-lock mouse deltas
+physics/     flightModel.ts (PORTED VERBATIM), shipTypes.ts (PORTED), characterController.ts
+world/       celestial.ts — starter system (SUN, PLANET, MOON) + SPAWN, plus the bright-star catalog
+input/       keyboard/mouse/gamepad/joystick, actionmaps.xml import, rebind presets
 control/     pilot.ts, foot.ts (input -> physics), mode.ts (F/C edges, exit/enter + auto-land)
+combat/      weapons, hit detection, lead-indicator PIP, ESP assist, enemy AI, PIP Trainer
+scenarios/   data-driven training scenarios (definitions, runtime, gate-path courses)
+replay/      rolling-buffer + manual recorder, playback, .vreplay import/export
 render/      renderer.ts (three.js + floating-origin sync + bloom), camera.ts, meshes.ts, noise.ts
-hud/         hud.ts — minimal DOM overlay
+ui/          F3 scenario menu, F4 controls panel, F6 replay panel, main menu
+hud/         hud.ts — DOM + canvas + SVG overlay (flight stats, scenario/PIP-trainer panels, ESP ring)
 main.ts      bootstrap + RAF loop (dt clamped to 50 ms, matching the original)
 ```
 
@@ -126,102 +175,37 @@ Two things that will bite you if you don't know them (both detailed in `CLAUDE.m
 
 ---
 
-## PORTED from the original — in detail
+## Ported from the original — flight model provenance
 
-Everything here was carried over from `C:\dev\starcitizen_flightsim`. "Verbatim" means copied with
-only import-path changes; "adapted" means reshaped for the new architecture.
+The Newtonian flight model and its constants were carried over from `C:\dev\starcitizen_flightsim`,
+where they were fit to frame-counted, real-Star-Citizen measurements of the Gladius.
 
 | New file | From original | Status | Notes |
 | --- | --- | --- | --- |
 | `src/physics/flightModel.ts` | `src/physics/flightModel.ts` | **Verbatim** | `integrateFlight` + `resolveBoost`, and the `FlightBody`/`FlightInputs` shapes. The complete Newtonian model: shared rotational-authority budget, per-axis angular thrust/drag (drag from tick-start angVel), snap-to-zero floor, per-direction engine **spool delays** (main/retro/vertical), **space brake** (combined-axis velocity controller), **coastDecel** flat coast, proportional drag while thrusting, and the **flight-computer speed governor**. |
 | `src/physics/shipTypes.ts` | `src/ship/shipTypes.ts` | **Verbatim** (values) | The `Gladius` `ShipType` with every measured constant. Full measurement provenance was summarised into the file's comment; the original file has the exhaustive frame-by-frame traces. |
-| `src/core/types.ts` | `src/types.ts` | **Adapted** | Ported the value types the flight model needs: `Vec3`, `Quat`, `AngularState`, `ShipType`. (The original's combat/AI/input/binding types were **not** brought over — see below.) |
-| `src/math/vec.ts` | `src/math/vec.ts` | **Verbatim + extended** | `clamp`, `addScaled`, `cross`, `normalize` verbatim. **Added** (new): `dot`, `sub`, `add`, `scale`, `length`, `clone`, `projectOntoPlane`, `rotateAboutAxis` for the character controller. |
-| `src/math/quaternion.ts` | `src/math/quaternion.ts` | **Verbatim (subset)** | `quatMultiply`, `quatNormalize`, `rotateVecByQuat`, `integrateOrientation`, `computeAxes`, `lookAtQuat`, `quatFromAxes`, `slerp`. **NOT** ported: `rotateTowards` (was AI-facing — bring it over when enemy AI is ported). |
-| `tests/shipTuning.test.ts` | `tests/shipTuning.test.ts` (+ deriveShipType) | **Adapted** | Guards the ported invariants (`angularThrust==maxAngVel*angularDrag`, boost derivations, verticalDown==verticalUp/2) plus a behavioural check that full throttle settles at `scmSpeed`. |
+| `src/core/types.ts` | `src/types.ts` | **Adapted** | Ported the value types the flight model needs: `Vec3`, `Quat`, `AngularState`, `ShipType`. |
+| `src/math/vec.ts` | `src/math/vec.ts` | **Verbatim + extended** | `clamp`, `addScaled`, `cross`, `normalize` verbatim, plus universe-scale/character-controller additions (`dot`, `sub`, `add`, `scale`, `length`, `clone`, `projectOntoPlane`, `rotateAboutAxis`). |
+| `src/math/quaternion.ts` | `src/math/quaternion.ts` | **Verbatim (subset)** | `quatMultiply`, `quatNormalize`, `rotateVecByQuat`, `integrateOrientation`, `computeAxes`, `lookAtQuat`, `quatFromAxes`, `slerp`, plus `rotateTowards` for AI steering. |
+| `tests/shipTuning.test.ts` | `tests/shipTuning.test.ts` | **Adapted** | Guards the ported invariants (`angularThrust==maxAngVel*angularDrag`, boost derivations, verticalDown==verticalUp/2) plus a behavioural check that full throttle settles at `scmSpeed`. |
 
-**Ported concepts / behaviours (not files):**
-- `dt` clamped to 50 ms in the main loop (matches the original).
-- Quaternion-only ship attitude, body-frame integration (load-bearing invariant).
-- First-person camera with **no offset** (in pilot mode the camera sits at the ship origin; the ship
-  mesh is hidden while flying — same as the original's cockpit-less first person).
-- Additive input philosophy (currently only keyboard+mouse are summed; joystick not yet present).
-- Decoupled = edge toggle; space brake = hold — kept distinct.
+**Ported concepts/behaviours (not files):** `dt` clamped to 50 ms; quaternion-only ship attitude
+with body-frame integration (load-bearing); first-person camera with no offset (ship mesh hidden
+while piloting, same as the original's cockpit-less first person); additive input summing across
+device types; decoupled as an edge toggle vs. space brake as a hold, kept distinct.
 
----
-
-## NOT yet ported from the original — in detail
-
-These exist in the original and are **absent** here. This is the backlog. None of it should require
-changing the layer boundaries above.
-
-### Combat & weapons (entirely absent)
-| Original module | What it does |
-| --- | --- |
-| `world/weapons.ts` | Projectiles, firing, `updateProjectiles`. |
-| `combat/health.ts` | Generic points/damage pool. |
-| `combat/hitDetection.ts` | Sphere-test projectile hit resolution by owner. |
-| `combat/leadIndicator.ts` | Firing-solution intercept math for the PIP. |
-| `combat/pipTargeting.ts` | Active-PIP selection + screen projection. |
-| `combat/espAssist.ts` | ESP aim-damping near a PIP. |
-| `combat/enemyAI.ts` | All enemy behaviours: turret / fighter / chaser / orbiter / drifter / cruiser / evasive (+ their tuning presets). |
-| `combat/pipTrainer.ts` | Bare PIP aim-tracking trainer mode. |
-
-### Scenarios (entirely absent)
-| Original module | What it does |
-| --- | --- |
-| `scenarios/types.ts`, `definitions.ts`, `runtime.ts`, `gatePath.ts` | Data-driven training scenarios: enemy spawns, win/lose conditions, gate paths, results. |
-| `EnemyShip` type & derived-ship scaling (`ship/deriveShipType.ts`) | Scenario opponents that fly on the same flight model. |
-
-### Input stack (replaced by a minimal version)
-The original has a full device/rebinding stack; here `input/input.ts` is a **deliberately minimal**
-keyboard-held/justPressed + pointer-lock relative-mouse surface. **Not ported:**
-| Original module | What it does (missing here) |
-| --- | --- |
-| `input/controlsModule.ts` | Keybinds, **actionmaps.xml** parsing, chord resolution. |
-| `input/mouseLook.ts` | Pointer-Lock **absolute** virtual-stick mouse-flight (here it's simple relative aim). |
-| `input/gamepadModule.ts`, `joystickAxes.ts`, `joystickButtons.ts`, `deviceState.ts` | **Joystick / gamepad / HOTAS** support. |
-| `input/mouseButtons.ts` | Mouse-button action bindings. |
-| `input/configRegistry.ts`, `presetStore.ts` | Control **presets** save/load/import/export. |
-| `input/touchInput.ts` | Touch / gyro input. |
-
-### UI (entirely absent)
-| Original module | What it does |
-| --- | --- |
-| `ui/scenarioMenu.ts` | Main-menu / scenario picker / results screen. |
-| `ui/startupModal.ts` | Browser-compat + Ctrl-safety modal. |
-| `ui/fullscreenGuard.ts` | Fullscreen + Ctrl-key guard, keydown/keyup wiring. |
-| `ui/mouseCapture.ts` | Click-to-capture + firing wiring (a tiny slice is reimplemented in `input.ts`). |
-| `ui/controlsPanel/*` | Full rebind UI: presets, actionmaps import, bindings table, joystick detection. |
-| `ui/modeToggle.ts`, `espSettingsUI.ts`, `deviceDetect.ts`, `touchControls.ts` | Coupled/decoupled flag, ESP settings, device detection, on-screen touch controls. |
-
-### Rendering & HUD (replaced by three.js — original 2D canvas NOT ported)
-The original `render/render.ts` + `render/projection.ts` (hand-rolled 2D perspective) are **fully
-replaced** by the three.js layer. The rich 2D HUD/overlays are **not** ported: PIP reticle, lead
-indicator, total-velocity indicator, off-screen enemy arrows, drone contrails, explosions, hit-flash,
-range bubble, gate-path overlay, space dust, beacon field, reference grid/pillars, and the detailed
-flight/scenario HUD readouts. Here `hud/hud.ts` is a minimal DOM overlay (mode + speed/throttle/
-boost/brake or ground/stance).
-
-### Misc
-- `ship/decoupledPersist.ts` (persisting the decouple toggle) — here it's a plain in-memory toggle.
-- Ship `health`/explosion/respawn wiring — absent (no combat yet).
+Combat, scenarios, the full input/rebind stack, and the flight recorder all started life in the
+original project too, but have since been substantially rebuilt or extended for this architecture
+rather than kept as a straight port — `CLAUDE.md`'s Scenarios section has the current file map.
 
 ---
 
-## NEW in this project (not in the original)
+## Not yet built (scope boundary)
 
-- **three.js render layer** (`render/`): camera-relative floating origin, logarithmic depth buffer,
-  ACES tone mapping, UnrealBloom, `setCameraBasis`/`setObjectBasis` convention seam.
-- **Procedural celestial rendering** (`render/meshes.ts` + `render/noise.ts`): fBm value-noise
-  surface displacement + colour mottling, Fresnel atmosphere shell, HDR sun core shader + corona
-  billboards, shader starfield.
-- **On-foot character controller** (`physics/characterController.ts`): nearest-walkable-body radial
-  gravity, spherical-surface collision, tangent-plane movement, curved-surface first-person look.
-- **Seamless mode transition** (`control/mode.ts`): exit/enter ship over one shared `Player`, with
-  auto-land onto a nearby surface (or zero-g EVA float otherwise).
-- **Universe-scale world** (`core/world.ts`, `world/celestial.ts`): absolute f64 coordinates,
-  `CelestialBody` data model.
+Real ship/character/station **models** (currently procedural primitives), **station-interior**
+walking, **atmosphere/terrain**, **universe streaming** (bodies are a static list), and a near-field
+obstacle/hazard concept are the genuinely outstanding pieces. None of these should require changing
+the layer boundaries above. See `CLAUDE.md` for the exhaustive list.
 
 ---
 
@@ -248,7 +232,6 @@ browser (same recipe as the original's `.claude/skills/verify`):
 - **Node 20.18** is installed; Vite 7 prints a "wants 20.19+" warning but builds/serves fine.
 - The **Bash tool resets cwd on `cd`** — run local binaries directly via PowerShell, e.g.
   `& "C:\dev\sc_webgl\node_modules\.bin\tsc.cmd" -p C:\dev\sc_webgl\tsconfig.json --noEmit`.
-- No git repo initialised yet (a `.gitignore` is in place). Ask before committing.
 
 ---
 
@@ -256,8 +239,7 @@ browser (same recipe as the original's `.claude/skills/verify`):
 
 1. **Ship model** — the current boxy primitive is the biggest visual weakness. Either a much richer
    procedural Gladius or a real glTF asset (get user sign-off before pulling third-party files).
-2. **Port combat** — weapons/projectiles → hit detection → lead/PIP → enemy AI → scenarios (bring
-   `rotateTowards` over with the AI). Large, but the flight model it rides on is already here.
+2. **More ships** — the flight model and scenario/AI system are ship-agnostic; adding SC ships
+   beyond the Gladius mostly means measuring and porting more `ShipType` data.
 3. **Richer on-foot** — station structures, non-sphere (mesh/box) surface collision, jetpack/EVA.
-4. **Input parity** — re-layer joystick/gamepad + rebinding + presets on top of `input/input.ts`.
-5. **Universe** — more bodies, body streaming, larger distances, docking.
+4. **Universe** — more bodies, body streaming, larger distances, docking.
