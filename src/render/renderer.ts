@@ -18,6 +18,7 @@ import { ImpactEffects } from './impactEffects';
 import { setCameraBasis, setObjectBasis } from './camera';
 import { cloneShip, loadShipTemplate, SHIP_MODEL_NAMES, type ShipModelName } from './shipModels';
 import { loadEuropaTemplate, loadMeteoriteField, loadMeteoriteTemplate } from './celestialModels';
+import type { InstancedField } from './instancedField';
 import * as FreeCamera from '../control/freeCamera';
 import * as ReplayPlayer from '../replay/player';
 
@@ -32,6 +33,12 @@ const TRAIL_WINDOW_SEC = 3;
 // outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
 const LASER_COLOR = 0xff2a2a;
 
+// Resolution of the bloom blur chain's largest mip, as a fraction of the drawing buffer — see the
+// explicit re-size in resize(). 1/3 matches what the pass was already effectively running at on a
+// dpr-1.5 display, so this is a clarification of existing behaviour rather than a quality change;
+// raise it toward 1/2 (three.js's own default) for a tighter glow at proportionally more GPU cost.
+const BLOOM_MIP0_FRACTION = 1 / 3;
+
 // (The PIP Trainer's target marker is a DOM overlay — hud.ts's updatePipTrainerMarker, sharing
 // #pip-marker's fixed-pixel diamond style with the real combat PIP — not a 3D mesh here, so its
 // on-screen size is genuinely constant regardless of the target's world-space distance.)
@@ -39,13 +46,18 @@ const LASER_COLOR = 0xff2a2a;
 // Release the GPU-side geometry + material(s) of an object and its whole subtree. three.js does
 // NOT free these on scene.remove(), so any mesh torn down at runtime (enemy/gate rebuilds on every
 // scenario switch, async model swaps) must be routed through here or its buffers leak unbounded.
-// Meshes tagged `userData.sharedGeom` (cloneArrow instances) share their geometry with a cached
-// template across every clone — only their per-instance materials get disposed, never the geometry.
+//
+// Meshes tagged `userData.sharedAssets` (cloneShip instances) share BOTH their geometry and their
+// materials with a module-level cached template that every other clone also references — see
+// render/shipModels.ts::cloneShip. Disposing either would pull the textures and buffers out from
+// under every remaining ship (and the template itself, which is never rebuilt), so such a subtree is
+// removed from the scene without freeing anything. The template's own GPU resources intentionally
+// live for the page's lifetime.
 function disposeObject3D(obj: THREE.Object3D): void {
-  const keepGeometry = obj.userData.sharedGeom === true;
+  if (obj.userData.sharedAssets === true) return;
   obj.traverse((node) => {
     const mesh = node as Partial<THREE.Mesh>;
-    if (!keepGeometry) mesh.geometry?.dispose();
+    mesh.geometry?.dispose();
     const mat = mesh.material;
     if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
     else mat?.dispose();
@@ -92,7 +104,7 @@ export class Renderer {
   private emittedImpacts = new WeakSet<VisualEffect>();
   private starfield: THREE.Points;
   private spaceDust: SpaceDust;
-  private meteoriteFieldMesh: THREE.InstancedMesh | null = null;
+  private meteoriteField: InstancedField | null = null;
   private meteoriteFieldCenter: Vec3 | null = null;
   private sunLight: THREE.DirectionalLight;
   private fillLight: THREE.DirectionalLight;
@@ -103,8 +115,16 @@ export class Renderer {
   private timeUniforms: { value: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement, world: World) {
+    // antialias is deliberately OFF, and turning it on would not antialias anything: the scene is
+    // drawn into the EffectComposer's own render target (see the composer below), whose `samples` is
+    // 0, and the ONLY thing that ever touches the canvas's default framebuffer is OutputPass's final
+    // full-screen quad — which has no interior edges to multisample. Requesting antialias here
+    // therefore allocated a 4x-MSAA default framebuffer (measured: SAMPLES=4 at 3795x1929, ~117 MB
+    // of colour plus as much depth) that only a single flat quad was ever resolved through: pure
+    // cost, zero effect. To actually get MSAA, set `this.composer.renderTarget1.samples = 4` (and
+    // renderTarget2's) so the SCENE is multisampled, or add an SMAAPass to the chain.
     this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: true, logarithmicDepthBuffer: true
+      canvas, antialias: false, logarithmicDepthBuffer: true
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     // filmic tone mapping + sRGB output (via OutputPass at the end of the composer) turns the flat
@@ -148,13 +168,13 @@ export class Renderer {
       });
 
       // a scattered field of smaller copies of the same rock around it (see
-      // celestialModels.ts::loadMeteoriteField's doc comment on how 80 instances cost about as
-      // much as 1) — positioned every frame in render() below, same floating-origin convention as
-      // every other object in the scene.
+      // celestialModels.ts::loadMeteoriteField — one draw call, decimated per-instance geometry, and
+      // real frustum culling) — positioned every frame in render() below, same floating-origin
+      // convention as every other object in the scene.
       this.meteoriteFieldCenter = meteoriteBody.pos;
       loadMeteoriteField().then((field) => {
-        this.meteoriteFieldMesh = field;
-        this.scene.add(field);
+        this.meteoriteField = field;
+        this.scene.add(field.group);
       });
     }
 
@@ -243,8 +263,18 @@ export class Renderer {
   resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
+    // composer.setSize takes CSS pixels and scales its targets (and every pass) by the renderer's
+    // pixel ratio internally, so this is the full-resolution setup for the scene target.
     this.composer.setSize(w, h);
-    this.bloom.setSize(w, h);
+    // Bloom is then deliberately re-sized DOWN, as a fixed fraction of the real DRAWING BUFFER.
+    // This line used to pass (w, h) — CSS pixels — which silently undid the composer's pixel-ratio
+    // scaling above, so the blur chain's resolution depended on the display's DPR (1/3 of the
+    // drawing buffer at dpr 1.5, 1/4 at dpr 2) rather than on any decision. A wide blur genuinely
+    // does not need full resolution, so the reduction is kept — but expressed against the buffer
+    // it blurs, so it is the same on every display. UnrealBloomPass halves whatever size it is
+    // given to form mip 0, hence the factor of 2.
+    const dpr = this.renderer.getPixelRatio();
+    this.bloom.setSize(2 * w * dpr * BLOOM_MIP0_FRACTION, 2 * h * dpr * BLOOM_MIP0_FRACTION);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   }
@@ -279,9 +309,9 @@ export class Renderer {
       if (mesh) mesh.position.set(body.pos.x - eye.x, body.pos.y - eye.y, body.pos.z - eye.z);
     }
 
-    if (this.meteoriteFieldMesh && this.meteoriteFieldCenter) {
+    if (this.meteoriteField && this.meteoriteFieldCenter) {
       const c = this.meteoriteFieldCenter;
-      this.meteoriteFieldMesh.position.set(c.x - eye.x, c.y - eye.y, c.z - eye.z);
+      this.meteoriteField.group.position.set(c.x - eye.x, c.y - eye.y, c.z - eye.z);
     }
 
     const ship = world.player.ship;
@@ -435,8 +465,9 @@ export class Renderer {
     const template = this.shipTemplates.get(model as ShipModelName);
     if (!template) return new THREE.Group(); // placeholder until this model loads
     const mesh = cloneShip(template);
-    // cloneShip instances share the template geometry — mark so teardown disposes only materials
-    mesh.userData.sharedGeom = true;
+    // cloneShip instances share the template's geometry AND materials — mark so teardown frees
+    // neither (see disposeObject3D)
+    mesh.userData.sharedAssets = true;
     return mesh;
   }
 

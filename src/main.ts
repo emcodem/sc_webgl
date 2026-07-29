@@ -43,6 +43,10 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
 // Expose live state for headless/browser verification (see the original project's verify skill).
 (window as unknown as { __world: typeof world }).__world = world;
 
+// Same convention -- exposes the render layer for GPU performance profiling (A/B toggling bloom,
+// individual scene objects, post-processing) from a headless/headed browser harness.
+(window as unknown as { __renderer: typeof renderer }).__renderer = renderer;
+
 // Debug hook for headless verification, same convention as __world above — lets a test script
 // jump straight to a named scenario (see scenarios/definitions.ts's SCENARIOS ids) without driving
 // the F3 menu's DOM.

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EUROPA, METEORITE } from '../world/celestial';
+import { InstancedField, type FieldSource } from './instancedField';
 
 // ============================================================================================
 // Real glTF celestial-body models, loading in alongside the procedural primitives in meshes.ts —
@@ -116,87 +117,66 @@ export function loadEuropaTemplate(): Promise<THREE.Object3D> {
 
 // ---------- Reusing the same rock 50-100x without either a perf hit or visible repetition ----------
 // A THREE.InstancedMesh draws every instance in ONE GPU draw call sharing one geometry/material, so
-// the cost of 80 rocks is roughly the cost of 1 — the alternative (this project's usual
-// `template.clone(true)` pattern, see shipModels.ts's cloneArrow) would instead cost one full draw
-// call per instance. Visual variety comes entirely from per-instance data (transform + a subtle
-// brightness tint via instanceColor), not from any per-instance geometry difference, which is what
-// keeps a shared mesh from reading as a wall of identical clones.
+// the cost of 80 rocks is roughly the cost of 1 DRAW — but emphatically not of 1 rock's worth of
+// GEOMETRY: a draw call still submits every triangle it covers. Instancing the 100k-triangle scan
+// 80 times submitted 8,000,000 triangles per frame, measured at ~64% of the entire GPU frame.
+//
+// So the field is built through render/instancedField.ts, which decimates the source to a per-
+// instance triangle budget (render/geometryLOD.ts) and keeps THREE.InstancedMesh's own instance
+// bounding sphere current so frustum culling actually works. Everything below is parameters — count,
+// spread, size range, budget — and the field accepts several different source rocks, so growing or
+// changing the rock set needs no new code here.
 const FIELD_COUNT = 80;
+const FIELD_CAPACITY = 256;      // headroom so the count can be raised at runtime without a rebuild
 const FIELD_SPREAD_RADIUS = 450; // metres — scatter volume around the field's center
 const FIELD_MIN_SCALE = 0.15;    // relative to the single big rock's own 60m normalized scale
 const FIELD_MAX_SCALE = 0.6;     // (so field rocks range roughly 9m-36m — smaller than the "main" rock)
 
-// Ken Shoemake's uniform-random-rotation formula. three.js's Quaternion has no built-in "random"
-// method, and naively randomizing Euler angles per axis clusters orientations near the poles
-// instead of distributing them evenly over all possible rotations.
-function randomQuaternion(): THREE.Quaternion {
-  const u1 = Math.random(), u2 = Math.random(), u3 = Math.random();
-  const s1 = Math.sqrt(1 - u1), s2 = Math.sqrt(u1);
-  return new THREE.Quaternion(
-    s1 * Math.sin(2 * Math.PI * u2),
-    s1 * Math.cos(2 * Math.PI * u2),
-    s2 * Math.sin(2 * Math.PI * u3),
-    s2 * Math.cos(2 * Math.PI * u3)
-  );
-}
+// Triangles per field instance. These render 9-36 m across — a few hundred pixels at typical
+// range — so the scan's full 100k is roughly 100x more than the silhouette can show. 3000 keeps the
+// lumpy profile that makes the rocks read as irregular while cutting the field's geometry load ~33x.
+// The one hero rock (loadMeteoriteTemplate, flown right up to) is deliberately left at full detail.
+const FIELD_TRIANGLES_PER_INSTANCE = 3000;
 
-// Scatters `count` copies of the meteorite's geometry/material into a single InstancedMesh.
-// Positions are relative to (0,0,0), NOT to the absolute world `center` — the caller repositions
-// the returned mesh every frame as `center - cameraEye` (see render/renderer.ts), the same
-// floating-origin convention every other object in the scene follows, rather than baking an
-// absolute world position into the instance transforms themselves.
-export async function loadMeteoriteField(
-  count = FIELD_COUNT,
-  spreadRadius = FIELD_SPREAD_RADIUS
-): Promise<THREE.InstancedMesh> {
-  const wrapper = await loadMeteoriteTemplate();
+// Pulls the one instanceable mesh out of a loaded model wrapper, baking the wrapper-relative
+// transform (the axis correction + recentering applied at load) into a CLONED geometry so the
+// original — still displayed as the full-detail hero body — is never mutated. The wrapper's own
+// size-normalizing scale is returned separately as `baseScale` rather than baked in, since each
+// instance multiplies it by its own random size variation.
+function toFieldSource(wrapper: THREE.Object3D): FieldSource {
   let found: THREE.Mesh | null = null;
   wrapper.traverse((o) => { if (!found && o instanceof THREE.Mesh) found = o; });
-  if (!found) throw new Error('meteorite template has no mesh to instance');
+  if (!found) throw new Error('model template has no mesh to instance');
   const sourceMesh: THREE.Mesh = found;
 
-  // Bake the source mesh's transform relative to the wrapper — the root axis-correction rotation
-  // plus the recentering translation loadMeteorite applied — into a CLONED geometry. Cloned so this
-  // never mutates the shared geometry the single big rock (renderer.ts's meteoriteBody branch)
-  // still displays. The wrapper's own size-normalizing scale is deliberately excluded here; it's
-  // reapplied per-instance below, multiplied by each instance's own random size variation.
   wrapper.updateMatrixWorld(true);
   const wrapperInverse = new THREE.Matrix4().copy(wrapper.matrixWorld).invert();
   const localMatrix = new THREE.Matrix4().multiplyMatrices(wrapperInverse, sourceMesh.matrixWorld);
   const geometry = sourceMesh.geometry.clone();
   geometry.applyMatrix4(localMatrix);
 
-  const baseScale = wrapper.scale.x; // uniform — set via setScalar in loadMeteorite
+  return { geometry, material: sourceMesh.material, baseScale: wrapper.scale.x };
+}
 
-  const mesh = new THREE.InstancedMesh(geometry, sourceMesh.material, count);
-  const dummy = new THREE.Object3D();
-  const color = new THREE.Color();
-  for (let i = 0; i < count; i++) {
-    // a uniform-density point inside a solid sphere: cbrt(random) for the radius avoids the
-    // clustering-toward-the-center a plain `random() * spreadRadius` would produce
-    const theta = Math.acos(2 * Math.random() - 1);
-    const phi = 2 * Math.PI * Math.random();
-    const r = spreadRadius * Math.cbrt(Math.random());
-    dummy.position.set(
-      r * Math.sin(theta) * Math.cos(phi),
-      r * Math.sin(theta) * Math.sin(phi),
-      r * Math.cos(theta)
-    );
-    dummy.quaternion.copy(randomQuaternion());
-    const scaleMul = FIELD_MIN_SCALE + Math.random() * (FIELD_MAX_SCALE - FIELD_MIN_SCALE);
-    dummy.scale.setScalar(baseScale * scaleMul);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-
-    const brightness = 0.8 + Math.random() * 0.4;
-    mesh.setColorAt(i, color.setScalar(brightness));
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  // Scattered over hundreds of metres around a point far from the mesh's own local origin — a
-  // correct bounding sphere would need real computing, and at only ~100 instances the draw cost of
-  // simply never culling is negligible, so skip that and always draw.
-  mesh.frustumCulled = false;
-
-  return mesh;
+// Scatters `count` rocks around the field's own local origin — NOT around the absolute world center.
+// The caller repositions the returned field every frame as `center - cameraEye` (see
+// render/renderer.ts), the same floating-origin convention every other object in the scene follows.
+//
+// Extra rock models drop in by appending their loaded wrappers to `extraSources`: instances are
+// dealt round-robin across all sources, each decimated to the same budget.
+export async function loadMeteoriteField(
+  count = FIELD_COUNT,
+  spreadRadius = FIELD_SPREAD_RADIUS,
+  extraSources: Promise<THREE.Object3D>[] = []
+): Promise<InstancedField> {
+  const wrappers = await Promise.all([loadMeteoriteTemplate(), ...extraSources]);
+  return new InstancedField({
+    sources: wrappers.map(toFieldSource),
+    count,
+    capacity: Math.max(FIELD_CAPACITY, count),
+    spreadRadius,
+    minScale: FIELD_MIN_SCALE,
+    maxScale: FIELD_MAX_SCALE,
+    targetTrianglesPerInstance: FIELD_TRIANGLES_PER_INSTANCE,
+  });
 }

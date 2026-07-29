@@ -45,6 +45,54 @@ const statsDestroyedRowsEl = document.getElementById('stats-destroyed-rows') as 
 
 const el = (id: string) => document.getElementById(id) as HTMLElement;
 
+// ---------- Dirty-checked DOM writes ----------
+// updateHUD runs every frame and pushes ~100 values into the DOM, the overwhelming majority of which
+// are unchanged from the previous frame (a ship name, a mass, a row's display mode, a readout that
+// only moves every few frames). Writing them anyway is not free: assigning `textContent` replaces the
+// text node and assigning `className`/`setAttribute` dirties style, so each redundant write
+// re-invalidates layout/paint for that element and the compositor re-rasters the HUD layer.
+//
+// These helpers skip the write when the value is identical to the last one written through them, which
+// turns almost the whole per-frame HUD update into a set of cheap comparisons. Elements are keyed in
+// WeakMaps, so nothing here keeps a removed node alive.
+//
+// Measured context: at the 60fps vsync cap this was NOT a bottleneck (the HUD was well inside budget).
+// It becomes one exactly when the frame rate is unlocked — an unthrottled loop re-rasterising this
+// layer every iteration is what starves Chrome's compositor, so the render loop can report >1000fps
+// while the display only receives single-digit frames per second. Keeping the writes dirty-checked is
+// what makes the HUD's cost scale with what actually changed rather than with the frame rate.
+const lastText = new WeakMap<Element, string>();
+function setText(target: Element, value: string): void {
+  if (lastText.get(target) === value) return;
+  lastText.set(target, value);
+  target.textContent = value;
+}
+
+const lastClass = new WeakMap<Element, string>();
+function setClass(target: Element, value: string): void {
+  if (lastClass.get(target) === value) return;
+  lastClass.set(target, value);
+  target.className = value;
+}
+
+const lastStyle = new WeakMap<Element, Map<string, string>>();
+function setStyle(target: HTMLElement | SVGElement, prop: string, value: string): void {
+  let props = lastStyle.get(target);
+  if (!props) { props = new Map(); lastStyle.set(target, props); }
+  if (props.get(prop) === value) return;
+  props.set(prop, value);
+  (target.style as unknown as Record<string, string>)[prop] = value;
+}
+
+const lastAttr = new WeakMap<Element, Map<string, string>>();
+function setAttr(target: Element, name: string, value: string): void {
+  let attrs = lastAttr.get(target);
+  if (!attrs) { attrs = new Map(); lastAttr.set(target, attrs); }
+  if (attrs.get(name) === value) return;
+  attrs.set(name, value);
+  target.setAttribute(name, value);
+}
+
 const hudCanvasEl = document.getElementById('hud-canvas') as HTMLCanvasElement;
 const hudCtx = hudCanvasEl.getContext('2d');
 
@@ -81,7 +129,7 @@ export function updateHUD(world: World): void {
   updateRecordingIndicator();
 
   crosshairEl.classList.toggle('hit', world.hitMarkerTimer > 0);
-  damageFlashEl.style.opacity = String(ship.hitFlash * 0.8);
+  setStyle(damageFlashEl, 'opacity', String(ship.hitFlash * 0.8));
   updatePipMarker(world);
   updatePipTrainerMarker(world);
   updateFlightRings(world);
@@ -97,7 +145,7 @@ export function updateHUD(world: World): void {
     const status = getStatusMessage();
     if (status) {
       hintEl.classList.remove('hidden');
-      hintEl.textContent = status;
+      setText(hintEl, status);
     } else {
       hintEl.classList.add('hidden');
     }
@@ -113,12 +161,12 @@ function initGauges(): void {
   for (let i = 0; i <= 10; i++) {
     const pct = `${(i / 10) * 100}%`;
     const tick = document.createElement('div');
-    tick.className = 'tick';
+    tick.className = 'tick'; // freshly created element, nothing to dirty-check against
     tick.style.setProperty('--pct', pct);
     speedTicksEl.appendChild(tick);
 
     const boostTick = document.createElement('div');
-    boostTick.className = 'tick';
+    boostTick.className = 'tick'; // freshly created element, nothing to dirty-check against
     boostTick.style.setProperty('--pct', pct);
     boostTicksEl.appendChild(boostTick);
   }
@@ -132,8 +180,8 @@ function updateGauges(world: World): void {
 
   // Hide both when destroyed or in on-foot mode (gauges are pilot-specific).
   const showPilot = world.player.ship.respawnTimer <= 0 && p.mode === 'pilot';
-  speedGaugeEl.style.display = showPilot ? '' : 'none';
-  boostGaugeEl.style.display = showPilot ? '' : 'none';
+  setStyle(speedGaugeEl, 'display', showPilot ? '' : 'none');
+  setStyle(boostGaugeEl, 'display', showPilot ? '' : 'none');
 
   if (!showPilot) return;
 
@@ -141,13 +189,13 @@ function updateGauges(world: World): void {
   const speed = length(ship.vel);
   const maxSpeed = ship.type.boostSpeedForward;
   const speedFrac = Math.min(1, Math.abs(speed) / maxSpeed) * 100;
-  speedFillEl.style.height = `${speedFrac}%`;
-  speedValEl.textContent = `${Math.abs(Math.round(speed))} m/s`;
+  setStyle(speedFillEl, 'height', `${speedFrac}%`);
+  setText(speedValEl, `${Math.abs(Math.round(speed))} m/s`);
 
   // Boost gauge — fill height = boostMeter / boostCapacity, label below.
   const boostPct = Math.round((ship.boostMeter / ship.type.boostCapacity) * 100);
-  boostFillEl.style.height = `${boostPct}%`;
-  boostValEl.textContent = `${boostPct}%`;
+  setStyle(boostFillEl, 'height', `${boostPct}%`);
+  setText(boostValEl, `${boostPct}%`);
   boostFillEl.classList.toggle('active', ship.boosting);
 }
 
@@ -161,40 +209,40 @@ function updateStatsPanel(world: World): void {
 
   // Meaningful in all three sub-panels (flight/foot/destroyed), so it updates unconditionally
   // rather than living inside just one of the mutually-exclusive row groups below.
-  el('s-fps').textContent = `${Math.round(getFps())}`;
+  setText(el('s-fps'), `${Math.round(getFps())}`);
 
   const showDestroyed = ship.respawnTimer > 0;
   const showFlight = !showDestroyed && p.mode === 'pilot';
   const showFoot = !showDestroyed && p.mode === 'onfoot';
-  statsDestroyedRowsEl.style.display = showDestroyed ? 'block' : 'none';
-  statsFlightRowsEl.style.display = showFlight ? 'block' : 'none';
-  statsFootRowsEl.style.display = showFoot ? 'block' : 'none';
+  setStyle(statsDestroyedRowsEl, 'display', showDestroyed ? 'block' : 'none');
+  setStyle(statsFlightRowsEl, 'display', showFlight ? 'block' : 'none');
+  setStyle(statsFootRowsEl, 'display', showFoot ? 'block' : 'none');
 
   if (showDestroyed) {
-    statsModeEl.style.display = 'block';
-    statsModeEl.textContent = 'SHIP DESTROYED';
-    el('s-respawn').textContent = `${ship.respawnTimer.toFixed(1)}s`;
+    setStyle(statsModeEl, 'display', 'block');
+    setText(statsModeEl, 'SHIP DESTROYED');
+    setText(el('s-respawn'), `${ship.respawnTimer.toFixed(1)}s`);
     return;
   }
 
   if (showFoot) {
-    statsModeEl.style.display = 'block';
-    statsModeEl.textContent = 'ON FOOT — EVA';
+    setStyle(statsModeEl, 'display', 'block');
+    setText(statsModeEl, 'ON FOOT — EVA');
     const speed = length(p.charVel);
-    el('s-ground').textContent = p.groundBody ? p.groundBody.name : '— (zero-g)';
-    (el('s-foot-speed')).textContent = `${speed.toFixed(1)} m/s`;
+    setText(el('s-ground'), p.groundBody ? p.groundBody.name : '— (zero-g)');
+    setText((el('s-foot-speed')), `${speed.toFixed(1)} m/s`);
     const stanceEl = el('s-stance');
-    stanceEl.textContent = p.onGround ? 'GROUNDED' : 'AIRBORNE';
-    stanceEl.className = p.onGround ? 'value on' : 'value';
+    setText(stanceEl, p.onGround ? 'GROUNDED' : 'AIRBORNE');
+    setClass(stanceEl, p.onGround ? 'value on' : 'value');
     return;
   }
 
   // The "PILOTING — <SHIP>" banner is redundant (the SHIP row below already names it), so it's
   // hidden while flying — the panel leads straight into the flight readout.
-  statsModeEl.style.display = 'none';
+  setStyle(statsModeEl, 'display', 'none');
 
-  el('s-throttle').textContent = `${Math.round(ship.throttle * 100)}%`;
-  (el('bar-throttle')).style.width = `${Math.round(Math.abs(ship.throttle) * 100)}%`;
+  setText(el('s-throttle'), `${Math.round(ship.throttle * 100)}%`);
+  setStyle((el('bar-throttle')), 'width', `${Math.round(Math.abs(ship.throttle) * 100)}%`);
 
   // All guns fire (and drain/dwell) together every tick — see combat/weapons.ts's tryFireWeapon —
   // so any one gun's capacitor/cooldown represents the whole weapon system's state.
@@ -202,10 +250,10 @@ function updateStatsPanel(world: World): void {
   const weapon = ship.type.weaponType;
   const capPct = Math.round((capacitors[0] / weapon.capacitorCapacity) * 100);
   const capEl = el('s-capacitor');
-  capEl.textContent = `${capPct}%`;
+  setText(capEl, `${capPct}%`);
   const gunReady = capacitors[0] >= weapon.capacitorCostPerShot;
-  capEl.className = gunReady ? 'value' : 'value on';
-  (el('bar-capacitor')).style.width = `${Math.max(0, capPct)}%`;
+  setClass(capEl, gunReady ? 'value' : 'value on');
+  setStyle((el('bar-capacitor')), 'width', `${Math.max(0, capPct)}%`);
   // Post-fire dwell wipe (see style.css's .bar-dwell-overlay doc comment): a fixed-opacity overlay
   // anchored to the right, its width shrinking from 100% (freshly fired) to 0% (dwell elapsed) over
   // capacitorRechargeDelaySec, so the covered region visibly recedes left-to-right as the wait ends.
@@ -213,45 +261,45 @@ function updateStatsPanel(world: World): void {
   const dwellFrac = weapon.capacitorRechargeDelaySec > 0
     ? Math.max(0, Math.min(1, dwellRemaining / weapon.capacitorRechargeDelaySec))
     : 0;
-  (el('bar-capacitor-dwell')).style.width = `${dwellFrac * 100}%`;
+  setStyle((el('bar-capacitor-dwell')), 'width', `${dwellFrac * 100}%`);
 
   const yawRateDeg = ship.angVel.yaw * (180 / Math.PI);
   const pitchRateDeg = ship.angVel.pitch * (180 / Math.PI);
   // combined nose-turn rate — roll doesn't move the boresight, so it's excluded
   const turnRateDeg = Math.hypot(yawRateDeg, pitchRateDeg);
-  el('s-yawrate').textContent = `${yawRateDeg.toFixed(1)}°/s`;
-  el('s-pitchrate').textContent = `${pitchRateDeg.toFixed(1)}°/s`;
-  el('s-turnrate').textContent = `${turnRateDeg.toFixed(1)}°/s`;
+  setText(el('s-yawrate'), `${yawRateDeg.toFixed(1)}°/s`);
+  setText(el('s-pitchrate'), `${pitchRateDeg.toFixed(1)}°/s`);
+  setText(el('s-turnrate'), `${turnRateDeg.toFixed(1)}°/s`);
 
   const decoupledEl = el('s-decoupled');
-  decoupledEl.textContent = ship.decoupled ? 'ON' : 'OFF';
-  decoupledEl.className = ship.decoupled ? 'value on' : 'value';
+  setText(decoupledEl, ship.decoupled ? 'ON' : 'OFF');
+  setClass(decoupledEl, ship.decoupled ? 'value on' : 'value');
   const brakeEl = el('s-brake');
-  brakeEl.textContent = ship.spaceBrakeOn ? 'ON' : 'OFF';
-  brakeEl.className = ship.spaceBrakeOn ? 'value on' : 'value';
+  setText(brakeEl, ship.spaceBrakeOn ? 'ON' : 'OFF');
+  setClass(brakeEl, ship.spaceBrakeOn ? 'value on' : 'value');
 
   const hullEl = el('s-hull');
   // health.points accumulates float damage amounts (fractional weapon/capacitor damage), so it can
   // land a hair off an integer (e.g. 16.999999999999996) — round for display only, the underlying
   // float stays exact for damage math.
-  hullEl.textContent = `${Math.round(ship.health.points)}/${Math.round(ship.health.maxPoints)}`;
-  hullEl.className = ship.health.points <= ship.health.maxPoints * 0.3 ? 'value on' : 'value';
-  el('s-target').textContent = targetReadout(world);
+  setText(hullEl, `${Math.round(ship.health.points)}/${Math.round(ship.health.maxPoints)}`);
+  setClass(hullEl, ship.health.points <= ship.health.maxPoints * 0.3 ? 'value on' : 'value');
+  setText(el('s-target'), targetReadout(world));
 
-  el('s-mass').textContent = ship.type.mass.toFixed(2);
-  el('s-ship').textContent = ship.type.name;
+  setText(el('s-mass'), ship.type.mass.toFixed(2));
+  setText(el('s-ship'), ship.type.name);
 }
 
 // Top-center mission-stats panel while a training scenario is running — ported row-for-row and
 // show/hide-rule-for-rule from the original project's #scenario-hud / updateHUD's scenario branch.
 function updateScenarioHUD(world: World): void {
   const runtime = world.scenario;
-  scenarioHudEl.style.display = runtime ? 'block' : 'none';
+  setStyle(scenarioHudEl, 'display', runtime ? 'block' : 'none');
   if (!runtime) return;
   const config = runtime.config;
   const stats = runtime.stats;
 
-  el('scenario-hud-name').textContent = config.name;
+  setText(el('scenario-hud-name'), config.name);
 
   const isGates = config.winCondition === 'gates';
   const isSurvive = config.winCondition === 'survive';
@@ -260,47 +308,47 @@ function updateScenarioHUD(world: World): void {
   // hitsTaken counter below rather than the health-delta the non-survive branch reads, since a
   // survive drill's hitsToKillPlayer is deliberately unreachable.
   const showPlayerHits = !isSurvive || config.evasiveReturnFire === true;
-  el('scenario-hud-enemy-row').style.display = (isGates || isSurvive) ? 'none' : 'flex';
-  el('scenario-hud-player-row').style.display = showPlayerHits ? 'flex' : 'none';
-  el('scenario-hud-kills-row').style.display = isSurvive ? 'flex' : 'none';
-  el('scenario-hud-accuracy-row').style.display = isSurvive ? 'flex' : 'none';
-  el('scenario-hud-gate-row').style.display = isGates ? 'flex' : 'none';
-  el('scenario-hud-timer-row').style.display = (isGates || isSurvive) ? 'flex' : 'none';
+  setStyle(el('scenario-hud-enemy-row'), 'display', (isGates || isSurvive) ? 'none' : 'flex');
+  setStyle(el('scenario-hud-player-row'), 'display', showPlayerHits ? 'flex' : 'none');
+  setStyle(el('scenario-hud-kills-row'), 'display', isSurvive ? 'flex' : 'none');
+  setStyle(el('scenario-hud-accuracy-row'), 'display', isSurvive ? 'flex' : 'none');
+  setStyle(el('scenario-hud-gate-row'), 'display', isGates ? 'flex' : 'none');
+  setStyle(el('scenario-hud-timer-row'), 'display', (isGates || isSurvive) ? 'flex' : 'none');
   const hasBubble = config.rangeBubbleRadius !== undefined;
-  el('scenario-hud-bubble-row').style.display = hasBubble ? 'flex' : 'none';
-  if (hasBubble) el('scenario-hud-bubble').textContent = `${bubbleTicks(runtime)}`;
+  setStyle(el('scenario-hud-bubble-row'), 'display', hasBubble ? 'flex' : 'none');
+  if (hasBubble) setText(el('scenario-hud-bubble'), `${bubbleTicks(runtime)}`);
 
   if (isGates) {
     const gateTotal = config.gatePath?.length ?? 0;
-    el('scenario-hud-gate').textContent = `${Math.min(runtime.gateIndex + 1, gateTotal)}/${gateTotal}`;
+    setText(el('scenario-hud-gate'), `${Math.min(runtime.gateIndex + 1, gateTotal)}/${gateTotal}`);
     const remaining = Math.max(0, (config.surviveDurationSec ?? 0) - runtime.elapsedSec);
-    el('scenario-hud-timer-label').textContent = 'TIME LEFT';
-    el('scenario-hud-timer').textContent = `${remaining.toFixed(1)}s`;
+    setText(el('scenario-hud-timer-label'), 'TIME LEFT');
+    setText(el('scenario-hud-timer'), `${remaining.toFixed(1)}s`);
   } else if (isSurvive) {
     const duration = config.surviveDurationSec;
     if (duration !== undefined) {
       const remaining = Math.max(0, duration - runtime.elapsedSec);
-      el('scenario-hud-timer-label').textContent = 'TIME LEFT';
-      el('scenario-hud-timer').textContent = `${remaining.toFixed(1)}s`;
+      setText(el('scenario-hud-timer-label'), 'TIME LEFT');
+      setText(el('scenario-hud-timer'), `${remaining.toFixed(1)}s`);
     } else {
-      el('scenario-hud-timer-label').textContent = 'TIME';
-      el('scenario-hud-timer').textContent = `${runtime.elapsedSec.toFixed(1)}s`;
+      setText(el('scenario-hud-timer-label'), 'TIME');
+      setText(el('scenario-hud-timer'), `${runtime.elapsedSec.toFixed(1)}s`);
     }
-    el('scenario-hud-kills').textContent = `${stats.kills}`;
+    setText(el('scenario-hud-kills'), `${stats.kills}`);
     const accuracy = stats.shotsFired > 0 ? Math.round((stats.hitsLanded / stats.shotsFired) * 100) : 0;
-    el('scenario-hud-accuracy').textContent = `${accuracy}%`;
-    if (showPlayerHits) el('scenario-hud-player-hits').textContent = `${stats.hitsTaken}`;
+    setText(el('scenario-hud-accuracy'), `${accuracy}%`);
+    if (showPlayerHits) setText(el('scenario-hud-player-hits'), `${stats.hitsTaken}`);
   } else {
     // health.points/maxPoints accumulate float damage amounts, so their difference can land a hair
     // off an integer — round for display only (same reasoning as the #s-hull panel above).
     const enemy = world.enemies[0];
     const enemyHits = enemy ? Math.round(enemy.health.maxPoints - enemy.health.points) : 0;
     const enemyMax = enemy ? Math.round(enemy.health.maxPoints) : 0;
-    el('scenario-hud-enemy-hits').textContent = `${enemyHits}/${enemyMax}`;
+    setText(el('scenario-hud-enemy-hits'), `${enemyHits}/${enemyMax}`);
 
     const ship = world.player.ship;
     const playerHits = Math.round(ship.health.maxPoints - ship.health.points);
-    el('scenario-hud-player-hits').textContent = `${playerHits}/${Math.round(ship.health.maxPoints)}`;
+    setText(el('scenario-hud-player-hits'), `${playerHits}/${Math.round(ship.health.maxPoints)}`);
   }
 }
 
@@ -308,22 +356,22 @@ function updateScenarioHUD(world: World): void {
 // updatePipTrainerHUD.
 function updatePipTrainerHUD(world: World): void {
   const state = world.pipTrainer;
-  pipTrainerHudEl.style.display = state ? 'block' : 'none';
+  setStyle(pipTrainerHudEl, 'display', state ? 'block' : 'none');
   if (!state) return;
   const opts = state.opts;
 
-  el('pip-trainer-reps').textContent = `${state.reps}`;
-  el('pip-trainer-hold').textContent = `${state.holdTimer.toFixed(2)}s / ${opts.holdDurationSec.toFixed(2)}s`;
+  setText(el('pip-trainer-reps'), `${state.reps}`);
+  setText(el('pip-trainer-hold'), `${state.holdTimer.toFixed(2)}s / ${opts.holdDurationSec.toFixed(2)}s`);
   const holdPct = opts.holdDurationSec > 0
     ? Math.min(100, Math.max(0, (state.holdTimer / opts.holdDurationSec) * 100)) : 0;
-  (el('pip-trainer-hold-bar')).style.width = `${holdPct}%`;
+  setStyle((el('pip-trainer-hold-bar')), 'width', `${holdPct}%`);
   if (opts.durationSec !== null) {
     const remaining = Math.max(0, opts.durationSec - state.elapsedSec);
-    el('pip-trainer-timer-label').textContent = 'TIME LEFT';
-    el('pip-trainer-timer').textContent = `${remaining.toFixed(1)}s`;
+    setText(el('pip-trainer-timer-label'), 'TIME LEFT');
+    setText(el('pip-trainer-timer'), `${remaining.toFixed(1)}s`);
   } else {
-    el('pip-trainer-timer-label').textContent = 'TIME';
-    el('pip-trainer-timer').textContent = `${state.elapsedSec.toFixed(1)}s`;
+    setText(el('pip-trainer-timer-label'), 'TIME');
+    setText(el('pip-trainer-timer'), `${state.elapsedSec.toFixed(1)}s`);
   }
 }
 
@@ -331,10 +379,10 @@ function updatePipTrainerHUD(world: World): void {
 // manual session, not the always-on rolling buffer (that one's invisible by design).
 function updateRecordingIndicator(): void {
   const recording = Recorder.isManualRecording();
-  recIndicatorEl.style.display = recording ? 'block' : 'none';
+  setStyle(recIndicatorEl, 'display', recording ? 'block' : 'none');
   if (recording) {
     const s = Math.floor(Recorder.manualRecordingElapsedSec());
-    recIndicatorTimeEl.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    setText(recIndicatorTimeEl, `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`);
   }
 }
 
@@ -346,18 +394,18 @@ function updateRecordingIndicator(): void {
 function updatePipMarker(world: World): void {
   const ship = world.player.ship;
   if (world.player.mode !== 'pilot' || ship.respawnTimer > 0) {
-    pipMarkerEl.style.display = 'none';
+    setStyle(pipMarkerEl, 'display', 'none');
     return;
   }
   const cam = { pos: ship.pos, axes: computeAxes(ship.quat) };
   const pip = findActivePip(ship.pos, ship.vel, cam, world.enemies, window.innerWidth, window.innerHeight);
   if (!pip) {
-    pipMarkerEl.style.display = 'none';
+    setStyle(pipMarkerEl, 'display', 'none');
     return;
   }
-  pipMarkerEl.style.display = 'block';
-  pipMarkerEl.style.left = `${pip.screenX}px`;
-  pipMarkerEl.style.top = `${pip.screenY}px`;
+  setStyle(pipMarkerEl, 'display', 'block');
+  setStyle(pipMarkerEl, 'left', `${pip.screenX}px`);
+  setStyle(pipMarkerEl, 'top', `${pip.screenY}px`);
   pipMarkerEl.classList.toggle('would-hit', pip.wouldHit);
 }
 
@@ -370,19 +418,19 @@ function updatePipMarker(world: World): void {
 function updatePipTrainerMarker(world: World): void {
   const state = world.pipTrainer;
   if (!state || world.player.mode !== 'pilot') {
-    pipTrainerMarkerEl.style.display = 'none';
+    setStyle(pipTrainerMarkerEl, 'display', 'none');
     return;
   }
   const ship = world.player.ship;
   const cam = { pos: ship.pos, axes: computeAxes(ship.quat) };
   const p = project(state.pos.x, state.pos.y, state.pos.z, cam, window.innerWidth, window.innerHeight);
   if (!p) {
-    pipTrainerMarkerEl.style.display = 'none';
+    setStyle(pipTrainerMarkerEl, 'display', 'none');
     return;
   }
-  pipTrainerMarkerEl.style.display = 'block';
-  pipTrainerMarkerEl.style.left = `${p.x}px`;
-  pipTrainerMarkerEl.style.top = `${p.y}px`;
+  setStyle(pipTrainerMarkerEl, 'display', 'block');
+  setStyle(pipTrainerMarkerEl, 'left', `${p.x}px`);
+  setStyle(pipTrainerMarkerEl, 'top', `${p.y}px`);
   const holdFrac = state.opts.holdDurationSec > 0
     ? Math.min(1, Math.max(0, state.holdTimer / state.opts.holdDurationSec)) : 0;
   pipTrainerMarkerEl.classList.toggle('held', holdFrac > 0);
@@ -397,24 +445,24 @@ function updateFlightRings(world: World): void {
   const piloting = world.player.mode === 'pilot' && world.player.ship.respawnTimer <= 0;
   const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
 
-  espCircleEl.style.visibility = piloting ? 'visible' : 'hidden';
-  espLabelEl.style.visibility = piloting ? 'visible' : 'hidden';
+  setStyle(espCircleEl, 'visibility', piloting ? 'visible' : 'hidden');
+  setStyle(espLabelEl, 'visibility', piloting ? 'visible' : 'hidden');
   if (piloting) {
     const r = EspAssist.getCircleRadius();
-    espCircleEl.setAttribute('cx', String(cx));
-    espCircleEl.setAttribute('cy', String(cy));
-    espCircleEl.setAttribute('r', String(r));
+    setAttr(espCircleEl, 'cx', String(cx));
+    setAttr(espCircleEl, 'cy', String(cy));
+    setAttr(espCircleEl, 'r', String(r));
     // ESP label sits just below its circle
-    espLabelEl.setAttribute('x', String(cx));
-    espLabelEl.setAttribute('y', String(cy + r + 12));
+    setAttr(espLabelEl, 'x', String(cx));
+    setAttr(espLabelEl, 'y', String(cy + r + 12));
   }
 
   // Shows on real pointer-lock capture OR while remote mouse input is streaming deltas (the
   // side-by-side-vs-SC workflow — the game canvas is never clicked/pointer-locked there, since
   // the real mouse is driving actual SC in another window; see remoteMouseInput.ts).
   const showVjoy = piloting && (MouseLook.isCaptured() || RemoteMouseInput.isConnected());
-  vjoyLineEl.style.visibility = showVjoy ? 'visible' : 'hidden';
-  vjoyTriangleEl.style.visibility = showVjoy ? 'visible' : 'hidden';
+  setStyle(vjoyLineEl, 'visibility', showVjoy ? 'visible' : 'hidden');
+  setStyle(vjoyTriangleEl, 'visibility', showVjoy ? 'visible' : 'hidden');
   if (showVjoy) {
     // Normalize by maxX/maxY and scale to an on-screen radius -- maxX/maxY (mouseLook.ts's
     // yawFullDeflectionCounts/pitchFullDeflectionCounts, DIFFERENT per axis -- see that file's doc
@@ -436,23 +484,23 @@ function updateFlightRings(world: World): void {
     const rx = cx + (maxX > 0 ? (x / maxX) * indicatorRadius : 0);
     const ry = cy + (maxY > 0 ? (y / maxY) * indicatorRadius : 0);
 
-    vjoyLineEl.setAttribute('x1', String(cx));
-    vjoyLineEl.setAttribute('y1', String(cy));
-    vjoyLineEl.setAttribute('x2', String(rx));
-    vjoyLineEl.setAttribute('y2', String(ry));
+    setAttr(vjoyLineEl, 'x1', String(cx));
+    setAttr(vjoyLineEl, 'y1', String(cy));
+    setAttr(vjoyLineEl, 'x2', String(rx));
+    setAttr(vjoyLineEl, 'y2', String(ry));
 
     // Keep the fade gradient's own coordinate span locked to the line's current endpoints
     // (gradientUnits="userSpaceOnUse" — see index.html) so the fade-out always happens at the
     // center and at the triangle tip, regardless of the line's length/angle this frame.
-    vjoyLineGradientEl.setAttribute('x1', String(cx));
-    vjoyLineGradientEl.setAttribute('y1', String(cy));
-    vjoyLineGradientEl.setAttribute('x2', String(rx));
-    vjoyLineGradientEl.setAttribute('y2', String(ry));
+    setAttr(vjoyLineGradientEl, 'x1', String(cx));
+    setAttr(vjoyLineGradientEl, 'y1', String(cy));
+    setAttr(vjoyLineGradientEl, 'x2', String(rx));
+    setAttr(vjoyLineGradientEl, 'y2', String(ry));
 
     // Triangle's local points (in the SVG markup) point along +x; rotate to face the deflection
     // direction (same direction the line points, away from center) and place it at the stick position.
     const angleDeg = (Math.atan2(ry - cy, rx - cx) * 180) / Math.PI;
-    vjoyTriangleEl.setAttribute('transform', `translate(${rx},${ry}) rotate(${angleDeg})`);
+    setAttr(vjoyTriangleEl, 'transform', `translate(${rx},${ry}) rotate(${angleDeg})`);
   }
 }
 

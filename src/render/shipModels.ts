@@ -79,6 +79,18 @@ function loadModel(name: ShipModelName): Promise<THREE.Object3D> {
         const largestDim = Math.max(size.x, size.y, size.z) || 1;
         correction.scale.setScalar(TARGET_LENGTH / largestDim);
 
+        // Clamp metalness ONCE, on the template's own materials, so every clone inherits it by
+        // sharing the same material instances (see cloneShip). These sources' exported metalness runs
+        // high enough that, with this scene's single directional sun and no environment map (metals
+        // have no diffuse response at all — they only reflect specular/env light), a model's shadowed
+        // side reads as pure black. See the lighting comment in render/renderer.ts's constructor for
+        // the other half of the fix (ambient + camera headlight).
+        gltf.scene.traverse((obj) => {
+          if (!(obj instanceof THREE.Mesh)) return;
+          const mats = (Array.isArray(obj.material) ? obj.material : [obj.material]) as THREE.MeshStandardMaterial[];
+          for (const m of mats) m.metalness = Math.min(m.metalness, 0.45);
+        });
+
         const wrapper = new THREE.Group();
         wrapper.name = name;
         wrapper.add(correction);
@@ -99,24 +111,31 @@ export function loadShipTemplate(name: ShipModelName): Promise<THREE.Object3D> {
 
 // Clones the template for one instance. THREE.Object3D.clone() is a shallow structural clone —
 // geometries and materials stay shared references across every clone, so VRAM cost (textures) is
-// paid once regardless of how many ships are on screen. `tint`, if given, multiplies the cloned
-// material's base color without touching the shared original material — omitted by every current
-// caller, so ships render in the model's own natural color rather than a distinguishing accent.
+// paid once regardless of how many ships are on screen.
+//
+// Untinted clones now keep that sharing instead of cloning each material per instance (the metalness
+// clamp that used to force a per-instance clone is applied once to the template in loadModel above).
+// Sharing matters because a unique material per instance is a unique shader/uniform binding per
+// instance: it defeats three.js's material sorting and forecloses any later batching/instancing of a
+// fleet. Nothing mutates a ship's material at runtime, so there is nothing to keep per-instance.
+//
+// `tint`, if given, still clones — it has to, since it multiplies the base colour — and is omitted by
+// every current caller, so ships render in the model's own natural colour rather than a
+// distinguishing accent.
+//
+// Callers must treat an untinted clone's materials AND geometries as shared: tearing one down must
+// not dispose either (see render/renderer.ts's disposeObject3D and its userData.sharedAssets flag).
 export function cloneShip(template: THREE.Object3D, tint?: number): THREE.Object3D {
   const instance = template.clone(true);
-  // Clamp metalness on every clone (tinted or not) — these sources' exported metalness runs high
-  // enough that, with this scene's single directional sun and no environment map (metals have no
-  // diffuse response at all — they only reflect specular/env light), the model's shadowed side reads
-  // as pure black. See the lighting comment in render/renderer.ts's constructor for the other half
-  // of the fix (ambient + camera headlight).
+  if (tint === undefined) return instance;
+
   instance.traverse((obj) => {
     if (!(obj instanceof THREE.Mesh)) return;
     const wasArray = Array.isArray(obj.material);
     const mats = (wasArray ? obj.material : [obj.material]) as THREE.MeshStandardMaterial[];
     const cloned = mats.map((m) => {
       const c = m.clone();
-      c.metalness = Math.min(c.metalness, 0.45);
-      if (tint !== undefined) c.color.multiply(new THREE.Color(tint));
+      c.color.multiply(new THREE.Color(tint));
       return c;
     });
     obj.material = wasArray ? cloned : cloned[0];
