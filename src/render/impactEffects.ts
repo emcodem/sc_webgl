@@ -2,14 +2,15 @@ import * as THREE from 'three';
 import type { Vec3 } from '../core/types';
 
 // ============================================================================================
-// "Hot metal" weapon-impact effect — GPU spark spray + white flash + cooling molten glow, in the
-// blackbody colour language (white -> yellow -> orange -> red -> out). Adapted from a standalone
+// "Hot metal" weapon-impact effect, in the blackbody colour language (white -> yellow -> orange ->
+// red -> out). A laser hit (trigger()) is just a small GPU spark splash; a ship death (explode()) is
+// the bigger version: spark spray + white flash + cooling fireball. Adapted from a standalone
 // three.js system to fit this project's two load-bearing render invariants:
 //
 //   1. FLOATING ORIGIN. The sim keeps absolute f64 world coords; the renderer is the only place that
 //      rebases into camera-relative f32 space (see render/renderer.ts). A burst is born at an
 //      absolute world point and lives ~0.7s, during which the camera moves — in a dogfight, hundreds
-//      of metres. So every active burst/flash/glow stores its ABSOLUTE origin and is rebased every
+//      of metres. So every active burst/flash/fireball stores its ABSOLUTE origin and is rebased every
 //      frame by `origin - eye`. For the sparks this is one transform assignment per burst: the GPU
 //      integrates each particle's motion in a burst-local frame (positions attribute is all zeros —
 //      born at the local origin), and the Points object's own position carries `origin - eye`, so a
@@ -22,7 +23,7 @@ import type { Vec3 } from '../core/types';
 //
 // One extra wrinkle vs. the source system: the scene renders with a logarithmic depth buffer, so
 // the custom spark shader must emit matching log depth (#include <logdepthbuf_*>) or it would
-// depth-test wrongly against the rest of the scene. The flash/glow use built-in SpriteMaterial,
+// depth-test wrongly against the rest of the scene. The flash/fireball use built-in SpriteMaterial,
 // which three.js patches for log depth automatically.
 // ============================================================================================
 
@@ -30,12 +31,11 @@ const MAX_BURSTS = 32;          // concurrent spark bursts (ring-buffer reused w
                                 // death fires several at once, so this is a bit larger than for impacts.
 const PARTICLES_PER_BURST = 48; // capacity of each burst's buffer
 const MAX_FLASHES = 12;
-const MAX_GLOWS = 24;
 const MAX_FIREBALLS = 12;       // concurrent death-fireball billboards (2-3 per ship explosion)
 
 // -------------------------------------------------------------------------------------------------
-// Runtime-built textures (no external assets) — a soft round spark sprite, a molten-glow sprite, and
-// a 1D blackbody LUT that IS the "hot metal cooling" curve (colour + alpha over the 0->1 life).
+// Runtime-built textures (no external assets) — a soft round spark sprite and a 1D blackbody LUT
+// that IS the "hot metal cooling" curve (colour + alpha over the 0->1 life).
 // -------------------------------------------------------------------------------------------------
 
 function createSparkSpriteTexture(size = 64): THREE.CanvasTexture {
@@ -47,22 +47,6 @@ function createSparkSpriteTexture(size = 64): THREE.CanvasTexture {
   grad.addColorStop(0.25, 'rgba(255,255,255,0.9)');
   grad.addColorStop(0.6, 'rgba(255,255,255,0.25)');
   grad.addColorStop(1.0, 'rgba(255,255,255,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.needsUpdate = true;
-  return tex;
-}
-
-function createGlowSpriteTexture(size = 128): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0.0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.3, 'rgba(255,200,120,0.85)');
-  grad.addColorStop(0.65, 'rgba(255,90,20,0.35)');
-  grad.addColorStop(1.0, 'rgba(255,40,0,0)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   const tex = new THREE.CanvasTexture(canvas);
@@ -233,11 +217,9 @@ export class ImpactEffects {
   private material: THREE.ShaderMaterial;
   private bursts: Burst[] = [];
   private flashes: Billboard[] = [];
-  private glows: Billboard[] = [];
   private fireballs: Billboard[] = [];
   private burstCursor = 0;
   private flashCursor = 0;
-  private glowCursor = 0;
   private fireballCursor = 0;
 
   // Deterministic pseudo-random so the module never touches Math.random at import/construct time and
@@ -254,7 +236,6 @@ export class ImpactEffects {
   private lutTex: THREE.CanvasTexture;
   private sparkTex: THREE.CanvasTexture;
   private flashTex: THREE.CanvasTexture;
-  private glowTex: THREE.CanvasTexture;
   private fireballTex: THREE.CanvasTexture;
 
   constructor(scene: THREE.Scene) {
@@ -262,7 +243,6 @@ export class ImpactEffects {
     this.lutTex = createBlackbodyLUT();
     this.sparkTex = createSparkSpriteTexture();
     this.flashTex = createSparkSpriteTexture(64);
-    this.glowTex = createGlowSpriteTexture(128);
     this.fireballTex = createFireballSpriteTexture(256);
 
     this.material = new THREE.ShaderMaterial({
@@ -283,7 +263,6 @@ export class ImpactEffects {
 
     for (let i = 0; i < MAX_BURSTS; i++) this.bursts.push(this.buildBurst());
     for (let i = 0; i < MAX_FLASHES; i++) this.flashes.push(this.buildBillboard(this.flashTex, 0.09));
-    for (let i = 0; i < MAX_GLOWS; i++) this.glows.push(this.buildBillboard(this.glowTex, 0.25));
     for (let i = 0; i < MAX_FIREBALLS; i++) this.fireballs.push(this.buildBillboard(this.fireballTex, 1.6));
   }
 
@@ -331,13 +310,12 @@ export class ImpactEffects {
 
   // Fire off one impact. `origin`/`normal` are ABSOLUTE world-space (normal points out of the struck
   // surface). `now` is the shared render clock (seconds). Owns the burst's whole visual life from here.
+  // Deliberately just the spark spray, no flash/glow billboard — those two are what make explode()
+  // read as an explosion, and a laser hit should read as a small splash of sparks, not a mini one.
   trigger(origin: Vec3, normal: Vec3 | undefined, now: number, opts: ImpactOptions = {}): void {
     this.rngState = (this.rngState + 0x6d2b79f5) >>> 0; // advance so successive bursts differ
     const frame = this.computeFrame(normal);
     this.fillBurst(origin, frame, now, opts);
-    const scale = opts.scale ?? 1.0;
-    this.spawnFlash(origin, now, 0.4 * scale);
-    this.spawnGlow(origin, frame.n, now, 0.3 * scale);
   }
 
   // Enemy-ship death — a big, long-lived version of the same hot-metal look: a hard white flash, a
@@ -391,14 +369,16 @@ export class ImpactEffects {
   // Fill the next ring-buffer spark burst from `opts`, born at `origin` and sprayed into `frame`.
   private fillBurst(origin: Vec3, frame: { n: Vec3; t: Vec3; b: Vec3 }, now: number, opts: ImpactOptions): void {
     const scale = opts.scale ?? 1.0;
-    const count = Math.min(opts.count ?? 36, PARTICLES_PER_BURST);
-    const speedMin = (opts.speedMin ?? 6.0) * scale;
-    const speedMax = (opts.speedMax ?? 26.0) * scale;
-    const spreadAngle = opts.spreadAngle ?? Math.PI * 0.42; // ~76deg hammer-strike spray
-    const lifeMin = opts.lifeMin ?? 0.22;
-    const lifeMax = opts.lifeMax ?? 0.75;
-    const sizeMin = (opts.sizeMin ?? 3.0) * scale;
-    const sizeMax = (opts.sizeMax ?? 7.0) * scale;
+    // Defaults below are trigger()'s "little splash" shape — explode() always passes its own
+    // (bigger, longer-lived, full-sphere) values, so tuning these only affects laser-hit sparks.
+    const count = Math.min(opts.count ?? 14, PARTICLES_PER_BURST);
+    const speedMin = (opts.speedMin ?? 2.0) * scale;
+    const speedMax = (opts.speedMax ?? 7.0) * scale;
+    const spreadAngle = opts.spreadAngle ?? Math.PI / 18; // ~10deg tight splash cone
+    const lifeMin = opts.lifeMin ?? 0.06;
+    const lifeMax = opts.lifeMax ?? 0.15;
+    const sizeMin = (opts.sizeMin ?? 1.0) * scale;
+    const sizeMax = (opts.sizeMax ?? 2.0) * scale;
     const { n, t, b } = frame;
 
     const burst = this.bursts[this.burstCursor];
@@ -467,19 +447,8 @@ export class ImpactEffects {
     fb.sprite.visible = true;
   }
 
-  private spawnGlow(origin: Vec3, n: Vec3, now: number, maxScale: number): void {
-    const g = this.glows[this.glowCursor];
-    this.glowCursor = (this.glowCursor + 1) % this.glows.length;
-    // Nudge slightly out along the normal so it sits proud of the struck surface.
-    g.origin = { x: origin.x + n.x * 0.05, y: origin.y + n.y * 0.05, z: origin.z + n.z * 0.05 };
-    g.birth = now;
-    g.maxScale = maxScale;
-    g.active = true;
-    g.sprite.visible = true;
-  }
-
   // Call every frame with the shared render clock and the camera's absolute eye position. Advances
-  // the sparks' uTime, rebases every active burst/flash/glow by (origin - eye), and retires the dead.
+  // the sparks' uTime, rebases every active burst/flash/fireball by (origin - eye), and retires the dead.
   update(now: number, eye: Vec3): void {
     this.material.uniforms.uTime.value = now;
 
@@ -505,24 +474,6 @@ export class ImpactEffects {
       f.sprite.material.opacity = 0.55 * (1.0 - t);
     }
 
-    for (const g of this.glows) {
-      if (!g.active) continue;
-      const t = (now - g.birth) / g.duration;
-      if (t < 0 || t > 1) { g.active = false; g.sprite.visible = false; continue; }
-      g.sprite.position.set(g.origin.x - eye.x, g.origin.y - eye.y, g.origin.z - eye.z);
-      // Blooms fast, then slowly shrinks/cools as it fades — mirrors the LUT story on the surface.
-      const growT = Math.min(t / 0.15, 1);
-      const s = g.maxScale * (0.4 + 0.6 * growT) * (1.0 - 0.3 * t);
-      g.sprite.scale.setScalar(s);
-      // Kept faint (peaks ~0.3) so the molten spot reads as a translucent heat-smudge you can see
-      // through to the sparks/scene behind, not an opaque white blob.
-      g.sprite.material.opacity = 0.3 * (1.0 - t) * (1.0 - t); // ease-out fade
-      // White-hot -> deep red as it cools.
-      const gc = 1.0 - 0.85 * t;
-      const bc = 1.0 - Math.min(t * 1.5, 1);
-      g.sprite.material.color.setRGB(1.0, gc, bc);
-    }
-
     for (const fb of this.fireballs) {
       if (!fb.active) continue;
       const t = (now - fb.birth) / fb.duration;
@@ -545,13 +496,11 @@ export class ImpactEffects {
   dispose(): void {
     for (const b of this.bursts) { this.scene.remove(b.points); b.geometry.dispose(); }
     for (const f of this.flashes) { this.scene.remove(f.sprite); f.sprite.material.dispose(); }
-    for (const g of this.glows) { this.scene.remove(g.sprite); g.sprite.material.dispose(); }
     for (const fb of this.fireballs) { this.scene.remove(fb.sprite); fb.sprite.material.dispose(); }
     this.material.dispose();
     this.lutTex.dispose();
     this.sparkTex.dispose();
     this.flashTex.dispose();
-    this.glowTex.dispose();
     this.fireballTex.dispose();
   }
 }
