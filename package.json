@@ -50,8 +50,7 @@
       "target": "portable"
     },
     "portable": {
-      "artifactName": "${productName}-${version}-portable.exe",
-      "unpackDirName": "${productName}-${version}"
+      "artifactName": "${productName}-${version}-portable.exe"
     },
     "linux": {
       "target": "AppImage"
