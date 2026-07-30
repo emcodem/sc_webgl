@@ -10,7 +10,8 @@ import { stepCombat } from './combat/combatSystem';
 import { updateScenario, startScenario } from './scenarios/runtime';
 import { SCENARIOS } from './scenarios/definitions';
 import { updatePipTrainer, startPipTrainer, PIP_TRAINER_DEFAULTS } from './combat/pipTrainer';
-import { checkScenarioResult, checkPipTrainerResult } from './ui/scenarioMenu';
+import { updateRollTrainer, startRollTrainer, ROLL_TRAINER_DEFAULTS } from './combat/rollTrainer';
+import { checkScenarioResult, checkPipTrainerResult, checkRollTrainerResult } from './ui/scenarioMenu';
 import { updateHUD } from './hud/hud';
 import { sampleFrame } from './hud/fpsTracker';
 import { updatePerfHint } from './hud/perfHint';
@@ -66,6 +67,13 @@ initUI(world); // restores the last-active control preset, if any — see ui/con
 (window as unknown as { __startPipTrainer: (opts?: Partial<typeof PIP_TRAINER_DEFAULTS>) => void }).__startPipTrainer = (opts) => {
   world.enemies = [];
   world.pipTrainer = startPipTrainer(world.player.ship, { ...PIP_TRAINER_DEFAULTS, ...opts });
+};
+
+// Same convention — jump straight into the Roll Trainer (see ui/mainMenu.ts's startRollTrainer
+// wiring) without driving the F3 picker's DOM.
+(window as unknown as { __startRollTrainer: (opts?: Partial<typeof ROLL_TRAINER_DEFAULTS>) => void }).__startRollTrainer = (opts) => {
+  world.enemies = [];
+  world.rollTrainer = startRollTrainer(world.player.ship, { ...ROLL_TRAINER_DEFAULTS, ...opts });
 };
 
 // Enable/disable remote mouse input from capture server.
@@ -142,8 +150,10 @@ function loop(now: number): void {
         // already did to the ship/world this frame, regardless of pilot/on-foot mode (see
         // combat/pipTrainer.ts's doc comment on why it never touches world.enemies/hit detection).
         if (world.pipTrainer) updatePipTrainer(world.pipTrainer, world.player.ship, dt);
+        if (world.rollTrainer) updateRollTrainer(world.rollTrainer, world.player.ship, dt);
         checkScenarioResult(world); // opens the F3 results view the instant an outcome leaves 'active'
         checkPipTrainerResult(world);
+        checkRollTrainerResult(world);
 
         // always-on rolling recording buffer (see replay/recorder.ts) — ship flight only, same
         // controlsLive gate as the flight/combat stepping above.

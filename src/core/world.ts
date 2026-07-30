@@ -3,6 +3,7 @@ import type {
 } from './types';
 import type { ScenarioRuntime } from '../scenarios/types';
 import type { PipTrainerState } from '../combat/pipTrainer';
+import type { RollTrainerState } from '../combat/rollTrainer';
 import type { FlightInputs } from '../physics/flightModel';
 
 // ============================================================================================
@@ -174,4 +175,7 @@ export interface World {
   // Non-null while the PIP Trainer (see combat/pipTrainer.ts) is running — fully independent of
   // `scenario`/`enemies`/hit detection; stepCombat keeps running unmodified underneath it.
   pipTrainer: PipTrainerState | null;
+  // Non-null while the Roll Trainer (see combat/rollTrainer.ts) is running — same independence as
+  // pipTrainer above, just a different ship-less drill.
+  rollTrainer: RollTrainerState | null;
 }

@@ -25,6 +25,11 @@
          hud/hud.ts::updatePipTrainerMarker, combat/pipTrainer.ts) -->
     <div id="pip-trainer-marker"></div>
 
+    <!-- Roll Trainer's arcade-style PERFECT!/GOOD/FAILED popup — see hud.ts's
+         updateRollTrainerResultPopup, combat/rollTrainer.ts. Positioned each frame above the ghost
+         target's projected screen position; text/animation only refresh on a new result. -->
+    <div id="roll-trainer-result-popup"></div>
+
     <!-- Mouse-look virtual-joystick reticle + ESP dampening-zone ring — see hud/hud.ts's
          updateFlightRings(). Ported from the original project's render/render.ts::drawMouseReticle
          / drawEspCircle, moved from canvas draws to an SVG overlay for this DOM-based HUD. -->
@@ -94,6 +99,17 @@
         <div class="row" style="margin-top:6px"><span class="label" id="pip-trainer-timer-label">TIME LEFT</span><span class="value" id="pip-trainer-timer">0.0s</span></div>
       </div>
 
+      <div class="panel" id="roll-trainer-hud" style="display:none">
+        <div style="color:var(--hud-accent); margin-bottom:4px;">Roll Trainer</div>
+        <div class="row"><span class="label">TARGET</span><span class="value" id="roll-trainer-target">90&deg; LEFT</span></div>
+        <div class="row"><span class="label">ATTEMPT</span><span class="value" id="roll-trainer-attempt-timer">0.0s / 4.0s</span></div>
+        <div class="bar-bg"><div class="bar-fill" id="roll-trainer-attempt-bar" style="width:0%"></div></div>
+        <div class="row" style="margin-top:6px"><span class="label">SCORE</span><span class="value" id="roll-trainer-score">0.0</span></div>
+        <div class="row"><span class="label">SPEED</span><span class="value" id="roll-trainer-speed">0</span></div>
+        <div class="row"><span class="label">REPS</span><span class="value" id="roll-trainer-reps">0P 0G / 0</span></div>
+        <div class="row" style="margin-top:6px"><span class="label" id="roll-trainer-timer-label">TIME LEFT</span><span class="value" id="roll-trainer-timer">0.0s</span></div>
+      </div>
+
       <div class="panel" id="stats">
         <div id="stats-mode"></div>
         <div class="row"><span class="label">FPS</span><span class="value" id="s-fps">0</span></div>
@@ -158,7 +174,7 @@
     <!-- F3: dimmed full-screen overlay, pauses the sim while open. Also hosts the training
          scenario picker/results views (see ui/scenarioMenu.ts) below the source/feedback link
          row — that row and the subtitle are hidden on the results view (see
-         scenarioMenu.ts::showScenarioResult/showPipTrainerResult/showPicker), which has its own
+         scenarioMenu.ts::showScenarioResult/showPipTrainerResult/showRollTrainerResult/showPicker), which has its own
          RETRY/BACK TO MENU buttons and doesn't need them repeated. -->
     <div id="main-menu-overlay">
       <div id="main-menu-box">

@@ -4,6 +4,7 @@ import { closeControlsPanel } from './controlsPanel';
 import { initScenarioMenu, showPicker } from './scenarioMenu';
 import { startScenario } from '../scenarios/runtime';
 import { startPipTrainer } from '../combat/pipTrainer';
+import { startRollTrainer } from '../combat/rollTrainer';
 
 // ============================================================================================
 // F3 main menu — a dimmed full-screen overlay (source/feedback links, plus the training
@@ -55,6 +56,11 @@ export function initMainMenu(world: World): void {
       w.enemies = []; // pure aim-tracking airspace — the free-flight sandbox's dogfight AI ships
                        // don't belong here, only the pip (see combat/pipTrainer.ts)
       w.pipTrainer = startPipTrainer(w.player.ship, opts);
+    },
+    startRollTrainer: (w, opts) => {
+      resetWorld(w); // clean deterministic start, same convention as every other picker card
+      w.enemies = []; // no dogfight AI ships belong in a roll-matching drill — see combat/rollTrainer.ts
+      w.rollTrainer = startRollTrainer(w.player.ship, opts);
     }
   }, hide);
 

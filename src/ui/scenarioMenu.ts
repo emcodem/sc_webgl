@@ -11,6 +11,8 @@ import type { ScenarioConfig, ScenarioRuntime } from '../scenarios/types';
 import type { World } from '../core/world';
 import { PIP_TRAINER_DEFAULTS } from '../combat/pipTrainer';
 import type { PipTrainerOptions, PipTrainerState } from '../combat/pipTrainer';
+import { ROLL_TRAINER_DEFAULTS } from '../combat/rollTrainer';
+import type { RollTrainerOptions, RollTrainerState } from '../combat/rollTrainer';
 import { notifyScenarioResult } from './mainMenu';
 
 // ============================================================================================
@@ -24,6 +26,7 @@ export interface ScenarioMenuHandlers {
   startScenario(world: World, config: ScenarioConfig): void;
   startFreeFlight(world: World): void;
   startPipTrainer(world: World, opts: PipTrainerOptions): void;
+  startRollTrainer(world: World, opts: RollTrainerOptions): void;
 }
 
 let picker: HTMLElement;
@@ -160,6 +163,38 @@ function savePipTrainerOptions(): void {
 }
 
 const pipTrainerOptions: PipTrainerOptions = loadPipTrainerOptions();
+
+const ROLL_TRAINER_STORAGE_KEY = 'vector_roll_trainer_options';
+
+function loadRollTrainerOptions(): RollTrainerOptions {
+  try {
+    const raw = localStorage.getItem(ROLL_TRAINER_STORAGE_KEY);
+    if (!raw) return { ...ROLL_TRAINER_DEFAULTS };
+    const parsed = JSON.parse(raw);
+    return {
+      allowLeft: typeof parsed.allowLeft === 'boolean' ? parsed.allowLeft : ROLL_TRAINER_DEFAULTS.allowLeft,
+      allowRight: typeof parsed.allowRight === 'boolean' ? parsed.allowRight : ROLL_TRAINER_DEFAULTS.allowRight,
+      randomDegree: typeof parsed.randomDegree === 'boolean' ? parsed.randomDegree : ROLL_TRAINER_DEFAULTS.randomDegree,
+      allow45: typeof parsed.allow45 === 'boolean' ? parsed.allow45 : ROLL_TRAINER_DEFAULTS.allow45,
+      allow90: typeof parsed.allow90 === 'boolean' ? parsed.allow90 : ROLL_TRAINER_DEFAULTS.allow90,
+      allow180: typeof parsed.allow180 === 'boolean' ? parsed.allow180 : ROLL_TRAINER_DEFAULTS.allow180,
+      allow270: typeof parsed.allow270 === 'boolean' ? parsed.allow270 : ROLL_TRAINER_DEFAULTS.allow270,
+      matchTimeSec: typeof parsed.matchTimeSec === 'number' ? parsed.matchTimeSec : ROLL_TRAINER_DEFAULTS.matchTimeSec,
+      speedStart: typeof parsed.speedStart === 'number' ? parsed.speedStart : ROLL_TRAINER_DEFAULTS.speedStart,
+      lapTimeSec: typeof parsed.lapTimeSec === 'number' || parsed.lapTimeSec === null
+        ? parsed.lapTimeSec : ROLL_TRAINER_DEFAULTS.lapTimeSec
+    };
+  } catch {
+    return { ...ROLL_TRAINER_DEFAULTS };
+  }
+}
+
+function saveRollTrainerOptions(): void {
+  try { localStorage.setItem(ROLL_TRAINER_STORAGE_KEY, JSON.stringify(rollTrainerOptions)); }
+  catch { /* non-fatal */ }
+}
+
+const rollTrainerOptions: RollTrainerOptions = loadRollTrainerOptions();
 
 function sliderRow(
   label: string, initial: number, min: number, max: number, step: number,
@@ -333,6 +368,68 @@ function buildPipTrainerControls(): HTMLElement {
   return wrap;
 }
 
+// Direction + degree checkboxes, plus Speed/Time Limit/Lap Time levers — see combat/rollTrainer.ts.
+// The four degree checkboxes are disabled (but left visible/checked) whenever Random Degree is on,
+// since that option ignores them entirely.
+function buildRollTrainerControls(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'scenario-slider-block';
+
+  const checkRow = document.createElement('div');
+  checkRow.className = 'scenario-checkbox-block';
+
+  const leftRow = checkboxRow('Left', rollTrainerOptions.allowLeft,
+    v => { rollTrainerOptions.allowLeft = v; saveRollTrainerOptions(); });
+  const rightRow = checkboxRow('Right', rollTrainerOptions.allowRight,
+    v => { rollTrainerOptions.allowRight = v; saveRollTrainerOptions(); });
+
+  const degreeRows: { row: HTMLElement; key: 'allow45' | 'allow90' | 'allow180' | 'allow270' }[] = [
+    { row: checkboxRow('45°', rollTrainerOptions.allow45, v => { rollTrainerOptions.allow45 = v; saveRollTrainerOptions(); }), key: 'allow45' },
+    { row: checkboxRow('90°', rollTrainerOptions.allow90, v => { rollTrainerOptions.allow90 = v; saveRollTrainerOptions(); }), key: 'allow90' },
+    { row: checkboxRow('180°', rollTrainerOptions.allow180, v => { rollTrainerOptions.allow180 = v; saveRollTrainerOptions(); }), key: 'allow180' },
+    { row: checkboxRow('270°', rollTrainerOptions.allow270, v => { rollTrainerOptions.allow270 = v; saveRollTrainerOptions(); }), key: 'allow270' }
+  ];
+
+  function setDegreeRowsDisabled(disabled: boolean): void {
+    for (const { row } of degreeRows) {
+      const input = row.querySelector('input') as HTMLInputElement;
+      input.disabled = disabled;
+      row.classList.toggle('disabled', disabled);
+    }
+  }
+
+  const randomRow = checkboxRow('Random Degree', rollTrainerOptions.randomDegree, v => {
+    rollTrainerOptions.randomDegree = v;
+    saveRollTrainerOptions();
+    setDegreeRowsDisabled(v);
+  });
+  setDegreeRowsDisabled(rollTrainerOptions.randomDegree);
+
+  checkRow.appendChild(leftRow);
+  checkRow.appendChild(rightRow);
+  checkRow.appendChild(randomRow);
+  for (const { row } of degreeRows) checkRow.appendChild(row);
+  wrap.appendChild(checkRow);
+
+  wrap.appendChild(sliderRow(
+    'Time Limit', Math.round(rollTrainerOptions.matchTimeSec * 10), 5, 100, 1,
+    v => `${(v / 10).toFixed(1)}s`,
+    v => { rollTrainerOptions.matchTimeSec = v / 10; saveRollTrainerOptions(); }
+  ));
+  wrap.appendChild(sliderRow(
+    'Speed', rollTrainerOptions.speedStart, 0, 20, 1,
+    v => `${v}`,
+    v => { rollTrainerOptions.speedStart = v; saveRollTrainerOptions(); }
+  ));
+  wrap.appendChild(sliderRow(
+    'Lap Time', rollTrainerOptions.lapTimeSec === null ? 11 : Math.round(rollTrainerOptions.lapTimeSec / 60), 1, 11, 1,
+    v => v >= 11 ? 'Indefinite' : `${v} min`,
+    v => { rollTrainerOptions.lapTimeSec = v >= 11 ? null : v * 60; saveRollTrainerOptions(); }
+  ));
+
+  return wrap;
+}
+
 function renderList(): void {
   list.innerHTML = '';
 
@@ -367,6 +464,25 @@ function renderList(): void {
   });
   pipTrainerCard.appendChild(pipTrainerBtn);
   list.appendChild(pipTrainerCard);
+
+  // Also not a ScenarioConfig — a translucent ghost hull holds a target bank angle 50m off your
+  // nose; roll to match it before time runs out. See combat/rollTrainer.ts.
+  const rollTrainerCard = document.createElement('div');
+  rollTrainerCard.className = 'scenario-card';
+  rollTrainerCard.innerHTML =
+    '<h3>Roll Trainer</h3><p>A ghost ship holds station 50m ahead, banked at a target roll angle — ' +
+    'roll your own ship to match it and stop before the time limit runs out. Perfectness (how close ' +
+    'you land) is scored, multiplied by a speed rating that climbs by one every time you land a perfect ' +
+    'roll, so later reps are worth more than early ones.</p>';
+  rollTrainerCard.appendChild(buildRollTrainerControls());
+  const rollTrainerBtn = document.createElement('button');
+  rollTrainerBtn.textContent = 'START';
+  rollTrainerBtn.addEventListener('click', () => {
+    hideOverlay();
+    handlers.startRollTrainer(world, rollTrainerOptions);
+  });
+  rollTrainerCard.appendChild(rollTrainerBtn);
+  list.appendChild(rollTrainerCard);
 
   for (const config of SCENARIOS) {
     const isAimTraining = config.id === 'aim-training';
@@ -559,5 +675,59 @@ export function checkPipTrainerResult(w: World): void {
   lastReportedPipTrainer = state;
 
   showPipTrainerResult(state, state.opts);
+  notifyScenarioResult();
+}
+
+export function showRollTrainerResult(state: RollTrainerState, opts: RollTrainerOptions): void {
+  picker.style.display = 'none';
+  resultEl.style.display = 'block';
+  resultEl.className = 'won'; // Roll Trainer has no lose state — it only ends by running out the clock
+  hideMenuLinksRow();
+
+  const scoreLine = `Score: ${state.score.toFixed(1)} — ${state.perfectReps} perfect, ${state.goodReps} good, ` +
+    `of ${state.reps} rolls over ${state.elapsedSec.toFixed(1)}s (speed reached ${state.speedMultiplier}).`;
+
+  // Echo back the exact settings the run used — same convention as showPipTrainerResult.
+  const dirLabel = opts.allowLeft && opts.allowRight ? 'Left/Right' : opts.allowLeft ? 'Left' : 'Right';
+  const degreeLabel = opts.randomDegree ? 'Random' : [
+    opts.allow45 && '45°', opts.allow90 && '90°', opts.allow180 && '180°', opts.allow270 && '270°'
+  ].filter(Boolean).join('/') || 'Random';
+  const lapTimeLabel = opts.lapTimeSec === null ? 'Indefinite' : `${Math.round(opts.lapTimeSec / 60)} min`;
+  const settingsLine = `Directions: ${dirLabel} &middot; Degrees: ${degreeLabel} &middot; ` +
+    `Time Limit: ${opts.matchTimeSec.toFixed(1)}s &middot; Speed: ${opts.speedStart} &middot; Lap Time: ${lapTimeLabel}`;
+
+  resultEl.innerHTML =
+    `<h2>DRILL COMPLETE</h2>` +
+    `<p class="scenario-result-detail">${scoreLine}</p>` +
+    `<p class="scenario-result-detail" style="font-size:11px">${settingsLine}</p>`;
+
+  const retryBtn = document.createElement('button');
+  retryBtn.textContent = 'RETRY';
+  retryBtn.addEventListener('click', () => {
+    hideOverlay();
+    handlers.startRollTrainer(world, opts);
+  });
+  const menuBtn = document.createElement('button');
+  menuBtn.textContent = 'BACK TO MENU';
+  menuBtn.addEventListener('click', showPicker);
+
+  resultEl.appendChild(retryBtn);
+  resultEl.appendChild(menuBtn);
+}
+
+// Edge-triggers showRollTrainerResult once a Roll Trainer run's outcome leaves 'active' — same
+// last-reported tracking convention as checkPipTrainerResult, called every frame from main.ts.
+let lastReportedRollTrainer: RollTrainerState | null = null;
+
+export function checkRollTrainerResult(w: World): void {
+  const state = w.rollTrainer;
+  if (!state || state.outcome === 'active') {
+    if (!state) lastReportedRollTrainer = null;
+    return;
+  }
+  if (state === lastReportedRollTrainer) return;
+  lastReportedRollTrainer = state;
+
+  showRollTrainerResult(state, state.opts);
   notifyScenarioResult();
 }

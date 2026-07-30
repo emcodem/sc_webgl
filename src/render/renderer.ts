@@ -4,10 +4,11 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SmoothBloomPass } from './smoothBloomPass';
 import { DitheredOutputPass } from './ditheredOutputPass';
 import type { World, CelestialBody, EnemyShip, ShipBody, VisualEffect } from '../core/world';
+import { ROLL_TRAINER_STANDOFF_M, getRollTrainerGhostUp } from '../combat/rollTrainer';
 import type { Quat, Vec3 } from '../core/types';
 import type { FlightGate } from '../scenarios/types';
 import { computeAxes } from '../math/quaternion';
-import { normalize } from '../math/vec';
+import { normalize, sub } from '../math/vec';
 import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
@@ -82,6 +83,9 @@ export class Renderer {
   private shipMesh: THREE.Object3D;
   private enemyMeshes = new Map<EnemyShip, THREE.Object3D>();
   private currentEnemyList: EnemyShip[] | null = null;
+  // Roll Trainer's translucent ghost target hull — see combat/rollTrainer.ts. Built/torn down
+  // whenever world.rollTrainer flips between null/non-null (there's only ever at most one).
+  private rollTrainerMesh: THREE.Object3D | null = null;
   // Replay-review movement trails — see updateTrails(). One ribbon per enemy, torn down/rebuilt
   // alongside the ship meshes above (same world.enemies-array-swap trigger); the player's is a
   // single mesh created once, since there's always exactly one player ship regardless of clip.
@@ -355,6 +359,31 @@ export class Renderer {
       setObjectBasis(mesh, axes.forward, axes.up);
     });
 
+    // Roll Trainer ghost target — a translucent hologram of the player's own hull, repositioned
+    // every frame ROLL_TRAINER_STANDOFF_M ahead of wherever the player is currently pointed, nose
+    // aimed back at the player, physically rolling from level into the current challenge's target
+    // bank (combat/rollTrainer.ts's getRollTrainerGhostUp — a world-space up vector, not a
+    // rotation of the ghost's own local frame, since it faces backward). Not an EnemyShip: no
+    // AI/health/hit-detection, purely a visual read on combat/rollTrainer.ts's state.
+    const rollTrainer = world.rollTrainer;
+    if (rollTrainer && !this.rollTrainerMesh) {
+      this.rollTrainerMesh = this.buildGhostShipMesh(ship.type.model);
+      this.scene.add(this.rollTrainerMesh);
+    } else if (!rollTrainer && this.rollTrainerMesh) {
+      this.scene.remove(this.rollTrainerMesh);
+      disposeObject3D(this.rollTrainerMesh);
+      this.rollTrainerMesh = null;
+    }
+    if (rollTrainer && this.rollTrainerMesh) {
+      const shipAxes = computeAxes(ship.quat);
+      const gx = ship.pos.x + shipAxes.forward.x * ROLL_TRAINER_STANDOFF_M;
+      const gy = ship.pos.y + shipAxes.forward.y * ROLL_TRAINER_STANDOFF_M;
+      const gz = ship.pos.z + shipAxes.forward.z * ROLL_TRAINER_STANDOFF_M;
+      this.rollTrainerMesh.position.set(gx - eye.x, gy - eye.y, gz - eye.z);
+      const forwardToPlayer = normalize(sub(ship.pos, { x: gx, y: gy, z: gz }));
+      setObjectBasis(this.rollTrainerMesh, forwardToPlayer, getRollTrainerGhostUp(rollTrainer));
+    }
+
     this.updateTrails(world, eye);
 
     // weapon-round tracers — a pooled straight red line per live projectile (see
@@ -473,6 +502,23 @@ export class Renderer {
     const mesh = cloneShip(template);
     // cloneShip instances share the template's geometry AND materials — mark so teardown frees
     // neither (see disposeObject3D)
+    mesh.userData.sharedAssets = true;
+    return mesh;
+  }
+
+  // Builds Roll Trainer's ghost target: a tinted, translucent clone of the given model (the
+  // player's own hull) — see the render() call site. cloneShip's tint path clones each mesh's
+  // material (not shared, safe to mutate below), but the underlying geometry stays shared with the
+  // template even so, hence userData.sharedAssets = true to keep disposeObject3D from freeing it.
+  private buildGhostShipMesh(model: string): THREE.Object3D {
+    const template = this.shipTemplates.get(model as ShipModelName);
+    if (!template) return new THREE.Group(); // placeholder until this model loads
+    const mesh = cloneShip(template, TRAIL_COLOR_PLAYER);
+    mesh.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const mats = (Array.isArray(obj.material) ? obj.material : [obj.material]) as THREE.MeshStandardMaterial[];
+      for (const m of mats) { m.transparent = true; m.opacity = 0.55; m.depthWrite = false; }
+    });
     mesh.userData.sharedAssets = true;
     return mesh;
   }

@@ -10,6 +10,8 @@ import * as RemoteMouseInput from '../input/remoteMouseInput';
 import * as EspAssist from '../combat/espAssist';
 import { bubbleTicks } from '../scenarios/runtime';
 import { SCORE_FLASH_DURATION, type PipTrainerState } from '../combat/pipTrainer';
+import { ROLL_TRAINER_STANDOFF_M } from '../combat/rollTrainer';
+import type { RollTrainerState } from '../combat/rollTrainer';
 import { getFps } from './fpsTracker';
 import * as Recorder from '../replay/recorder';
 import * as ReplayPlayer from '../replay/player';
@@ -34,6 +36,8 @@ const vjoyLineGradientEl = document.getElementById('vjoy-line-gradient') as unkn
 
 const scenarioHudEl = document.getElementById('scenario-hud') as HTMLElement;
 const pipTrainerHudEl = document.getElementById('pip-trainer-hud') as HTMLElement;
+const rollTrainerHudEl = document.getElementById('roll-trainer-hud') as HTMLElement;
+const rollTrainerResultEl = document.getElementById('roll-trainer-result-popup') as HTMLElement;
 
 const recIndicatorEl = document.getElementById('rec-indicator') as HTMLElement;
 const recIndicatorTimeEl = document.getElementById('rec-indicator-time') as HTMLElement;
@@ -129,6 +133,8 @@ export function updateHUD(world: World): void {
 
   updateScenarioHUD(world);
   updatePipTrainerHUD(world);
+  updateRollTrainerHUD(world);
+  updateRollTrainerResultPopup(world);
   updateStatsPanel(world);
   updateRecordingIndicator();
 
@@ -377,6 +383,90 @@ function updatePipTrainerHUD(world: World): void {
     setText(el('pip-trainer-timer-label'), 'TIME');
     setText(el('pip-trainer-timer'), `${state.elapsedSec.toFixed(1)}s`);
   }
+}
+
+// Top-center Roll Trainer panel — see combat/rollTrainer.ts. TARGET shows the current challenge
+// (the ghost mesh's own bank, rendered by render/renderer.ts); ATTEMPT counts up toward the
+// per-rep time limit; SCORE is tinted by the most recent rep's tier (perfect/good/failed) until
+// the next one lands.
+function updateRollTrainerHUD(world: World): void {
+  const state = world.rollTrainer as RollTrainerState | null;
+  setStyle(rollTrainerHudEl, 'display', state ? 'block' : 'none');
+  if (!state) return;
+  const opts = state.opts;
+
+  const targetDeg = Math.round(Math.abs(state.targetSignedDeg));
+  const targetDir = state.targetSignedDeg < 0 ? 'LEFT' : 'RIGHT';
+  setText(el('roll-trainer-target'), `${targetDeg}° ${targetDir}`);
+
+  setText(el('roll-trainer-attempt-timer'), `${state.challengeTimer.toFixed(1)}s / ${opts.matchTimeSec.toFixed(1)}s`);
+  const attemptPct = opts.matchTimeSec > 0
+    ? Math.min(100, Math.max(0, (state.challengeTimer / opts.matchTimeSec) * 100)) : 0;
+  setStyle(el('roll-trainer-attempt-bar'), 'width', `${attemptPct}%`);
+
+  setText(el('roll-trainer-score'), state.score.toFixed(1));
+  const scoreColor = state.lastResultTier === 'perfect' ? 'var(--hud-on)'
+    : state.lastResultTier === 'good' ? '#ffd35c'
+    : state.lastResultTier === 'failed' ? 'var(--hud-danger)' : '';
+  setStyle(el('roll-trainer-score'), 'color', scoreColor);
+  setText(el('roll-trainer-speed'), `${state.speedMultiplier}`);
+  setText(el('roll-trainer-reps'), `${state.perfectReps}P ${state.goodReps}G / ${state.reps}`);
+
+  if (opts.lapTimeSec !== null) {
+    const remaining = Math.max(0, opts.lapTimeSec - state.elapsedSec);
+    setText(el('roll-trainer-timer-label'), 'TIME LEFT');
+    setText(el('roll-trainer-timer'), `${remaining.toFixed(1)}s`);
+  } else {
+    setText(el('roll-trainer-timer-label'), 'TIME');
+    setText(el('roll-trainer-timer'), `${state.elapsedSec.toFixed(1)}s`);
+  }
+}
+
+// Arcade-style "PERFECT!/GOOD/FAILED" popup that pops up just above the ghost target every time a
+// rep finishes — see combat/rollTrainer.ts's resultSeq. Positioned by projecting the ghost's
+// world position (same formula render/renderer.ts uses to place the mesh) the same way
+// updatePipTrainerMarker projects the PIP Trainer's target.
+//
+// Tracks the RollTrainerState OBJECT (not just its resultSeq) so a brand-new run always resets
+// the "last seen" seq — otherwise a fresh run's first rep landing on the same seq value as the
+// previous run's last rep (both start counting from 0) would be mistaken for "already shown" and
+// the popup would silently keep displaying the prior run's stale text.
+let lastRollTrainerStateRef: RollTrainerState | null = null;
+let lastRollResultSeq = -1;
+
+function updateRollTrainerResultPopup(world: World): void {
+  const state = world.rollTrainer as RollTrainerState | null;
+  if (state !== lastRollTrainerStateRef) {
+    lastRollTrainerStateRef = state;
+    lastRollResultSeq = -1;
+  }
+  if (!state || world.player.mode !== 'pilot') {
+    setStyle(rollTrainerResultEl, 'display', 'none');
+    return;
+  }
+  setStyle(rollTrainerResultEl, 'display', 'block');
+
+  const ship = world.player.ship;
+  const cam = { pos: ship.pos, axes: computeAxes(ship.quat) };
+  const gx = ship.pos.x + cam.axes.forward.x * ROLL_TRAINER_STANDOFF_M;
+  const gy = ship.pos.y + cam.axes.forward.y * ROLL_TRAINER_STANDOFF_M;
+  const gz = ship.pos.z + cam.axes.forward.z * ROLL_TRAINER_STANDOFF_M;
+  const p = project(gx, gy, gz, cam, window.innerWidth, window.innerHeight);
+  if (p) {
+    setStyle(rollTrainerResultEl, 'left', `${p.x}px`);
+    setStyle(rollTrainerResultEl, 'top', `${p.y}px`);
+  }
+
+  if (state.lastResultTier === null || state.resultSeq === lastRollResultSeq) return;
+  lastRollResultSeq = state.resultSeq;
+
+  const tier = state.lastResultTier;
+  rollTrainerResultEl.textContent = tier === 'perfect' ? 'PERFECT!' : tier === 'good' ? 'GOOD' : 'FAILED';
+  // Reset to just the tier class (drops any previous 'pop'), force a reflow, then re-add 'pop' —
+  // restarts the CSS animation even when the same tier lands twice in a row (see style.css).
+  rollTrainerResultEl.className = tier;
+  void rollTrainerResultEl.offsetWidth;
+  rollTrainerResultEl.classList.add('pop');
 }
 
 // Manual-recording indicator — see replay/recorder.ts. Only shows for an intentionally-started

@@ -114,7 +114,10 @@ export function makeWorld(): World {
     makeEnemyShip(FREE_FLIGHT_FLEET[0], ENEMY_SPAWN.pos, ENEMY_SPAWN.quat, true),
     ...makeOtherShips(FREE_FLIGHT_FLEET.slice(1))
   ];
-  return { bodies: BODIES, player, enemies, projectiles: [], effects: [], hitMarkerTimer: 0, scenario: null, pipTrainer: null };
+  return {
+    bodies: BODIES, player, enemies, projectiles: [], effects: [], hitMarkerTimer: 0,
+    scenario: null, pipTrainer: null, rollTrainer: null
+  };
 }
 
 // Restores `world` to a fresh start (F1 / restart button — see ui/buttonBar.ts) by overwriting its
@@ -130,4 +133,5 @@ export function resetWorld(world: World): void {
   world.hitMarkerTimer = 0;
   world.scenario = null; // always fully exits any in-progress scenario
   world.pipTrainer = null; // ...and any in-progress PIP Trainer session
+  world.rollTrainer = null; // ...and any in-progress Roll Trainer session
 }
