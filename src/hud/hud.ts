@@ -115,11 +115,15 @@ export function updateHUD(world: World): void {
 
   // DECOUPLED row doubles as a click target — same effect as the decoupleToggle keybind — wired
   // once, lazily, the first time the HUD updates (mirrors the original project's initModeToggle).
+  // The handler must resolve world.player.ship AT CLICK TIME: resetWorld() replaces world.player
+  // (and its ShipBody) in place, so a ship captured at wire time goes stale after a restart and
+  // the click would silently toggle an orphaned object. `world` itself is never swapped out.
   if (!modeFlagWired) {
     modeFlagWired = true;
     el('mode-flag').addEventListener('click', () => {
-      ship.decoupled = !ship.decoupled;
-      saveDecoupledPreference(ship.decoupled);
+      const live = world.player.ship;
+      live.decoupled = !live.decoupled;
+      saveDecoupledPreference(live.decoupled);
     });
   }
 
