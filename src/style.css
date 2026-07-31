@@ -650,15 +650,14 @@ html, body {
   position: fixed;
   width: 40px;
   pointer-events: none;
-  /* Scales with viewport height like the rest of the HUD's vw-relative left/right, but capped at
-     210px (its original fixed-px size, ==19.44vh at 1080p) — every other HUD element (stats panel
-     text, buttons, labels) is still fixed-px, so letting this grow past that on tall/UHD screens
-     makes the gauge balloon relative to everything next to it. */
-  --gauge-h: min(19.44vh, 210px);
+  /* Fixed px, like every other HUD element (stats panel text, buttons, labels) — no vh/vw scaling,
+     so the gauge stays the same size and the same distance from screen-center regardless of
+     browser/window size. */
+  --gauge-h: 126px;
 }
 
-#speed-gauge { left: calc(50% - 10vw); top: calc(50% - var(--gauge-h) / 2); }
-#boost-gauge { right: calc(50% - 10vw); top: calc(50% - var(--gauge-h) / 2); }
+#speed-gauge { left: calc(50% - 192px); top: calc(50% - var(--gauge-h) / 2); }
+#boost-gauge { right: calc(50% - 192px); top: calc(50% - var(--gauge-h) / 2); }
 
 /* Track = dark background bar the fill sits on top of. Fills entire container with no offset —
    its center lands at screen middle because the container's top is at calc(50% - var(--gauge-h)/2). */
@@ -684,6 +683,14 @@ html, body {
 
 #speed-fill {
   background: rgba(143, 211, 199, 0.5);   /* earth-green @ 50% opacity */
+}
+
+/* Facing away from the direction of travel — the bar fills from the top down instead of
+   bottom-up (see hud.ts's updateGauges), matching SC's convention for a negative forward-TVI
+   component. */
+#speed-fill.reverse {
+  bottom: auto;
+  top: 0;
 }
 
 /* Boost track uses gradient bg (red→green), fill is solid overlay */

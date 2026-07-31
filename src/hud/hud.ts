@@ -1,5 +1,5 @@
 import type { World, EnemyShip, ShipBody } from '../core/world';
-import { length, sub, clamp } from '../math/vec';
+import { length, sub, clamp, dot } from '../math/vec';
 import { getStatusMessage } from '../control/mode';
 import * as Input from '../input/input';
 import { computeAxes } from '../math/quaternion';
@@ -195,12 +195,18 @@ function updateGauges(world: World): void {
 
   if (!showPilot) return;
 
-  // Speed gauge — fill height = speed / ship.maxSpeed, label below.
+  // Speed gauge — label is total travel speed (the ship only ever moves along one vector), but
+  // the bar reflects that vector's component along the nose (SC convention): full bottom-up when
+  // the nose points at the forward TVI, full top-down facing the reverse TVI, and empty at 90°
+  // off — i.e. dot(vel, forward), not |vel|. Sign flips which end of the track fills from.
   const speed = length(ship.vel);
   const maxSpeed = ship.type.boostSpeedForward;
-  const speedFrac = Math.min(1, Math.abs(speed) / maxSpeed) * 100;
+  const forward = computeAxes(ship.quat).forward;
+  const forwardSpeed = dot(ship.vel, forward);
+  const speedFrac = Math.min(1, Math.abs(forwardSpeed) / maxSpeed) * 100;
   setStyle(speedFillEl, 'height', `${speedFrac}%`);
-  setText(speedValEl, `${Math.abs(Math.round(speed))} m/s`);
+  speedFillEl.classList.toggle('reverse', forwardSpeed < 0);
+  setText(speedValEl, `${Math.round(speed)} m/s`);
 
   // Boost gauge — fill height = boostMeter / boostCapacity, label below.
   const boostPct = Math.round((ship.boostMeter / ship.type.boostCapacity) * 100);
