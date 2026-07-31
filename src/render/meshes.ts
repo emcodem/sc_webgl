@@ -225,26 +225,91 @@ export function createBodyMesh(body: CelestialBody): THREE.Object3D {
 // the AI/fleet opponents. Ships render nothing until their model resolves rather than falling back
 // to a primitive.)
 
-// A weapon-round tracer: a simple straight red line, PROJECTILE_LENGTH metres long, oriented in
-// true 3D along the round's travel direction (see render/renderer.ts's per-projectile loop). A thin
-// cylinder rather than a THREE.Line so it has real world-space thickness and stays visible at any
-// distance (WebGL ignores LineBasicMaterial.linewidth > 1 on most platforms). The geometry lies
-// along local +Z with the head at the local origin and the tail PROJECTILE_LENGTH behind it, so the
-// renderer just points local +Z down the velocity vector each frame — no billboarding, no shader.
-// The renderer also scales the cross-section up with distance so the line stays visible out to
-// several km rather than shrinking to a sub-pixel (invisible) sliver. A bolt fired straight away
-// from the camera foreshortens to a small dot, which is correct.
-export const PROJECTILE_LENGTH = 6;
-export const PROJECTILE_RADIUS = 0.16; // base half-thickness at close range (widened per-distance)
+// A weapon-round tracer styled like a distant meteorite burning up in atmosphere: a rounded orange
+// nose (the "burning" leading surface, facing the direction of travel/the target) that melts
+// continuously into a long red tail trailing behind it, thinning and fading out — not a beam or a
+// blade, and not a flat-coloured ball sitting on top of the tail. Built as a THREE.Group (see
+// render/renderer.ts's per-projectile loop, which points its local +Z down the round's velocity
+// vector each frame — no billboarding, no shader) of two pieces sharing one origin at local (0,0,0):
+//   - the head, a small sphere, and
+//   - the tail, a cone lying along local +Z, wide (PROJECTILE_RADIUS, matching/overlapping the head)
+//     at the local origin and tapering to a near-zero point PROJECTILE_LENGTH behind it at local -Z,
+//     so the tail visually thins out with distance from the head the way a real meteor trail does.
+//     A cone rather than a THREE.Line so it has real world-space thickness and stays visible at any
+//     distance (WebGL ignores LineBasicMaterial.linewidth > 1 on most platforms).
+// Both pieces are coloured by the SAME sampleFlameColor() below, keyed on distance-from-the-nose-tip
+// rather than each piece having its own independent gradient — this is what makes the orange nose
+// read as continuously melting into the red tail (a real flame gradient) instead of a solid ball
+// dropped in front of a separately-coloured cone: colour and alpha are already identical for head
+// and tail vertices that land at the same distance from the tip, so there is no seam to blend across.
+export const PROJECTILE_LENGTH = 26;
+export const PROJECTILE_RADIUS = 0.16; // tail's width where it meets the head (widened per-distance)
+const HEAD_RADIUS = PROJECTILE_RADIUS * 0.85; // the rounded meteorite nose — kept slightly narrower
+                                               // than the tail's own width so it reads as a rounded
+                                               // cap on the tail, not a wider ball bulging out of it
+const NOSE_TO_HOT_LEN = 0.8; // metres from the nose tip spent transitioning nose colour -> hot colour
+const HOT_TO_CORE_LEN = 2.6; // metres from the nose tip until the colour settles into pure `color`
+const TOTAL_SPAN = HEAD_RADIUS + PROJECTILE_LENGTH; // nose tip to tail tip, for the brightness/alpha falloff
 
-export function createProjectileMesh(color: number): THREE.Mesh {
-  const geo = new THREE.CylinderGeometry(PROJECTILE_RADIUS, PROJECTILE_RADIUS, PROJECTILE_LENGTH, 6, 1);
-  geo.rotateX(Math.PI / 2);              // reorient the cylinder's long axis from +Y to +Z
-  geo.translate(0, 0, -PROJECTILE_LENGTH / 2); // head at local origin, tail at local -Z
-  // MeshBasicMaterial (unlit) pushed past 1.0 so the line clears UnrealBloomPass's threshold and
-  // reads as a hot glowing red beam rather than a flat matte bar.
-  const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.2) });
-  return new THREE.Mesh(geo, mat);
+const NOSE_COLOR = new THREE.Color(0xffa060); // brightest point, at the very tip — warm orange, not pale yellow
+const HOT_COLOR = new THREE.Color(0xff7038); // mid transition, shared hand-off between head and tail
+const _flameTmp = new THREE.Color();
+
+// dist: metres from the nose tip (0 at the tip, TOTAL_SPAN at the tail's tapered point). Returns
+// alpha; the RGB (already intensity-scaled) is left in `out`.
+function sampleFlameColor(dist: number, coreColor: THREE.Color, out: THREE.Color): number {
+  if (dist <= NOSE_TO_HOT_LEN) {
+    out.copy(NOSE_COLOR).lerp(HOT_COLOR, dist / NOSE_TO_HOT_LEN);
+  } else {
+    const t2 = Math.min((dist - NOSE_TO_HOT_LEN) / (HOT_TO_CORE_LEN - NOSE_TO_HOT_LEN), 1);
+    out.copy(HOT_COLOR).lerp(coreColor, t2);
+  }
+  const t = dist / TOTAL_SPAN;
+  out.multiplyScalar(1.1 * (1 - 0.5 * t)); // gentle brightness taper; kept modest so it stays under
+                                            // SmoothBloomPass's threshold rather than blooming into a blob
+  return 1 - Math.pow(t, 1.3); // long taper, like a meteor trail thinning into nothing
+}
+
+export function createProjectileMesh(color: number): THREE.Group {
+  const group = new THREE.Group();
+  const core = new THREE.Color(color);
+
+  const headGeo = new THREE.SphereGeometry(HEAD_RADIUS, 12, 10);
+  const headPos = headGeo.getAttribute('position');
+  const headRgba = new Float32Array(headPos.count * 4);
+  for (let i = 0; i < headPos.count; i++) {
+    const dist = HEAD_RADIUS - headPos.getZ(i); // 0 at the front pole (the nose tip), grows toward the back
+    const alpha = sampleFlameColor(dist, core, _flameTmp);
+    headRgba[i * 4] = _flameTmp.r;
+    headRgba[i * 4 + 1] = _flameTmp.g;
+    headRgba[i * 4 + 2] = _flameTmp.b;
+    headRgba[i * 4 + 3] = alpha;
+  }
+  headGeo.setAttribute('color', new THREE.BufferAttribute(headRgba, 4));
+  const headMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+  group.add(new THREE.Mesh(headGeo, headMat));
+
+  const heightSegments = 16; // enough rings along the length for a smooth head-to-tail gradient
+  const tailGeo = new THREE.CylinderGeometry(PROJECTILE_RADIUS, 0.01, PROJECTILE_LENGTH, 8, heightSegments);
+  tailGeo.rotateX(Math.PI / 2);              // reorient the cone's long axis from +Y to +Z
+  tailGeo.translate(0, 0, -PROJECTILE_LENGTH / 2); // wide end at the head, tapered point at local -Z
+
+  const tailPos = tailGeo.getAttribute('position');
+  const tailRgba = new Float32Array(tailPos.count * 4); // itemSize 4 so vertex alpha carries the tail fade
+  for (let i = 0; i < tailPos.count; i++) {
+    const dist = HEAD_RADIUS - tailPos.getZ(i); // same distance-from-nose-tip scale as the head, above
+    const alpha = sampleFlameColor(dist, core, _flameTmp);
+    tailRgba[i * 4] = _flameTmp.r;
+    tailRgba[i * 4 + 1] = _flameTmp.g;
+    tailRgba[i * 4 + 2] = _flameTmp.b;
+    tailRgba[i * 4 + 3] = alpha;
+  }
+  tailGeo.setAttribute('color', new THREE.BufferAttribute(tailRgba, 4));
+
+  const tailMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+  group.add(new THREE.Mesh(tailGeo, tailMat));
+
+  return group;
 }
 
 // A flat "roll band" trailing a ship during flight-replay review (see replay/player.ts's
