@@ -13,7 +13,8 @@ import { footEye } from '../physics/characterController';
 import { SUN } from '../world/celestial';
 import {
   createBodyMesh, createProjectileMesh, createTrailRibbon, updateTrailRibbon,
-  createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust
+  createSpaceDust, createStarfield, PROJECTILE_RADIUS, type SpaceDust,
+  createCaptureBubble, updateCaptureBubble, type CaptureBubble
 } from './meshes';
 import { ImpactEffects } from './impactEffects';
 import { setCameraBasis, setObjectBasis } from './camera';
@@ -33,6 +34,12 @@ const TRAIL_WINDOW_SEC = 3;
 // Player and enemy tracers share one look — a saturated laser red — so a dogfight's incoming vs.
 // outgoing fire reads as the same weapon type; only owner-based hit detection tells them apart.
 const LASER_COLOR = 0xff2a2a;
+
+// Merge Drill's capture-bubble marker: green (--hud-on, this codebase's "good/on-target" colour
+// everywhere else — crosshair hits, roll-trainer perfects) while the player is inside the bubble,
+// amber (--hud-accent) while they still need to close the distance.
+const BUBBLE_COLOR_INSIDE = new THREE.Color(0x7dffa0);
+const BUBBLE_COLOR_OUTSIDE = new THREE.Color(0xff7a45);
 
 // Resolution of the bloom blur chain's largest mip, as a fraction of the drawing buffer — see the
 // explicit re-size in resize(). 1/3 matches what the pass was already effectively running at on a
@@ -98,7 +105,7 @@ export class Renderer {
   private projectilePool: THREE.Object3D[] = [];
   private gateMeshes: THREE.Mesh[] = [];
   private currentGatePath: FlightGate[] | null = null;
-  private rangeBubbleMesh: THREE.Mesh | null = null;
+  private rangeBubble: CaptureBubble | null = null;
   // (both explosions and laser impacts are handled by the GPU hot-metal system below, not a mesh)
   // Hot-metal laser-hit sparks/flash/glow (see render/impactEffects.ts). Render-only: driven from
   // world.effects 'impact' triggers, each consumed exactly once via emittedImpacts. clock feeds the
@@ -436,21 +443,32 @@ export class Renderer {
       });
     }
 
-    // scenario range bubble (Merge Drill's rangeBubbleRadius) — a wireframe sphere around the
-    // nearest live enemy, hidden whenever no scenario config asks for one.
+    // scenario range bubble (Merge Drill's rangeBubbleRadius) — a Fresnel-rimmed "stay inside" shell
+    // plus a camera-facing ring outline around the nearest live enemy (see createCaptureBubble),
+    // hidden whenever no scenario config asks for one. Colour flips green/amber on whether the
+    // player is currently inside it, and a slow idle pulse keeps it visibly alive at a held range.
     const bubbleRadius = world.scenario?.config.rangeBubbleRadius;
     if (bubbleRadius !== undefined) {
       const target = world.enemies.find(e => e.respawnTimer <= 0 && e.health.points > 0);
       if (target) {
-        const mesh = this.rangeBubbleMesh ?? this.createRangeBubbleMesh();
-        mesh.scale.setScalar(bubbleRadius / 20); // base geometry radius is 20 (see createRangeBubbleMesh)
-        mesh.position.set(target.pos.x - eye.x, target.pos.y - eye.y, target.pos.z - eye.z);
-        mesh.visible = true;
-      } else if (this.rangeBubbleMesh) {
-        this.rangeBubbleMesh.visible = false;
+        const bubble = (this.rangeBubble?.radius === bubbleRadius) ? this.rangeBubble : this.rebuildRangeBubble(bubbleRadius);
+        const rx = target.pos.x - eye.x, ry = target.pos.y - eye.y, rz = target.pos.z - eye.z;
+        bubble.shellMesh.position.set(rx, ry, rz);
+        bubble.ringMesh.position.set(rx, ry, rz);
+        bubble.ringMesh.lookAt(0, 0, 0); // the camera is always pinned at the GL origin
+        bubble.shellMesh.visible = true;
+        bubble.ringMesh.visible = true;
+        const dist = Math.hypot(target.pos.x - ship.pos.x, target.pos.y - ship.pos.y, target.pos.z - ship.pos.z);
+        const inside = dist <= bubbleRadius;
+        const pulse = 0.45 + 0.25 * (0.5 + 0.5 * Math.sin(t * (inside ? 3.2 : 1.6)));
+        updateCaptureBubble(bubble, inside ? BUBBLE_COLOR_INSIDE : BUBBLE_COLOR_OUTSIDE, pulse);
+      } else if (this.rangeBubble) {
+        this.rangeBubble.shellMesh.visible = false;
+        this.rangeBubble.ringMesh.visible = false;
       }
-    } else if (this.rangeBubbleMesh) {
-      this.rangeBubbleMesh.visible = false;
+    } else if (this.rangeBubble) {
+      this.rangeBubble.shellMesh.visible = false;
+      this.rangeBubble.ringMesh.visible = false;
     }
 
     // combat bursts (see combat/effects.ts) — both kinds are one-shot TRIGGERS into the GPU hot-metal
@@ -616,14 +634,19 @@ export class Renderer {
     this.currentGatePath = gatePath;
   }
 
-  private createRangeBubbleMesh(): THREE.Mesh {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(20, 24, 16),
-      new THREE.MeshBasicMaterial({ color: 0x7dffa0, wireframe: true, transparent: true, opacity: 0.35 })
-    );
-    this.scene.add(mesh);
-    this.rangeBubbleMesh = mesh;
-    return mesh;
+  // Rebuilt only when the configured radius changes (scenario start/switch), same identity-diff
+  // idiom as the gate meshes above — geometry is baked at the true radius rather than scaled from a
+  // fixed base, so the ring and Fresnel falloff stay proportionally correct at any bubble size.
+  private rebuildRangeBubble(radius: number): CaptureBubble {
+    if (this.rangeBubble) {
+      this.scene.remove(this.rangeBubble.shellMesh, this.rangeBubble.ringMesh);
+      disposeObject3D(this.rangeBubble.shellMesh);
+      disposeObject3D(this.rangeBubble.ringMesh);
+    }
+    const bubble = createCaptureBubble(radius);
+    this.scene.add(bubble.shellMesh, bubble.ringMesh);
+    this.rangeBubble = bubble;
+    return bubble;
   }
 
   // Recomputes every dust mote's head/tail vertex positions and head alpha from the ship's current

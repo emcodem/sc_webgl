@@ -479,3 +479,67 @@ export function createSpaceDust(count = 70, field = 130): SpaceDust {
                                // bounding sphere would risk incorrect culling
   return { mesh, bases, field };
 }
+
+// "Stay inside" capture bubble (Merge Drill's rangeBubbleRadius): a soft Fresnel-rimmed shell
+// (bright at the grazing limb, nearly invisible dead-on, like the atmosphereShell above — but
+// double-sided with a per-fragment normal flip, since unlike a planet's atmosphere the player is
+// expected to end up INSIDE this one) for a volumetric "this is a bubble" read at any range, plus a
+// camera-facing ring (a flat annulus re-oriented every frame to face the GL origin, where the
+// camera is always pinned — see the floating-origin note atop renderer.ts) for a crisp boundary
+// outline that never degenerates. A true 3D wireframe/ring-rig was tried first and rejected: at the
+// close, shallow viewing angles typical of this drill's head-on merge, a torus tube seen edge-on
+// forshort into a screen-filling bar instead of a thin ring — a billboarded ring can't do that.
+// Color and a slow idle pulse are driven per-frame by the renderer via updateCaptureBubble — green
+// while the player is inside, amber while they're still closing in.
+export interface CaptureBubble {
+  shellMesh: THREE.Mesh;
+  ringMesh: THREE.Mesh;
+  shellMat: THREE.ShaderMaterial;
+  ringMat: THREE.MeshBasicMaterial;
+  radius: number;
+}
+
+export function createCaptureBubble(radius: number): CaptureBubble {
+  const shellMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: {
+      uColor: { value: new THREE.Color(0x7dffa0) },
+      uOpacity: { value: 1 }
+    },
+    vertexShader: `
+      varying vec3 vNormalW; varying vec3 vPosW;
+      void main() {
+        vNormalW = normalize(mat3(modelMatrix) * normal);
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vPosW = wp.xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 uColor; uniform float uOpacity;
+      varying vec3 vNormalW; varying vec3 vPosW;
+      void main() {
+        vec3 viewDir = normalize(cameraPosition - vPosW);
+        vec3 n = normalize(vNormalW);
+        if (!gl_FrontFacing) n = -n; // seen from inside the shell (the win state) as well as outside
+        float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 6.0);
+        gl_FragColor = vec4(uColor, rim * 0.85 * uOpacity);
+      }`
+  });
+  const shellMesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 40, 28), shellMat);
+
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x7dffa0, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false
+  });
+  const ringMesh = new THREE.Mesh(new THREE.RingGeometry(radius * 0.965, radius, 96), ringMat);
+
+  return { shellMesh, ringMesh, shellMat, ringMat, radius };
+}
+
+// `pulse` is an idle 0..1 breathing multiplier (independent of `color`) so the bubble stays visibly
+// alive even when the player holds a steady range, rather than reading as a static painted-on shell.
+export function updateCaptureBubble(bubble: CaptureBubble, color: THREE.Color, pulse: number): void {
+  bubble.shellMat.uniforms.uColor.value.copy(color);
+  bubble.shellMat.uniforms.uOpacity.value = pulse;
+  bubble.ringMat.color.copy(color);
+  bubble.ringMat.opacity = 0.65 + 0.3 * pulse;
+}
