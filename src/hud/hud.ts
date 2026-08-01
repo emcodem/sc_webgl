@@ -104,6 +104,7 @@ const hudCtx = hudCanvasEl.getContext('2d');
 const speedGaugeEl = document.getElementById('speed-gauge') as HTMLElement;
 const speedFillEl = document.getElementById('speed-fill') as HTMLElement;
 const speedTicksEl = document.getElementById('speed-ticks') as HTMLElement;
+const speedThrottleEl = document.getElementById('speed-throttle') as HTMLElement;
 const speedValEl = document.getElementById('speed-val') as HTMLElement;
 const boostGaugeEl = document.getElementById('boost-gauge') as HTMLElement;
 const boostFillEl = document.getElementById('boost-fill') as HTMLElement;
@@ -207,6 +208,23 @@ function updateGauges(world: World): void {
   setStyle(speedFillEl, 'height', `${speedFrac}%`);
   speedFillEl.classList.toggle('reverse', forwardSpeed < 0);
   setText(speedValEl, `${Math.round(speed)} m/s`);
+
+  // Throttle indicator — SC's own convention, distinct from the fill above but sharing its mode:
+  // top- vs bottom-anchored is the SPEED BAR's own indicated direction (forwardSpeed's sign), not
+  // recent throttle input. While the speed bar reads backward, the indicator can only show backward
+  // thrust — commanding forward thrust in that state reads as zero (stuck at the mode's own 0%
+  // position), and symmetrically for reading forward while thrusting backward. Bar height amplitude
+  // at 100% commanded throttle differs by direction/boost state — measured against the gauge's own
+  // fixed physical track (bracket-top to marker's own rest), not against each other, per user
+  // go-ahead 2026-08-02 (see capture/MEASUREMENTS.md's "Throttle indicator bar-height amplitude"
+  // section): unboosted forward 45%, unboosted backward 55%, boosted (either direction) 100%.
+  const throttleReverse = forwardSpeed < 0;
+  const throttleAccelerating = throttleReverse ? ship.throttle < 0 : ship.throttle > 0;
+  const throttleMaxPct = ship.boosting ? 100 : (throttleReverse ? 55 : 45);
+  const throttleFrac = throttleAccelerating ? Math.min(1, Math.abs(ship.throttle)) * throttleMaxPct : 0;
+  speedThrottleEl.classList.toggle('reverse', throttleReverse);
+  setStyle(speedThrottleEl, 'bottom', throttleReverse ? 'auto' : `${throttleFrac}%`);
+  setStyle(speedThrottleEl, 'top', throttleReverse ? `${throttleFrac}%` : 'auto');
 
   // Boost gauge — fill height = boostMeter / boostCapacity, label below.
   const boostPct = Math.round((ship.boostMeter / ship.type.boostCapacity) * 100);

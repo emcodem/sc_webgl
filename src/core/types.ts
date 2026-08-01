@@ -174,6 +174,15 @@ export interface ShipType {
   mainSpoolDelay: number;
   retroSpoolDelay: number;
   verticalSpoolDelay: number;
+  // Keyboard/joystick throttle-COMMAND ramp rate (1/s: fraction of full -1..1 travel per second) —
+  // distinct from mainSpoolDelay/retroSpoolDelay above, which gate when thrust *catches* once
+  // throttle is already fully commanded. This instead governs how fast the commanded throttle
+  // itself can move, since pressing/releasing W or S isn't an instant 0-to-full digital snap in
+  // real SC. See control/pilot.ts and capture/MEASUREMENTS.md's "Throttle input ramp" section
+  // (2026-08-01): measured ~0.20s for a full 0↔1 traversal, same rate for both directions and both
+  // activating and releasing (an initial reading suggesting backward activated instantly turned out
+  // to be a HUD display bug, not a real asymmetry).
+  throttleRampRate: number;
   linearDrag: number;               // negligible for the Gladius — governor-cap does the limiting
   boostLinearDrag: number;
   coastDecel: number;               // informational/legacy only — flightModel.ts's coast branch derives

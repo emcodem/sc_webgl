@@ -261,6 +261,11 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   mainSpoolDelay: 0.07,
   retroSpoolDelay: 0.024,
   verticalSpoolDelay: 0.066,
+  // Throttle-command ramp rate — see core/types.ts's doc comment and capture/MEASUREMENTS.md's
+  // "Throttle input ramp" section (2026-08-01): HUD gauge marker frame-tracked at 120fps/4K, ~0.20s
+  // (24 frames) for a full 0..1 traversal, consistently across forward activate/release and
+  // backward activate/release. 1/0.20 = 5.0 (1/s).
+  throttleRampRate: 5.0,
   linearDrag: 0.001,
   coastDecel: 40,
   brakeGain: 1.04,

@@ -25,6 +25,7 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     mainSpoolDelay: raw.mainSpoolDelay,
     retroSpoolDelay: raw.retroSpoolDelay,
     verticalSpoolDelay: raw.verticalSpoolDelay,
+    throttleRampRate: raw.throttleRampRate,
     linearDrag: raw.linearDrag,
     boostLinearDrag: raw.boostLinearDrag,
     coastDecel: raw.coastDecel,
@@ -106,6 +107,8 @@ export function validateShipType(t: ShipType, id: string): void {
   finite(t.mainSpoolDelay, 'mainSpoolDelay');
   finite(t.retroSpoolDelay, 'retroSpoolDelay');
   finite(t.verticalSpoolDelay, 'verticalSpoolDelay');
+  finite(t.throttleRampRate, 'throttleRampRate');
+  if (t.throttleRampRate <= 0) throw new Error(`Invalid ShipType '${id}': throttleRampRate must be > 0, got ${t.throttleRampRate}`);
   finite(t.linearDrag, 'linearDrag');
   finite(t.boostLinearDrag, 'boostLinearDrag');
   finite(t.coastDecel, 'coastDecel');

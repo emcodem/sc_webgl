@@ -217,6 +217,73 @@ saturation actually breaks down (how low mag2 can go before stop-time starts ris
 tested; a follow-up sweep (mag2 = -300/-150/-80 at mag1=1000) was proposed but results not yet in
 as of this entry.
 
+## Throttle input ramp — keyboard analog emulation (Gladius, W/S)
+
+Real SC's keyboard throttle input isn't instantaneous like a digital on/off — pressing/releasing
+ramps the commanded throttle over a measurable time, distinct from `mainSpoolDelay`/`retroSpoolDelay`
+(which gate when thrust *catches* once throttle is already fully commanded — see `flightModel.ts`).
+Measured by frame-tracking the HUD speed gauge's own throttle-position marker (a small cyan square +
+line, distinct from the fill/track) at 120fps/4K OBS capture — a new ad hoc method (Python + OpenCV
+connected-component pixel tracking of the marker's y-position), not yet part of the `capture/` tool
+suite.
+
+| Condition | Value | Method | Reps | Date | Status | Notes |
+|---|---|---|---|---|---|---|
+| Forward (W) — activate ramp, 0→100% | ~0.20s (24 frames @ 120fps) | HUD gauge marker pixel-tracking | 2 | 2026-08-01 | CONFIRMED | Two independent captures: 0.203s and 0.201s. Clean linear (constant-rate) ramp, no overshoot/settling wobble. |
+| Forward (W) — release ramp, 100%→0 | ~0.20s (24 frames @ 120fps) | same | 1 | 2026-08-01 | CONFIRMED | 0.201s — same linear shape/rate as activate. |
+| Backward (S) — activate ramp, 0→100% | ~0.20s (24 frames @ 120fps), SAME rate as forward | same | 2 | 2026-08-01 | CONFIRMED | Supersedes the "instant, no ramp" reading below — per user, that was a HUD display bug/glitch, not real behavior; other observations clearly show the identical ramp shape as forward. Backward's bar simply doesn't rise as far as forward's (lower peak height), because backward thrust is weaker overall (a magnitude/cap difference, not a ramp-timing one) — consistent with the existing back-thrust-weaker-than-forward asymmetry already in `shipTypes.ts` (retro thrust 63 vs main 201). |
+| ~~Backward (S) — activate ramp, "instant"~~ (superseded) | ~~instant, ≤1 frame (≤8.3ms)~~ | same | 2 | 2026-08-01 | SUPERSEDED | Both captures showing an instant jump are now believed to be a display bug in SC's HUD marker rendering, not a real ramp-timing difference — see the row above. |
+| Backward (S) — release ramp, 100%→0 | ~0.20s (24 frames @ 120fps) | same | 1 | 2026-08-01 | CONFIRMED | 0.201s — matches forward's ramp rate almost exactly. |
+| **Boosted** forward (W) — activate ramp, 0→100% | ~0.20s (24 frames @ 120fps), SAME duration as unboosted | same | 1 | 2026-08-01 | CONFIRMED | 0.1998s (23.98 frames) — travels ~182px vs unboosted's ~81px (2.25× further) in the SAME time, i.e. a ~2.25× faster px/frame slope, not a faster ramp. Confirms boost raises the ramp's amplitude/target (higher max thrust), not its rate. |
+| **Boosted** backward (S) — activate ramp, 0→100% | ~0.20s (24 frames @ 120fps), SAME duration as unboosted | same | 1 | 2026-08-01 | CONFIRMED | 0.1992s (23.91 frames), ~181px travel — matches boosted-forward's ratio and duration closely. |
+| Boosted release (both directions) | unclear — NOT yet confirmed | same | 1 each | 2026-08-01 | — | Backward-boost release reads as a genuine single-frame instant snap straight to rest (no ramp at all). Forward-boost release shows a noisier multi-stage transition (drops partway to an intermediate value, holds, then an instant final snap to rest) rather than one clean ramp. Given the earlier false "instant" reading for unboosted backward activation turned out to be a display bug, this is NOT treated as confirmed either way — needs the user to review the raw footage before drawing a conclusion, unlike the activate rows above which are unambiguous in the pixel data. |
+
+**Cross-condition note:** all four UNBOOSTED transitions (forward activate/release, backward
+activate/release) AND both BOOSTED activate transitions converge on the same ~24-frame/0.20s
+duration — one shared ramp-rate CONSTANT-TIME (not constant-speed) governs every throttle
+activation regardless of direction or boost state; boost only changes how far the ramp travels
+(the commanded target amplitude), not how long it takes to get there. Boosted release timing is the
+one open question in this section (see row above). Not cross-checked against the engine-power-
+triangle confound noted at the top of this file, but this is a UI/input-timing measurement (how
+fast the keyboard axis ramps), not a thrust-output magnitude — by the same reasoning as the power-
+triangle-independent "Input curve / deadzone" section further down, it's expected to be unaffected
+by it.
+
+## Throttle indicator bar-height amplitude (Gladius)
+
+How far up the HUD speed gauge's throttle marker rises at 100% commanded throttle — independent of
+the ramp-timing section above. Two different reference/calibration methods were tried, giving two
+different answers; the bar-anchored one is what's wired into `hud.ts` as of 2026-08-02 (per user
+go-ahead), superseding the forward-anchored one it started as.
+
+| Condition | Value (forward-anchored calibration, superseded) | Value (bar-anchored calibration — WIRED) | Status | Notes |
+|---|---|---|---|---|
+| Forward (W), unboosted | ~~50%~~ (given/assumed, not independently measured) | **45%** | CONFIRMED (per user go-ahead) | The 50% figure was never actually measured against the gauge's own physical track — it's the user's verbal recollection. Measuring against the track's own static border (top bracket to marker's own rest position) gives ~42-45%, rounded to 45% and wired in. |
+| Backward (S), unboosted | ~~65%~~ (64.2% measured, rounded, relative to forward's assumed 50%) | **55%** | CONFIRMED (per user go-ahead) | Measured as the marker's own held pixel position (185.5, steady the whole time S is held), against the track's actual top border rather than against forward's own (possibly-wrong) percentage. Either calibration agrees backward's unboosted amplitude is LARGER than forward's, not smaller as first assumed — see the resolved confusion below. |
+| Boosted, either direction | 100% | **100%** | CONFIRMED (per user) | Per user statement, boost brings the bar to 100% in both directions. Bar-anchored measurement lands a few % short of literal 100% (108/107 px vs a measured track-top of ~99px) — most likely anti-aliasing/edge-detection slop in locating the track's exact top pixel, not a real sub-100% cap; still wired as a clean 100%. |
+
+**What's wired into `hud.ts` today:** the bar-anchored column (45% / 55% / 100% / 100%) —
+`throttleMaxPct` in `updateGauges`'s throttle-indicator block. The forward-anchored column (50% /
+65%) was the first thing wired in, then replaced once the bar-anchored measurement was available
+and the user chose it over both the original 50/65 and a floated symmetric-45/45 alternative.
+
+**Resolved confusion (2026-08-02):** an earlier read of `backward.mp4` mistook a SEPARATE
+mode-reference event for "backward ramping further than forward" — after releasing S, the marker
+does NOT ramp back toward rest; it snaps to the reverse-mode's own 0% (top) position immediately
+(matches "instant, no ramp" from the ramp-timing section above). The ~24-frame drift from ~185.5 to
+~105.5 that was previously fit as a "release ramp" (0.201s, in the ramp-timing section above) is
+this mode-revert transition, not a throttle magnitude changing — 105.5 is NOT backward's
+full-throttle position (185.5 is).
+
+**Superseded mode mechanism (2026-08-02):** the mode-revert was initially modeled as a fixed
+~200ms hold timer keyed off recent throttle input (`REVERSE_MODE_HOLD_MS` in `hud.ts`), based on
+the drift observed above. Per direct user clarification this is wrong: the indicator's mode is
+actually just the SPEED BAR's own indicated direction (`forwardSpeed`'s sign, shared with the fill
+above), not a release timer at all — and while the speed bar reads one direction, throttle input in
+the OPPOSITE direction reads as zero (gated), not a partial/negative value. The timer mechanism was
+removed; `hud.ts` now gates directly on `forwardSpeed < 0` plus a same-direction-as-throttle check,
+matching the ship's very first (pre-capture) throttle-indicator implementation.
+
 ## Linear thrust / speed (Gladius)
 
 | Condition | Value | Method | Reps | Date | Status | Notes |

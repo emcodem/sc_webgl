@@ -649,6 +649,10 @@ html, body {
 #speed-gauge, #boost-gauge {
   position: fixed;
   width: 40px;
+  /* Every child (track, ticks, throttle line) is absolutely positioned, so without an explicit
+     height here the container's own box collapses to 0 — and any percentage (e.g. the throttle
+     line's JS-driven `bottom`) would resolve against that 0 instead of the gauge height. */
+  height: var(--gauge-h);
   pointer-events: none;
   /* Fixed px, like every other HUD element (stats panel text, buttons, labels) — no vh/vw scaling,
      so the gauge stays the same size and the same distance from screen-center regardless of
@@ -691,6 +695,37 @@ html, body {
 #speed-fill.reverse {
   bottom: auto;
   top: 0;
+}
+
+/* Throttle indicator — a thin line trimmed on both sides of the gauge's own width: 40% off the
+   left edge, 30% off the right edge (so it spans the middle 30%), capped with a small handle on
+   the right, in the gauge's own accent color. Bottom anchor at throttle 0/forward (0 at the
+   bottom, full forward at the top); the .reverse variant flips to a top anchor for reverse thrust
+   (see hud.ts's updateGauges, which sets both `bottom`/`top` and toggles this class every frame,
+   and which gates/scales throttleFrac so this only ever reads as an acceleration cue). */
+.gauge-throttle {
+  position: absolute;
+  left: 40%;
+  width: 30%;
+  height: 1px;
+  transform: translateY(50%);
+  background: var(--hud-fg);
+  pointer-events: none;
+}
+
+.gauge-throttle.reverse {
+  transform: translateY(-50%);
+}
+
+.gauge-throttle::after {
+  content: '';
+  position: absolute;
+  right: -3px;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  transform: translateY(-50%);
+  background: var(--hud-fg);
 }
 
 /* Boost track uses gradient bg (red→green), fill is solid overlay */

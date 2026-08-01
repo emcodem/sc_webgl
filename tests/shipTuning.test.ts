@@ -102,6 +102,7 @@ describe('Gladius measured tuning invariants', () => {
       mainSpoolDelay: 0.07,
       retroSpoolDelay: 0.024,
       verticalSpoolDelay: 0.066,
+      throttleRampRate: 5.0,
       linearDrag: 0.001,
       boostLinearDrag: 0.38,
       coastDecel: 40,

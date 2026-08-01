@@ -34,8 +34,13 @@ export function stepPilot(world: World, dt: number): void {
 
   const mouse = MouseLook.consume();
 
-  const throttle = Keybinds.digitalAxis('strafeBack', 'strafeForward') + Joystick.readAxis('strafeLongitudinal');
-  ship.throttle = clamp(throttle, -1, 1);
+  // Throttle ramps toward the commanded target rather than snapping — real SC's keyboard/joystick
+  // throttle isn't an instant digital 0-to-full; see core/types.ts's ShipType.throttleRampRate doc
+  // and capture/MEASUREMENTS.md's "Throttle input ramp" section (measured ~0.20s for a full 0..1
+  // traversal, same rate in both directions and on both activating and releasing).
+  const throttleTarget = clamp(Keybinds.digitalAxis('strafeBack', 'strafeForward') + Joystick.readAxis('strafeLongitudinal'), -1, 1);
+  const maxThrottleDelta = ship.type.throttleRampRate * dt;
+  ship.throttle += clamp(throttleTarget - ship.throttle, -maxThrottleDelta, maxThrottleDelta);
 
   const roll = Keybinds.digitalAxis('rollLeft', 'rollRight') + Joystick.readAxis('roll');
   let yawInput = Keybinds.digitalAxis('yawLeft', 'yawRight') + mouse.yaw + Joystick.readAxis('yaw');

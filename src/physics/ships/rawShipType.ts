@@ -71,6 +71,9 @@ export interface RawShipMeasurement {
   mainSpoolDelay: number;
   retroSpoolDelay: number;
   verticalSpoolDelay: number;
+  // Keyboard/joystick throttle-COMMAND ramp rate (1/s) — see core/types.ts's ShipType.throttleRampRate
+  // doc for the full rationale.
+  throttleRampRate: number;
   linearDrag: number;
   coastDecel: number;
   brakeGain: number;
