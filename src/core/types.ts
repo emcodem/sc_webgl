@@ -212,6 +212,17 @@ export interface ShipType {
   pitchYawReversalDecel: { pitch: number; yaw: number };
   scmSpeed: number;
   scmSpeedBack: number;
+  // Unboosted lateral+vertical (non-longitudinal) top speed — the unboosted counterpart of
+  // boostManeuveringSpeedCap below, added for the same reason: without it, the scmSpeed/scmSpeedBack
+  // governor caps forward+strafe+vertical as ONE combined 3-vector magnitude, so adding vertical/
+  // lateral thrust while already near scmSpeed bleeds INTO the forward component instead of adding on
+  // top of it (felt as the ship "dragging away" from a target while circling it on forward+downstrafe).
+  // EXTRAPOLATED, not measured — no unboosted maneuvering-cap capture exists (see
+  // capture/MEASUREMENTS.md / BLUEPRINT.md) — scaled from the boosted case's own measured ratio
+  // (boostManeuveringSpeedCap / boostSpeedForward = 394/520 = 0.7577) applied to scmSpeed, per user
+  // go-ahead 2026-07-31. Re-derive against a real capture if one ever exists. See
+  // physics/flightModel.ts's governor block and physics/ships/gladius.ts.
+  maneuveringSpeedCap: number;
   boostSpeedForward: number;
   boostSpeedBack: number;
   boostCapacity: number;

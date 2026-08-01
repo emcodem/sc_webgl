@@ -75,6 +75,20 @@ describe('Gladius measured tuning invariants', () => {
     expect(g.boostManeuveringSpeedCap).toBeLessThan(g.boostSpeedForward);
   });
 
+  // maneuveringSpeedCap (EXTRAPOLATED 2026-07-31, per user go-ahead — see gladius.ts's
+  // "maneuveringSpeedCap" note): the unboosted mirror of boostManeuveringSpeedCap, scaled from that
+  // measured boosted ratio since no unboosted maneuvering-cap capture exists. Locks in the derivation
+  // itself, not just the resulting number, so it can't silently drift from the ratio it's supposed to
+  // track.
+  it('maneuveringSpeedCap scales scmSpeed by the same ratio boostManeuveringSpeedCap has to boostSpeedForward', () => {
+    const ratio = g.boostManeuveringSpeedCap / g.boostSpeedForward;
+    expect(g.maneuveringSpeedCap).toBeCloseTo(g.scmSpeed * ratio, 1);
+  });
+
+  it('maneuveringSpeedCap is lower than scmSpeed', () => {
+    expect(g.maneuveringSpeedCap).toBeLessThan(g.scmSpeed);
+  });
+
   // Regression guard: the raw→ShipType refactor must be numerically identical to the old flat literal
   // that lived in src/physics/shipTypes.ts. If this drifts, the compile step changed a value.
   it('compiles to the exact pre-refactor Gladius stats', () => {
@@ -100,6 +114,7 @@ describe('Gladius measured tuning invariants', () => {
       pitchYawReversalDecel: { pitch: 3.9667, yaw: 4.5500 },
       scmSpeed: 226,
       scmSpeedBack: 225,
+      maneuveringSpeedCap: 171.2,
       boostSpeedForward: 520,
       boostSpeedBack: 268,
       boostCapacity: 100,
@@ -292,6 +307,20 @@ describe('flight model behaviour', () => {
     }
     const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
     expect(speed).toBeCloseTo(g.boostManeuveringSpeedCap, 0);
+  });
+
+  // Unboosted mirror of the boosted maneuvering-cap test above (added 2026-07-31): combined strafe +
+  // vertical, unboosted, must govern at maneuveringSpeedCap (171.2), not at the much higher scmSpeed
+  // (226) the pre-fix total-speed-only governor would have allowed.
+  it('full combined strafe/vertical (unboosted) governs at maneuveringSpeedCap, not scmSpeed', () => {
+    const g = getShipType('Gladius');
+    const body = freshBody(g);
+    const dt = 1 / 60;
+    for (let i = 0; i < 60 * 10; i++) {
+      integrateFlight(body, { throttle: 0, pitch: 0, yaw: 0, roll: 0, strafeX: 1, strafeY: 1, brake: false, decoupled: false }, dt);
+    }
+    const speed = Math.hypot(body.vel.x, body.vel.y, body.vel.z);
+    expect(speed).toBeCloseTo(g.maneuveringSpeedCap, 0);
   });
 });
 

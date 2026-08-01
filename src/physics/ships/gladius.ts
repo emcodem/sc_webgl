@@ -227,6 +227,15 @@ import { PANTHER_S3 } from '../weapons/panther';
 //   - boostManeuveringSpeedCap (394) governs the lateral+vertical velocity component while boosting,
 //     separately from and below boostSpeedForward/Back (520/268), which govern only the forward-axis
 //     component — see flightModel.ts's governor block.
+//   - maneuveringSpeedCap (171.2, EXTRAPOLATED 2026-07-31 per user go-ahead) is the unboosted mirror of
+//     boostManeuveringSpeedCap, added because the single combined-velocity-magnitude governor had
+//     exactly the bug boostManeuveringSpeedCap was created to fix for boost, just never fixed for the
+//     unboosted case: circling a target on forward+downstrafe near scmSpeed let the down-thrust bleed
+//     INTO the forward component instead of adding a genuinely separate lateral+vertical component, felt
+//     as the ship dragging away from what it's circling. No real capture exists for an unboosted
+//     maneuvering cap, so this scales the boosted case's own measured ratio (boostManeuveringSpeedCap /
+//     boostSpeedForward = 394/520 = 0.75769) onto scmSpeed (226 * 0.75769 = 171.2) — re-derive against a
+//     real capture if one ever exists.
 
 export const GLADIUS_RAW: RawShipMeasurement = {
   name: 'Gladius',
@@ -297,6 +306,7 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   angularSpoolZeta: { pitch: 0.807, yaw: 0.729 },
   scmSpeed: 226,
   scmSpeedBack: 225,
+  maneuveringSpeedCap: 171.2,
   boostSpeedForward: 520,
   boostSpeedBack: 268,
   boostLinearDrag: 0.38,

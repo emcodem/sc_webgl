@@ -37,6 +37,7 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     pitchYawReversalDecel: { ...raw.pitchYawReversalDecel },
     scmSpeed: raw.scmSpeed,
     scmSpeedBack: raw.scmSpeedBack,
+    maneuveringSpeedCap: raw.maneuveringSpeedCap,
     boostSpeedForward: raw.boostSpeedForward,
     boostSpeedBack: raw.boostSpeedBack,
     boostCapacity: raw.boostCapacity,
@@ -125,6 +126,7 @@ export function validateShipType(t: ShipType, id: string): void {
 
   finite(t.scmSpeed, 'scmSpeed');
   finite(t.scmSpeedBack, 'scmSpeedBack');
+  finite(t.maneuveringSpeedCap, 'maneuveringSpeedCap');
   finite(t.boostSpeedForward, 'boostSpeedForward');
   finite(t.boostSpeedBack, 'boostSpeedBack');
   finite(t.boostLinearThrust.main, 'boostLinearThrust.main');

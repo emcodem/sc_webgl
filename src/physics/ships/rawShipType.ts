@@ -96,6 +96,9 @@ export interface RawShipMeasurement {
 
   scmSpeed: number;
   scmSpeedBack: number;
+  // Unboosted lateral+vertical top speed — mirrors boostManeuveringSpeedCap below but EXTRAPOLATED,
+  // not measured (see core/types.ts's ShipType.maneuveringSpeedCap doc).
+  maneuveringSpeedCap: number;
 
   boostSpeedForward: number;
   boostSpeedBack: number;

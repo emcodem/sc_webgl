@@ -373,18 +373,22 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
     body.vel.z *= scale;
   }
 
-  // Boosted maneuvering cap: the governor above bounds TOTAL speed magnitude, selected by the sign of
-  // the forward component — so it only ever applies boostSpeedForward/Back (520/268), letting pure
-  // sideways/vertical boosted flight reach the same speed as pure forward boost. Real Gladius governs
-  // the lateral+vertical (non-longitudinal) component on its own, lower cap instead (measured 394 m/s
-  // — see gladius.ts's "boostManeuveringSpeedCap CORRECTED" note). Same bounded-bleed-rate shape as the
-  // governor above (never snaps in a single frame); the natural bleed rate reuses the unboosted strafe
-  // thruster's own accel, same idea as the longitudinal governor falling back to unboosted retro/main.
-  if (body.boosting) {
+  // Maneuvering cap: the governor above bounds TOTAL speed magnitude, selected by the sign of the
+  // forward component — so on its own it only ever applies scmSpeed/Back or boostSpeedForward/Back,
+  // letting pure sideways/vertical flight bleed into (and cap out at) the same speed as pure forward
+  // flight. Real Gladius governs the lateral+vertical (non-longitudinal) component on its own, lower
+  // cap instead — measured for boost (boostManeuveringSpeedCap, 394 m/s — see gladius.ts's
+  // "boostManeuveringSpeedCap CORRECTED" note); EXTRAPOLATED for unboosted (maneuveringSpeedCap, since
+  // no real capture of an unboosted maneuvering cap exists — see gladius.ts and core/types.ts's doc).
+  // Same bounded-bleed-rate shape as the governor above (never snaps in a single frame); the natural
+  // bleed rate reuses the unboosted strafe thruster's own accel either way, same idea as the
+  // longitudinal governor falling back to unboosted retro/main.
+  {
+    const maneuveringCap = body.boosting ? t.boostManeuveringSpeedCap : t.maneuveringSpeedCap;
     const rightSpeed = body.vel.x * right.x + body.vel.y * right.y + body.vel.z * right.z;
     const upSpeed = body.vel.x * up.x + body.vel.y * up.y + body.vel.z * up.z;
     const lateralSpeed = Math.hypot(rightSpeed, upSpeed);
-    if (lateralSpeed > t.boostManeuveringSpeedCap) {
+    if (lateralSpeed > maneuveringCap) {
       const rightUnit = rightSpeed / lateralSpeed;
       const upUnit = upSpeed / lateralSpeed;
       const accelRight = accel.x * right.x + accel.y * right.y + accel.z * right.z;
@@ -393,7 +397,7 @@ export function integrateFlight(body: FlightBody, input: FlightInputs, dt: numbe
       const naturalBleedRate = t.linearThrust.strafe / t.mass;
       const decelRate = Math.max(naturalBleedRate, accelAlongLateral);
       const maxDelta = decelRate * dt;
-      const newLateralSpeed = Math.max(t.boostManeuveringSpeedCap, lateralSpeed - maxDelta);
+      const newLateralSpeed = Math.max(maneuveringCap, lateralSpeed - maxDelta);
       const lateralScale = newLateralSpeed / lateralSpeed;
       const dRight = rightSpeed * (lateralScale - 1);
       const dUp = upSpeed * (lateralScale - 1);
