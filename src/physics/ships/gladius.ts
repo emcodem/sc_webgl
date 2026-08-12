@@ -39,14 +39,32 @@ import { PANTHER_S3 } from '../weapons/panther';
 // roughly half of it. (boost reuses the same non-boosted angularDrag, since boost doesn't change RCS
 // dampening, just authority.)
 //
-// boostLinearThrust IS still authored here (main/retro/strafe/verticalUp/verticalDown). Real-game
-// measurement (see below) showed boosting is far less damped than plain thrust (lower drag, not just
-// more thrust) — boostLinearDrag is its own value — so boostLinearThrust.main/retro end up *lower*
-// than plain linearThrust despite the much higher top speed. It's GOVERNOR-limited: thrust EXCEEDS
-// boostSpeed * boostLinearDrag * mass, so the speed>speedCap governor (not drag) caps boost (guarded
-// by tests/shipTuning.test.ts). strafe/verticalUp/verticalDown were applied 2026-07-25 (per user
-// go-ahead) from a previously-gated candidateRefinements finding — see the "Boosted lateral/vertical"
-// note further down for the measurement and boostManeuveringSpeedCap, its own separate speed cap.
+// BOOSTED LINEAR: TWO REGIMES (2026-08-02, per user go-ahead — supersedes the authored
+// boostLinearThrust/boostLinearDrag this file used to carry). Six real-game captures established that
+// every boosted linear axis behaves in two genuinely different ways depending on the job the thruster
+// is doing, and that ONE thrust value per axis cannot fit both:
+//   ALIGNED    — extending motion along that axis's existing velocity, or from rest: thrust WITH real
+//                proportional drag, curving to an asymptote above the speed cap (governor-limited).
+//                Measured at 2.09x the unboosted thruster.
+//   COUNTERING — opposing an existing velocity on that axis (braking/reversing): a FLAT constant decel
+//                with NO drag at all (linear-fit RMS 0.3-0.9 m/s over an entire 222->2 m/s range — any
+//                real drag term would visibly bend that line). Measured at 1.30x the unboosted
+//                OPPOSING thruster, i.e. only ~62% of the aligned rate.
+// This is what the user's original report was about: boosted reverse killed a 226 m/s cruise in ~1s
+// against ~4s in the real game, because the old model both used an unmeasured retro thrust (216.5,
+// inferred from main's ratio — see the note that used to sit here) AND applied drag *with* the
+// countering thrust instead of not at all, so the two errors compounded. See physics/flightModel.ts's
+// countering block and RETRO.md for the full derivation.
+//
+// NOTHING boosted-linear is authored here any more — boostLinearThrust, boostCounterThrust and
+// boostLinearDrag are all DERIVED by physics/ships/linearInvariant.ts from linearThrust, mass, the
+// speed caps, and the three ratios below. That was a deliberate design call: a fitted drag coefficient
+// is an abstraction with no independent meaning, so swapping in a new ship should mean entering mass,
+// thruster strength and top speeds — not re-fitting drag. Two consequences worth knowing:
+//   - the aligned asymptote is boostGovernorOvershoot * cap, INDEPENDENT of mass and thrust, so
+//     retuning mass rescales acceleration without disturbing any top-speed behaviour;
+//   - "boost is GOVERNOR-limited, not drag-limited" is now structural for every ship and axis rather
+//     than a checked coincidence (buildShipType rejects an overshoot <= 1).
 //
 // coastDecel: real Gladius sheds speed at a flat rate when you let go of the stick, not a decaying
 // one, so this can't be modeled by just cranking up linearDrag (which would taper off approaching
@@ -179,15 +197,21 @@ import { PANTHER_S3 } from '../weapons/panther';
 //     speed cap that governs the lateral+vertical (non-longitudinal) velocity component — distinct
 //     from and lower than boostSpeedForward (520), since without it boosted sideways/vertical flight
 //     was ungoverned up to the much higher forward cap.
-//   - verticalDown CORRECTED 2026-07-28 (per user go-ahead): previously set to half of verticalUp,
-//     carrying over the unboosted verticalDown = verticalUp / 2 ratio. That ratio is a real
-//     measurement for unboosted thrust, but no boosted-down figure was ever captured — and there's a
-//     concrete reason none exists: holding boosted downstrafe in real SC induces pilot black/red-out,
-//     the same GLOC risk MEASUREMENTS.md's "Down accel / coast decel, full power" row flags for even
-//     the gentler unboosted case (that hold was deliberately kept to 2.5s). So the halved figure was an
-//     untested extrapolation, not data (the ship's downward RCS thrusters have no reason to be weaker
-//     under boost; only the pilot's tolerance for the resulting G-load differs, which this sim doesn't
-//     model) — verticalDown is set equal to verticalUp absent any real measurement to the contrary.
+//   - verticalDown: RESOLVED 2026-08-02 — the half ratio is REAL for boost too, so it is simply
+//     inherited now that boosted thrust is derived from linearThrust. History, because it flip-flopped:
+//     it was originally set to half of verticalUp (carrying over the measured unboosted ratio), then
+//     CORRECTED 2026-07-28 to equal verticalUp on the argument that the halved figure was an untested
+//     extrapolation and the downward RCS thrusters have no reason to be weaker under boost (only the
+//     pilot's G-tolerance differs, which this sim doesn't model). That argument was reasonable but the
+//     premise — "no boosted-down capture exists and likely never will, because holding boosted
+//     downstrafe induces black/red-out" — turned out to be beatable: `down_boost.mp4` split the hold
+//     into two segments with a pause between them to stay conscious, and the redout that did tint the
+//     stop-point frames of `225_up_boost_down_to_stop.mp4` was recovered by contrast-stretching the
+//     crops rather than losing the data. Both captures put boosted down at ~half boosted up (raw
+//     early-frame accel ~60-65 vs ~120-125 m/s^2; countering 64.4 vs 123.1), matching the unboosted
+//     ratio. Note this only works because boostLinearDrag is per-axis now: at the old shared 0.38 the
+//     halved thrust would have been drag-limited at ~269 m/s, far below its measured 387 peak — which
+//     is exactly the reasoning the 2026-07-28 note used to justify equalising them.
 //   - boostManeuveringSpeedCap CORRECTED 2026-07-28 (per user go-ahead): the real measured max for
 //     boosted lateral/up/down strafe is 394 m/s (supersedes the earlier ~385 reading in
 //     capture/MEASUREMENTS.md). Landing on 394 exposed a second, independent bug: boostLinearThrust.
@@ -200,30 +224,43 @@ import { PANTHER_S3 } from '../weapons/panther';
 //     cap: thrust / (cap * boostLinearDrag * mass) ~= 1.417 (420/(520*0.57) = 1.4170; 216.5/(268*0.57)
 //     = 1.4172) — i.e. thrust is set ~42% past the cap's drag-equilibrium point so the governor (not
 //     drag) is what actually stops the ship. Applying that same ratio to the corrected 394 m/s cap
-//     gives strafe/verticalUp/verticalDown thrust = 1.417 * 394 * 0.38 * 1.5 ~= 318.3, which is what's
-//     used below — treating the original ~127 m/s^2 accel reading the same way boosted-forward's own
-//     early undershoot was treated (see the Boosted-forward-thrust note above): an early-hold artifact,
-//     not the true steady thrust, now superseded by the governor-consistent derivation.
+//     gives strafe/verticalUp/verticalDown thrust = 1.417 * 394 * 0.38 * 1.5 ~= 318.3 — treating the
+//     original ~127 m/s^2 accel reading the same way boosted-forward's own early undershoot was
+//     treated (see the Boosted-forward-thrust note above): an early-hold artifact, not the true steady
+//     thrust. The 394 CAP still stands and was the real finding here.
+//     The 318.3 THRUST it produced is superseded (2026-08-02): full frame-by-frame curves for
+//     left/up/down (`left_boost.mp4`, `up_boost.mp4`, `down_boost.mp4`) fit ~191-204 m/s^2 at v=0, i.e.
+//     close to that original ~127 reading's own axis ordering rather than to 318.3/1.5 = 212 flat
+//     across all three — and crucially showed down is genuinely ~half up, which 318.3-for-everything
+//     had erased. The 1.417 ratio itself was the durable part of this note: it is now
+//     boostGovernorOvershoot, applied structurally to derive drag rather than to back-derive thrust.
 //
 // Summary of the invariants that MUST hold (see the original project's CLAUDE.md) — guarded by
 // tests/shipTuning.test.ts (and, for the structural ones, by buildShipType.ts at load time):
 //   - angularThrust == maxAngVel * angularDrag  (per axis) — derived by buildShipType, true by construction.
 //   - boostAngularThrust == boostMaxAngVel * angularDrag  (per axis) — likewise derived.
-//   - boost is GOVERNOR-limited (like forward), not drag-limited, for EVERY boosted linear axis
-//     (main/retro/strafe/verticalUp/verticalDown): each boostLinearThrust EXCEEDS its own speed cap *
-//     boostLinearDrag * mass, so the speed>speedCap (or, for strafe/vertical, the
-//     boostManeuveringSpeedCap) governor is what caps boost — NOT drag. Main/retro re-measured
-//     2026-07-15; strafe/vertical corrected 2026-07-28 to close the same gap (see the
-//     boostManeuveringSpeedCap note above) — before that fix, strafe/vertical was the one boosted axis
-//     that was actually drag-limited, settling well under its own cap.
+//   - boostLinearThrust / boostCounterThrust / boostLinearDrag are all DERIVED (see linearInvariant.ts
+//     and the "BOOSTED LINEAR: TWO REGIMES" note above) — nothing boosted-linear is authored. The three
+//     authored primitives are boostThrustMultiplier (2.09), boostCounterMultiplier (1.30) and
+//     boostGovernorOvershoot (1.417).
+//   - boost is GOVERNOR-limited (like forward), not drag-limited, for EVERY boosted linear axis. This is
+//     now TRUE BY CONSTRUCTION rather than checked: drag is derived so each axis's aligned asymptote is
+//     exactly boostGovernorOvershoot * that axis's own cap, and buildShipType rejects an overshoot <= 1.
+//     Before 2026-07-28 strafe/vertical WAS actually drag-limited (settling ~334 against a 394 cap,
+//     making the cap decorative); that class of bug is now unreachable, for future ships too.
+//   - COUNTERING is a separate regime from ALIGNED, not a scaling of it: flat, no drag, ~1.30x the
+//     unboosted opposing thruster vs ~2.09x WITH drag when aligned. Do NOT collapse them back into one
+//     thrust per axis — that is precisely what made boosted reverse braking ~3x too strong (a ~1s stop
+//     against the real game's ~4s) before 2026-08-02.
 //   - linearDrag is essentially negligible; the flight-computer governor (the speed>speedCap block
 //     in flightModel.ts) is what stops the ship exactly at scmSpeed — NOT drag. Do not raise
 //     linearDrag to make it "settle"; that has been tried twice and contradicts the measured data.
 //   - coastDecel is a FLAT m/s^2 rate (measured 40), not proportional drag.
 //   - main/retro/verticalSpoolDelay are three separately-timed thruster startup lags — don't merge.
-//   - verticalDown thrust is exactly half verticalUp for UNBOOSTED thrust only (measured). Boosted
-//     verticalDown is instead set equal to boosted verticalUp (see the verticalDown CORRECTED note
-//     above) — the half ratio does NOT carry over to boost.
+//   - verticalDown thrust is exactly half verticalUp, and this DOES carry over to boost (confirmed by
+//     capture 2026-08-02 — see the verticalDown note above; it is inherited automatically now that
+//     boosted thrust is derived from linearThrust). Supersedes the 2026-07-28 "boosted down equals
+//     boosted up" correction, whose stated premise (no boosted-down capture is obtainable) proved wrong.
 //   - boostManeuveringSpeedCap (394) governs the lateral+vertical velocity component while boosting,
 //     separately from and below boostSpeedForward/Back (520/268), which govern only the forward-axis
 //     component — see flightModel.ts's governor block.
@@ -236,6 +273,32 @@ import { PANTHER_S3 } from '../weapons/panther';
 //     maneuvering cap, so this scales the boosted case's own measured ratio (boostManeuveringSpeedCap /
 //     boostSpeedForward = 394/520 = 0.75769) onto scmSpeed (226 * 0.75769 = 171.2) — re-derive against a
 //     real capture if one ever exists.
+//   - the two boosted-linear regimes (2026-08-02, per user go-ahead) — the measurements the three
+//     ratios above are fit to. All manual captures, 3840x2160@120fps, full engine power + Coupled
+//     confirmed, read frame-by-frame via capture/analysis/montage_speed.py (region 1560,1140,220,110):
+//       ALIGNED, accel from rest (fit dv/dt = thrust/mass - drag*v):
+//         retro  `reverse_boost.mp4`  ~87.6 m/s^2 @v=0, peak 267 (fit RMS 9.97) — SUPERSEDES the
+//                2026-07-27 "~55 m/s^2" figure, which was a total-Delta-v/total-time average over a
+//                curve that starts at 87.6 and tapers, and so coincidentally landed near this axis's
+//                own (structurally unrelated) countering rate. That coincidence is what made retro look
+//                like the one axis with no drag until it was re-read properly.
+//         left   `left_boost.mp4`     ~191 m/s^2 @v=0, peak 394 (RMS 8.9 — cleanest of the batch)
+//         up     `up_boost.mp4`       ~204 m/s^2 @v=0, peak 394 (RMS 13.5, shallow fit minimum)
+//         down   `down_boost.mp4`     ~112 m/s^2 @v=0, peak 387 (RMS 12.3, shallow; spliced from two
+//                segments with a pause between them to avoid redout)
+//       COUNTERING, boosted thrust against an existing unboosted cruise (flat linear fits, all
+//       near-perfect straight lines — this is the high-confidence half of the dataset):
+//         retro  `unboosted_forward_stop_with_boost.mp4`  56.5 m/s^2 (RMS 0.38), 226 -> stop in ~4.0s
+//         strafe `225_left_boost_right_to_stop.mp4`      123.7 m/s^2 (RMS 0.90), 225 -> stop ~1.85s
+//         up     `220_down_boost_up_to_stop.mp4`         123.1 m/s^2 (RMS 0.57), 220 -> stop ~1.9s
+//         down   `225_up_boost_down_to_stop.mp4`          64.4 m/s^2 (RMS 0.31), 225 -> stop ~3.6s
+//     Right-side strafe was not captured (symmetric with left, per user). Note the stop-point reading is
+//     always the pre-overshoot MINIMUM: a human can't release input exactly at zero, so every clip
+//     overshoots slightly and then drifts at whatever residual speed that left (the flat 19/33/34 m/s
+//     tails) — that is not a settled cruise and not a capture failure.
+//     main COUNTERING (261.3, i.e. 1.30 * 201) is EXTRAPOLATED — flying backward and boosting forward
+//     was never captured. Reachable in play after a reverse manoeuvre, so it follows the same ratio as
+//     the four measured axes rather than being left on a different rule.
 
 export const GLADIUS_RAW: RawShipMeasurement = {
   name: 'Gladius',
@@ -314,8 +377,22 @@ export const GLADIUS_RAW: RawShipMeasurement = {
   maneuveringSpeedCap: 171.2,
   boostSpeedForward: 520,
   boostSpeedBack: 268,
-  boostLinearDrag: 0.38,
-  boostLinearThrust: { main: 420, retro: 216.5, strafe: 318.3, verticalUp: 318.3, verticalDown: 318.3 },
+  // ALIGNED boost thrust as a multiple of the unboosted thruster (2026-08-02 — see the
+  // "Boosted linear: two regimes" note above). Anchored on boosted main's own dense 2026-07-15 trace:
+  // 2.09 * 201 = 420.1, i.e. the fitted 420 it already used, so this generalises main's measurement
+  // rather than overriding it. Forcing this one multiplier across retro/strafe/up/down costs almost
+  // nothing against their own curves (mean fit RMS 10.68 free -> 10.88 unified), so their individual
+  // spread was noise.
+  boostThrustMultiplier: 2.09,
+  // COUNTERING boost thrust, same basis. Four independently captured axes agree to +/-3.4%
+  // (retro 1.345, strafe 1.279, verticalUp 1.256, verticalDown 1.315).
+  boostCounterMultiplier: 1.30,
+  // Aligned asymptote / that axis's own cap. This is the ratio this file already documented as the
+  // reason boost is governor- rather than drag-limited (main 420/(520*0.38*1.5) = 1.4170;
+  // retro 216.5/(268*0.38*1.5) = 1.4172) — now applied structurally to DERIVE boostLinearDrag instead
+  // of being a coincidence two authored numbers happened to satisfy. Reproduces main's measured drag
+  // exactly (0.3801 vs 0.380) because it came from main in the first place.
+  boostGovernorOvershoot: 1.417,
   boostManeuveringSpeedCap: 394,
   // boostMaxAngVel.yaw corrected 2026-07-24: the old 1.082 (62deg/s) was a uniform x1.2 assumption
   // over maxAngVel.yaw (0.91), never independently measured. Three clean reps at the 1920-count clamp

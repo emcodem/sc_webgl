@@ -1,11 +1,16 @@
 import type { AngularState, ShipType } from '../../core/types';
 import type { RawShipMeasurement } from './rawShipType';
 import { thrustFromMaxAngVel } from './angularInvariant';
+import { boostDragFromCaps, scaleLinearThrust } from './linearInvariant';
 
 // Compiles a RawShipMeasurement (the authoring shape) into the flat ShipType flightModel.ts consumes.
 // The redundant angularThrust/boostAngularThrust are DERIVED here from maxAngVel/boostMaxAngVel +
 // angularDrag, so the invariant `angularThrust == maxAngVel * angularDrag` (per axis) holds by
-// construction for every ship — that's the point, not something to re-assert.
+// construction for every ship — that's the point, not something to re-assert. The three
+// boosted-LINEAR fields are derived the same way from linearThrust + the boost ratios (see
+// linearInvariant.ts), for the same reason plus one more: it keeps the authoring surface to
+// quantities you can measure or look up, so a new ship needs mass/thrust/top-speeds and nothing
+// fitted.
 //
 // `raw.provenance` and `raw.candidateRefinements` are intentionally NOT copied — the compiled
 // ShipType stays byte-for-byte the shape flightModel.ts already reads. candidateRefinements carries
@@ -14,6 +19,10 @@ import { thrustFromMaxAngVel } from './angularInvariant';
 export function buildShipType(raw: RawShipMeasurement): ShipType {
   const angularThrust = thrustFromMaxAngVel(raw.maxAngVel, raw.angularDrag);
   const boostAngularThrust = thrustFromMaxAngVel(raw.boostMaxAngVel, raw.angularDrag);
+  const boostLinearThrust = scaleLinearThrust(raw.linearThrust, raw.boostThrustMultiplier);
+  const boostCounterThrust = scaleLinearThrust(raw.linearThrust, raw.boostCounterMultiplier);
+  // Depends on boostLinearThrust above — the ALIGNED thrust is what drag has to balance.
+  const boostLinearDrag = boostDragFromCaps(boostLinearThrust, raw.mass, raw.boostGovernorOvershoot, raw);
 
   const ship: ShipType = {
     name: raw.name,
@@ -27,7 +36,7 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     verticalSpoolDelay: raw.verticalSpoolDelay,
     throttleRampRate: raw.throttleRampRate,
     linearDrag: raw.linearDrag,
-    boostLinearDrag: raw.boostLinearDrag,
+    boostLinearDrag,
     coastDecel: raw.coastDecel,
     brakeGain: raw.brakeGain,
     angularDrag: { ...raw.angularDrag },
@@ -53,7 +62,11 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
     boostAngularThrust,
     boostAngularSpoolOmega: { ...raw.boostAngularSpoolOmega },
     boostAngularSpoolZeta: { ...raw.boostAngularSpoolZeta },
-    boostLinearThrust: { ...raw.boostLinearThrust },
+    boostThrustMultiplier: raw.boostThrustMultiplier,
+    boostCounterMultiplier: raw.boostCounterMultiplier,
+    boostGovernorOvershoot: raw.boostGovernorOvershoot,
+    boostLinearThrust,
+    boostCounterThrust,
     boostManeuveringSpeedCap: raw.boostManeuveringSpeedCap,
     hullRadius: raw.hullRadius,
     weaponType: raw.weaponType
@@ -73,6 +86,8 @@ export function buildShipType(raw: RawShipMeasurement): ShipType {
 // ship. Those stay in tests/shipTuning.test.ts scoped to Gladius. The angular invariants
 // (angularThrust == maxAngVel * angularDrag) can't be violated here — they're derived above — so
 // there's nothing to check for them beyond finiteness.
+const LINEAR_AXES = ['main', 'retro', 'strafe', 'verticalUp', 'verticalDown'] as const;
+
 export function validateShipType(t: ShipType, id: string): void {
   const finite = (v: number, path: string) => {
     if (typeof v !== 'number' || !Number.isFinite(v)) {
@@ -96,12 +111,16 @@ export function validateShipType(t: ShipType, id: string): void {
       if (a[ax] <= 0) throw new Error(`Invalid ShipType '${id}': ${path}.${ax} must be > 0, got ${a[ax]}`);
     }
   };
+  const positive = (v: number, path: string) => {
+    finite(v, path);
+    if (v <= 0) throw new Error(`Invalid ShipType '${id}': ${path} must be > 0, got ${v}`);
+  };
 
   finite(t.mass, 'mass');
   if (t.mass <= 0) throw new Error(`Invalid ShipType '${id}': mass must be > 0, got ${t.mass}`);
   finite(t.massKg, 'massKg');
 
-  for (const k of ['main', 'retro', 'strafe', 'verticalUp', 'verticalDown'] as const) {
+  for (const k of LINEAR_AXES) {
     finite(t.linearThrust[k], `linearThrust.${k}`);
   }
   finite(t.mainSpoolDelay, 'mainSpoolDelay');
@@ -110,7 +129,9 @@ export function validateShipType(t: ShipType, id: string): void {
   finite(t.throttleRampRate, 'throttleRampRate');
   if (t.throttleRampRate <= 0) throw new Error(`Invalid ShipType '${id}': throttleRampRate must be > 0, got ${t.throttleRampRate}`);
   finite(t.linearDrag, 'linearDrag');
-  finite(t.boostLinearDrag, 'boostLinearDrag');
+  for (const k of LINEAR_AXES) {
+    finite(t.boostLinearDrag[k], `boostLinearDrag.${k}`);   // derived — finiteness sanity
+  }
   finite(t.coastDecel, 'coastDecel');
   finite(t.brakeGain, 'brakeGain');
 
@@ -132,11 +153,19 @@ export function validateShipType(t: ShipType, id: string): void {
   finite(t.maneuveringSpeedCap, 'maneuveringSpeedCap');
   finite(t.boostSpeedForward, 'boostSpeedForward');
   finite(t.boostSpeedBack, 'boostSpeedBack');
-  finite(t.boostLinearThrust.main, 'boostLinearThrust.main');
-  finite(t.boostLinearThrust.retro, 'boostLinearThrust.retro');
-  finite(t.boostLinearThrust.strafe, 'boostLinearThrust.strafe');
-  finite(t.boostLinearThrust.verticalUp, 'boostLinearThrust.verticalUp');
-  finite(t.boostLinearThrust.verticalDown, 'boostLinearThrust.verticalDown');
+  positive(t.boostThrustMultiplier, 'boostThrustMultiplier');
+  positive(t.boostCounterMultiplier, 'boostCounterMultiplier');
+  // > 1, not merely > 0: at or below 1 the aligned asymptote would sit at/under the axis's own speed
+  // cap, making that axis drag-limited and the cap decorative — the exact bug that hit strafe/vertical
+  // before 2026-07-28. This is the one place it can be caught for EVERY ship, not just the Gladius.
+  positive(t.boostGovernorOvershoot, 'boostGovernorOvershoot');
+  if (t.boostGovernorOvershoot <= 1) {
+    throw new Error(`Invalid ShipType '${id}': boostGovernorOvershoot must be > 1 (else boost is drag-limited below its own cap), got ${t.boostGovernorOvershoot}`);
+  }
+  for (const k of LINEAR_AXES) {
+    finite(t.boostLinearThrust[k], `boostLinearThrust.${k}`);      // derived
+    finite(t.boostCounterThrust[k], `boostCounterThrust.${k}`);    // derived
+  }
   finite(t.boostManeuveringSpeedCap, 'boostManeuveringSpeedCap');
 
   finite(t.boostCapacity, 'boostCapacity');

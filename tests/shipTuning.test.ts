@@ -10,6 +10,7 @@ import { resolveCapacitor } from '../src/combat/weapons';
 // physics/ships/gladius.ts). These mirror the original project's shipTuning tests.
 
 const AXES = ['pitch', 'yaw', 'roll'] as const;
+const LINEAR_AXES = ['main', 'retro', 'strafe', 'verticalUp', 'verticalDown'] as const;
 
 // Structural invariants — true by construction for EVERY ship (buildShipType derives angularThrust
 // from maxAngVel * angularDrag). Looping over all ships makes each future ship a regression guard on
@@ -27,6 +28,26 @@ describe('structural invariants (all ships)', () => {
         expect(g.boostAngularThrust[ax]).toBeCloseTo(g.boostMaxAngVel[ax] * g.angularDrag[ax], 3);
       }
     });
+
+    // Same idea for the boosted-linear derivations (see physics/ships/linearInvariant.ts) — a future
+    // ship gets these guarded for free, and a broken derivation can't reach the flight model.
+    it(`${g.name}: boostLinearThrust/boostCounterThrust == linearThrust * their multipliers per axis`, () => {
+      for (const k of LINEAR_AXES) {
+        expect(g.boostLinearThrust[k]).toBeCloseTo(g.linearThrust[k] * g.boostThrustMultiplier, 6);
+        expect(g.boostCounterThrust[k]).toBeCloseTo(g.linearThrust[k] * g.boostCounterMultiplier, 6);
+      }
+    });
+
+    it(`${g.name}: boost is governor-limited, not drag-limited, on every linear axis`, () => {
+      expect(g.boostGovernorOvershoot).toBeGreaterThan(1);
+      for (const k of LINEAR_AXES) {
+        const asymptote = g.boostLinearThrust[k] / (g.boostLinearDrag[k] * g.mass);
+        const cap = k === 'main' ? g.boostSpeedForward
+          : k === 'retro' ? g.boostSpeedBack
+          : g.boostManeuveringSpeedCap;
+        expect(asymptote).toBeGreaterThan(cap);
+      }
+    });
   }
 });
 
@@ -36,36 +57,75 @@ describe('structural invariants (all ships)', () => {
 describe('Gladius measured tuning invariants', () => {
   const g = getShipType('Gladius');
 
-  // Boost is governor-limited (like forward), re-measured 2026-07-15: thrust EXCEEDS the
-  // drag-limited settle value, so the natural asymptote (thrust/drag/mass) sits above the cap and
-  // the speed>speedCap governor is what stops it — NOT the old drag-limited equality. See
-  // physics/ships/gladius.ts's Boosted-forward-thrust note.
-  it('boost is governor-limited: boostLinearThrust exceeds boostSpeed * boostLinearDrag * mass', () => {
-    expect(g.boostLinearThrust.main).toBeGreaterThan(g.boostSpeedForward * g.boostLinearDrag * g.mass);
-    expect(g.boostLinearThrust.retro).toBeGreaterThan(g.boostSpeedBack * g.boostLinearDrag * g.mass);
+  // Boost is governor-limited (like forward): aligned thrust EXCEEDS the drag-limited settle value, so
+  // the natural asymptote (thrust/drag/mass) sits above the cap and the speed>speedCap governor is what
+  // stops it. As of 2026-08-02 this is STRUCTURAL rather than a checked coincidence — drag is derived so
+  // each axis's asymptote lands on exactly boostGovernorOvershoot * that axis's own cap — so these tests
+  // now guard the derivation rather than five hand-authored numbers. buildShipType also rejects an
+  // overshoot <= 1 at load time, for every ship.
+  const CAP_FOR: Record<(typeof LINEAR_AXES)[number], keyof ShipType> = {
+    main: 'boostSpeedForward', retro: 'boostSpeedBack',
+    strafe: 'boostManeuveringSpeedCap', verticalUp: 'boostManeuveringSpeedCap', verticalDown: 'boostManeuveringSpeedCap'
+  };
+
+  it('boost is governor-limited on every axis: boostLinearThrust exceeds its own cap * boostLinearDrag * mass', () => {
+    for (const k of LINEAR_AXES) {
+      const cap = g[CAP_FOR[k]] as number;
+      expect(g.boostLinearThrust[k]).toBeGreaterThan(cap * g.boostLinearDrag[k] * g.mass);
+    }
   });
 
-  // boostManeuveringSpeedCap CORRECTED 2026-07-28 (per user go-ahead — see gladius.ts's
-  // "boostManeuveringSpeedCap CORRECTED" note): strafe/vertical boost thrust used to be drag-limited
-  // (settling under its own cap, making the cap decorative) — now governor-limited like main/retro.
-  it('boost is governor-limited for strafe/vertical too: boostLinearThrust exceeds boostManeuveringSpeedCap * boostLinearDrag * mass', () => {
-    expect(g.boostLinearThrust.strafe).toBeGreaterThan(g.boostManeuveringSpeedCap * g.boostLinearDrag * g.mass);
-    expect(g.boostLinearThrust.verticalUp).toBeGreaterThan(g.boostManeuveringSpeedCap * g.boostLinearDrag * g.mass);
-    expect(g.boostLinearThrust.verticalDown).toBeGreaterThan(g.boostManeuveringSpeedCap * g.boostLinearDrag * g.mass);
+  it('each aligned asymptote is exactly boostGovernorOvershoot * that axis own cap', () => {
+    for (const k of LINEAR_AXES) {
+      const cap = g[CAP_FOR[k]] as number;
+      const asymptote = g.boostLinearThrust[k] / (g.boostLinearDrag[k] * g.mass);
+      expect(asymptote).toBeCloseTo(g.boostGovernorOvershoot * cap, 3);
+    }
+  });
+
+  // Locks in the DERIVATIONS, not the numbers — same intent as the maneuveringSpeedCap ratio test below.
+  it('boostLinearThrust and boostCounterThrust are their multipliers times linearThrust', () => {
+    for (const k of LINEAR_AXES) {
+      expect(g.boostLinearThrust[k]).toBeCloseTo(g.linearThrust[k] * g.boostThrustMultiplier, 6);
+      expect(g.boostCounterThrust[k]).toBeCloseTo(g.linearThrust[k] * g.boostCounterMultiplier, 6);
+    }
+  });
+
+  // The anchor: boosted main's own dense 2026-07-15 trace fit thrust 420. boostThrustMultiplier is
+  // chosen so the derivation reproduces it, which is why generalising it to the other axes is
+  // defensible rather than a new invention.
+  it('derived boostLinearThrust.main still reproduces its independently measured 420', () => {
+    expect(g.boostLinearThrust.main).toBeCloseTo(420, 0);
+  });
+
+  // Likewise main's independently fitted drag, which is where boostGovernorOvershoot itself came from.
+  it('derived boostLinearDrag.main still reproduces its independently measured 0.380', () => {
+    expect(g.boostLinearDrag.main).toBeCloseTo(0.380, 3);
+  });
+
+  // The four measured countering rates (m/s^2), from the 2026-08-02 flat-fit captures. 5% tolerance:
+  // the unified 1.30 multiplier is a deliberate unification of four values spanning 1.256-1.345, since
+  // that spread is measurement noise (see gladius.ts's capture list).
+  it('derived countering accels match the four measured axes within 5%', () => {
+    const MEASURED = { retro: 56.5, strafe: 123.7, verticalUp: 123.1, verticalDown: 64.4 } as const;
+    for (const [k, measured] of Object.entries(MEASURED) as [keyof typeof MEASURED, number][]) {
+      const derived = g.boostCounterThrust[k] / g.mass;
+      expect(Math.abs(derived - measured) / measured).toBeLessThan(0.05);
+    }
   });
 
   it('verticalDown thrust is exactly half verticalUp', () => {
     expect(g.linearThrust.verticalDown).toBeCloseTo(g.linearThrust.verticalUp / 2, 5);
   });
 
-  // verticalDown CORRECTED 2026-07-28 (per user go-ahead — see gladius.ts's "verticalDown CORRECTED"
-  // note): the unboosted half ratio above was a real measurement, but carrying it over to boost was
-  // an untested extrapolation with an outsized effect, since boosted lateral/vertical is drag-limited
-  // (halving thrust halves top speed) unlike the governor-limited unboosted case. No real-game boosted
-  // downstrafe capture exists (and likely never will — holding it induces pilot black/red-out), so
-  // boosted verticalDown is set equal to verticalUp absent contrary data.
-  it('boosted verticalDown thrust equals boosted verticalUp (no measured asymmetry)', () => {
-    expect(g.boostLinearThrust.verticalDown).toBeCloseTo(g.boostLinearThrust.verticalUp, 5);
+  // RESOLVED 2026-08-02 (see gladius.ts's verticalDown note): the half ratio DOES carry over to boost.
+  // This inverts the 2026-07-28 assertion that boosted down equals boosted up, whose stated premise —
+  // that no boosted-downstrafe capture is obtainable because holding it induces black/red-out — turned
+  // out to be beatable by splitting the hold and by contrast-stretching the redout-tinted frames. It
+  // now holds automatically because boosted thrust is derived from linearThrust.
+  it('boosted verticalDown thrust is also exactly half boosted verticalUp (measured)', () => {
+    expect(g.boostLinearThrust.verticalDown).toBeCloseTo(g.boostLinearThrust.verticalUp / 2, 5);
+    expect(g.boostCounterThrust.verticalDown).toBeCloseTo(g.boostCounterThrust.verticalUp / 2, 5);
   });
 
   // Only measured/claimed relative to boostSpeedForward (see gladius.ts's "boostManeuveringSpeedCap
@@ -104,7 +164,15 @@ describe('Gladius measured tuning invariants', () => {
       verticalSpoolDelay: 0.066,
       throttleRampRate: 5.0,
       linearDrag: 0.001,
-      boostLinearDrag: 0.38,
+      // DERIVED per axis = boostLinearThrust / (mass * boostGovernorOvershoot * that axis's own cap).
+      // main reproduces its independently measured 0.380 (that measurement is where 1.417 came from).
+      boostLinearDrag: {
+        main: 420.09 / (1.5 * 1.417 * 520),
+        retro: 131.67 / (1.5 * 1.417 * 268),
+        strafe: 303.05 / (1.5 * 1.417 * 394),
+        verticalUp: 307.23 / (1.5 * 1.417 * 394),
+        verticalDown: 153.615 / (1.5 * 1.417 * 394)
+      },
       coastDecel: 40,
       brakeGain: 1.04,
       angularDrag: { pitch: 10.2740, yaw: 15.4639, roll: 5.3571 },
@@ -130,18 +198,33 @@ describe('Gladius measured tuning invariants', () => {
       boostAngularThrust: { pitch: 14.7021, yaw: 14.3721, roll: 22.4409 },
       boostAngularSpoolOmega: { pitch: 8.009, yaw: 8.186 },
       boostAngularSpoolZeta: { pitch: 0.916, yaw: 0.560 },
-      boostLinearThrust: { main: 420, retro: 216.5, strafe: 318.3, verticalUp: 318.3, verticalDown: 318.3 },
+      boostThrustMultiplier: 2.09,
+      boostCounterMultiplier: 1.30,
+      boostGovernorOvershoot: 1.417,
+      // Both DERIVED = linearThrust * the respective multiplier. main lands on 420.09, i.e. the 420 this
+      // literal used to assert from its own dense trace — that's the anchor, not a coincidence.
+      boostLinearThrust: { main: 420.09, retro: 131.67, strafe: 303.05, verticalUp: 307.23, verticalDown: 153.615 },
+      boostCounterThrust: { main: 261.3, retro: 81.9, strafe: 188.5, verticalUp: 191.1, verticalDown: 95.55 },
       boostManeuveringSpeedCap: 394,
       hullRadius: 10,
       weaponType: PANTHER_S3
     };
-    // angularThrust/boostAngularThrust are derived (maxAngVel * angularDrag); compare those with
-    // tolerance and the rest exactly.
+    // Derived fields (angular: maxAngVel * angularDrag; linear: linearThrust * a multiplier, and drag
+    // from thrust/cap) carry float dust, so compare those with tolerance and the rest exactly.
     for (const ax of AXES) {
       expect(g.angularThrust[ax]).toBeCloseTo(EXPECTED_GLADIUS.angularThrust[ax], 3);
       expect(g.boostAngularThrust[ax]).toBeCloseTo(EXPECTED_GLADIUS.boostAngularThrust[ax], 3);
     }
-    const strip = (t: ShipType) => ({ ...t, angularThrust: undefined, boostAngularThrust: undefined });
+    for (const k of LINEAR_AXES) {
+      expect(g.boostLinearThrust[k]).toBeCloseTo(EXPECTED_GLADIUS.boostLinearThrust[k], 3);
+      expect(g.boostCounterThrust[k]).toBeCloseTo(EXPECTED_GLADIUS.boostCounterThrust[k], 3);
+      expect(g.boostLinearDrag[k]).toBeCloseTo(EXPECTED_GLADIUS.boostLinearDrag[k], 6);
+    }
+    const strip = (t: ShipType) => ({
+      ...t,
+      angularThrust: undefined, boostAngularThrust: undefined,
+      boostLinearThrust: undefined, boostCounterThrust: undefined, boostLinearDrag: undefined
+    });
     expect(strip(g)).toEqual(strip(EXPECTED_GLADIUS));
   });
 });
@@ -576,5 +659,263 @@ describe('weapon capacitor drain + recharge (per gun — see combat/weapons.ts N
     const expectedSeconds = w.capacitorRechargeDelaySec + w.capacitorCapacity / w.capacitorRechargeRate;
     expect(secondsToFull).toBeCloseTo(expectedSeconds, 0);
     expect(capacitor).toBeCloseTo(w.capacitorCapacity, 6); // never overshoots the cap
+  });
+});
+
+// ============================================================================================
+// Boosted ALIGNED vs COUNTERING regimes (measured 2026-08-02 — see physics/ships/gladius.ts's
+// "BOOSTED LINEAR: TWO REGIMES" note, physics/flightModel.ts's role block, and RETRO.md).
+//
+// This suite exists because the bug it guards was invisible to every other test in this file: they all
+// accelerate from rest, which is the ALIGNED role, so none of them ever exercised braking. The reported
+// symptom was that boosted reverse killed a 226 m/s cruise in ~1s against the real game's ~4s.
+// ============================================================================================
+describe('boosted countering (braking/reversing) is flat and weaker than the aligned rate', () => {
+  const g = getShipType('Gladius');
+
+  // At the identity spawn attitude computeAxes gives forward=+Z, right=+X, up=-Y (the ported
+  // convention — see CLAUDE.md's axis-convention seam), so local axes map to world as:
+  // forward -> +z, right -> +x, up -> -y (i.e. downward motion is +y).
+  function bodyMoving(vel: { x?: number; y?: number; z?: number }, boosting = true): FlightBody {
+    return {
+      type: g,
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: vel.x ?? 0, y: vel.y ?? 0, z: vel.z ?? 0 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      angVel: { pitch: 0, yaw: 0, roll: 0 },
+      angAccel: { pitch: 0, yaw: 0, roll: 0 },
+      boosting,
+      // Pre-spooled: a real cruise has held throttle for seconds (and boost bypasses spool anyway).
+      // Leaving these at 0 would gate the first ticks and skew the short measurements below.
+      throttleSpoolTime: 10,
+      verticalSpoolTime: 10
+    };
+  }
+
+  interface Inputs {
+    throttle: number; pitch: number; yaw: number; roll: number;
+    strafeX: number; strafeY: number; brake: boolean; decoupled: boolean;
+  }
+  const inputs = (over: Partial<Inputs> = {}): Inputs => ({
+    throttle: 0, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false, ...over
+  });
+
+  // Drives one axis to a stop (or a sign flip) and reports how long it took.
+  function timeToStop(body: FlightBody, input: Inputs, dt: number, axis: 'x' | 'y' | 'z'): number {
+    let steps = 0;
+    const sign0 = Math.sign(body.vel[axis]);
+    const limit = Math.ceil(30 / dt);
+    while (steps < limit) {
+      integrateFlight(body, input, dt);
+      steps++;
+      if (body.vel[axis] === 0 || Math.sign(body.vel[axis]) !== sign0) break;
+    }
+    return steps * dt;
+  }
+
+  // THE HEADLINE REGRESSION. Before the two-regime split this stopped in ~1.3s (boosted retro thrust
+  // 216.5 plus drag 0.38*v, compounding); measured in the real game at ~4.0s.
+  it('boosted reverse stops a 226 m/s forward cruise in ~4s, not ~1s', () => {
+    const body = bodyMoving({ z: g.scmSpeed });
+    const stop = timeToStop(body, inputs({ throttle: -1 }), 1 / 120, 'z');
+    expect(stop).toBeGreaterThan(3.7);
+    expect(stop).toBeLessThan(4.5);
+  });
+
+  it('matches the measured stop times on strafe and both vertical directions', () => {
+    const dt = 1 / 120;
+    // lateral: +x cruise countered by left strafe. 225 / 125.7 = ~1.79s (measured ~1.85s).
+    const lateral = timeToStop(bodyMoving({ x: 225 }), inputs({ strafeX: -1 }), dt, 'x');
+    expect(lateral).toBeGreaterThan(1.5);
+    expect(lateral).toBeLessThan(2.2);
+    // up-thrust countering a downward (+y) cruise. 220 / 127.4 = ~1.73s (measured ~1.9s).
+    const upward = timeToStop(bodyMoving({ y: 220 }), inputs({ strafeY: 1 }), dt, 'y');
+    expect(upward).toBeGreaterThan(1.4);
+    expect(upward).toBeLessThan(2.3);
+    // down-thrust countering an upward (-y) cruise: weakest axis, 225 / 63.7 = ~3.53s (measured ~3.6s).
+    const downward = timeToStop(bodyMoving({ y: -225 }), inputs({ strafeY: -1 }), dt, 'y');
+    expect(downward).toBeGreaterThan(3.1);
+    expect(downward).toBeLessThan(4.0);
+  });
+
+  // The defining property of the countering regime: FLAT. If any drag leaked back into this path the
+  // per-tick delta would shrink with speed — exactly the bug that made the stop 3x too fast.
+  it('decelerates at a flat rate — same per-tick delta at 200 m/s as at 50 m/s', () => {
+    const dt = 1 / 120;
+    const deltaAt = (v: number) => {
+      const body = bodyMoving({ z: v });
+      const before = body.vel.z;
+      integrateFlight(body, inputs({ throttle: -1 }), dt);
+      return before - body.vel.z;
+    };
+    expect(deltaAt(200)).toBeCloseTo(deltaAt(50), 6);
+    // ...and that flat rate is the derived COUNTERING accel, not the aligned one.
+    expect(deltaAt(200) / dt).toBeCloseTo(g.boostCounterThrust.retro / g.mass, 4);
+  });
+
+  it('is weaker than the aligned rate on the same axis (the whole point of the split)', () => {
+    expect(g.boostCounterThrust.retro).toBeLessThan(g.boostLinearThrust.retro);
+    const ratio = g.boostCounterMultiplier / g.boostThrustMultiplier;
+    expect(ratio).toBeGreaterThan(0.55);
+    expect(ratio).toBeLessThan(0.70);
+  });
+
+  // Lands exactly on zero rather than overshooting, at both a fast tick and main.ts's 50ms dt clamp —
+  // this is why the countering decel is applied in velocity space with a clamp instead of via `accel`.
+  it('lands exactly on zero without overshooting, at dt = 1/120 and dt = 1/20', () => {
+    for (const dt of [1 / 120, 1 / 20]) {
+      const body = bodyMoving({ z: g.scmSpeed });
+      let steps = 0;
+      const limit = Math.ceil(30 / dt);
+      while (body.vel.z > 0 && steps < limit) {
+        integrateFlight(body, inputs({ throttle: -1 }), dt);
+        steps++;
+      }
+      expect(body.vel.z).toBe(0);
+    }
+  });
+
+  // Countering is THRUST, not auto-damping, so it must survive the gates that switch drag/coast off.
+  it('still applies in decoupled mode and while the space brake is held', () => {
+    const dt = 1 / 120;
+    const plain = timeToStop(bodyMoving({ z: g.scmSpeed }), inputs({ throttle: -1 }), dt, 'z');
+    const decoupled = timeToStop(bodyMoving({ z: g.scmSpeed }), inputs({ throttle: -1, decoupled: true }), dt, 'z');
+    expect(decoupled).toBeCloseTo(plain, 1);
+    // brake + countering must be strictly faster than brake alone
+    const brakeOnly = timeToStop(bodyMoving({ z: g.scmSpeed }), inputs({ brake: true }), dt, 'z');
+    const brakePlus = timeToStop(bodyMoving({ z: g.scmSpeed }), inputs({ throttle: -1, brake: true }), dt, 'z');
+    expect(brakePlus).toBeLessThan(brakeOnly);
+  });
+
+  // Once the axis crosses zero the role flips to ALIGNED, so holding reverse keeps going backward
+  // rather than sticking at the stop — and settles at the boosted REVERSE cap, not the forward one.
+  it('holding reverse past the stop flips to aligned and accelerates backward to boostSpeedBack', () => {
+    const body = bodyMoving({ z: g.scmSpeed });
+    const dt = 1 / 120;
+    for (let i = 0; i < 120 * 20; i++) integrateFlight(body, inputs({ throttle: -1 }), dt);
+    expect(body.vel.z).toBeLessThan(0);
+    expect(Math.hypot(body.vel.x, body.vel.y, body.vel.z)).toBeCloseTo(g.boostSpeedBack, 0);
+  });
+
+  // UNBOOSTED countering must be untouched by all of this — it was already correct (the input sign
+  // picks the opposing thruster and linearDrag is negligible, so it's already flat at 1.00x). Asserted
+  // against thrust + the drag term explicitly rather than against a loose tolerance around 42: at
+  // cruise, linearDrag (0.001) contributes ~0.23 m/s^2 on top of retro's 42, which is precisely the
+  // "essentially negligible" this ship's invariants claim. Pinning both terms means this test still
+  // fails loudly if the boosted 1.30x countering rate (54.6) ever leaks into the unboosted path.
+  it('leaves unboosted countering alone: the bare retro thruster rate plus negligible drag', () => {
+    const dt = 1 / 120;
+    const body = bodyMoving({ z: g.scmSpeed }, false);
+    const before = body.vel.z;
+    integrateFlight(body, inputs({ throttle: -1 }), dt);
+    const rate = (before - body.vel.z) / dt;
+    const thrustTerm = g.linearThrust.retro / g.mass;
+    expect(rate - thrustTerm).toBeLessThan(0.3);   // drag's whole contribution at 226 m/s
+    expect(rate).toBeCloseTo(thrustTerm + g.linearDrag * body.vel.z, 2);
+  });
+
+  // The ALIGNED half still behaves: an accel-from-rest climb must reach its own cap, and reaching it is
+  // what proves drag stayed governor-limited rather than settling the ship early.
+  it('aligned boosted climbs still reach their own caps (reverse and maneuvering)', () => {
+    const dt = 1 / 60;
+    const back = bodyMoving({});
+    for (let i = 0; i < 60 * 15; i++) integrateFlight(back, inputs({ throttle: -1 }), dt);
+    expect(Math.hypot(back.vel.x, back.vel.y, back.vel.z)).toBeCloseTo(g.boostSpeedBack, 0);
+
+    const lateral = bodyMoving({});
+    for (let i = 0; i < 60 * 15; i++) integrateFlight(lateral, inputs({ strafeX: 1 }), dt);
+    expect(Math.hypot(lateral.vel.x, lateral.vel.y, lateral.vel.z)).toBeCloseTo(g.boostManeuveringSpeedCap, 0);
+  });
+});
+
+// Boosted lateral/vertical thrust authority vs. current forward speed (added 2026-08-04, rough fit
+// per user go-ahead — see flightModel.ts's boostedLateralAuthority note and MEASUREMENTS.md's
+// TVI-tracked speed-sweep captures). Forward -> +z, up -> -y at the identity attitude (see the
+// "boosted countering" describe block above for the same convention).
+describe('lateral/vertical thrust authority tapers with forward speed', () => {
+  const g = getShipType('Gladius');
+
+  function bodyMoving(vel: { x?: number; y?: number; z?: number }, boosting = true): FlightBody {
+    return {
+      type: g,
+      pos: { x: 0, y: 0, z: 0 },
+      vel: { x: vel.x ?? 0, y: vel.y ?? 0, z: vel.z ?? 0 },
+      quat: { x: 0, y: 0, z: 0, w: 1 },
+      angVel: { pitch: 0, yaw: 0, roll: 0 },
+      angAccel: { pitch: 0, yaw: 0, roll: 0 },
+      boosting,
+      throttleSpoolTime: 10,
+      verticalSpoolTime: 10
+    };
+  }
+  const inputs = { throttle: 0, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 1, brake: false, decoupled: false };
+
+  function upAccel(forwardSpeed: number, boosting = true): number {
+    // A very fine dt keeps this an instantaneous-accel reading: explicit-Euler drag is applied
+    // AFTER thrust integrates within the same tick, so a coarser dt would fold in a bit of that
+    // same-tick drag on the velocity thrust just produced and read slightly low.
+    const dt = 1 / 12000;
+    const body = bodyMoving({ z: forwardSpeed }, boosting);
+    const before = body.vel.y;
+    integrateFlight(body, inputs, dt);
+    return (before - body.vel.y) / dt; // up = -y, so a positive result is upward accel
+  }
+
+  describe('boosted: tapers across the whole 0..boostSpeedForward range', () => {
+    it('is full (unsuppressed) from a dead stop', () => {
+      expect(upAccel(0)).toBeCloseTo(g.boostLinearThrust.verticalUp / g.mass, 1);
+    });
+
+    it('is ~0 once forward speed reaches boostSpeedForward', () => {
+      expect(upAccel(g.boostSpeedForward)).toBeCloseTo(0, 0);
+    });
+
+    it('tapers monotonically in between', () => {
+      const a0 = upAccel(0);
+      const aQuarter = upAccel(g.boostSpeedForward * 0.25);
+      const aHalf = upAccel(g.boostSpeedForward * 0.5);
+      const aFull = upAccel(g.boostSpeedForward);
+      expect(a0).toBeGreaterThan(aQuarter);
+      expect(aQuarter).toBeGreaterThan(aHalf);
+      expect(aHalf).toBeGreaterThan(aFull);
+    });
+  });
+
+  // Unboosted shape is DIFFERENT, not just a rescaled copy: full authority at/under scmSpeed (an
+  // earlier, separate capture found unboosted strafe near its own 226 m/s cruise close to full
+  // strength), and only tapers once COASTING ABOVE scmSpeed on residual momentum from a released
+  // boost (2026-08-04 capture) — a state normal unboosted flight can't otherwise reach.
+  describe('unboosted: full up to scmSpeed, tapers only above it (overspeed coast)', () => {
+    it('is full at a dead stop and anywhere up to scmSpeed', () => {
+      const full = g.linearThrust.verticalUp / g.mass;
+      expect(upAccel(0, false)).toBeCloseTo(full, 1);
+      expect(upAccel(g.scmSpeed * 0.5, false)).toBeCloseTo(full, 1);
+      expect(upAccel(g.scmSpeed, false)).toBeCloseTo(full, 1);
+    });
+
+    it('is ~0 once coasting a full scmSpeed above scmSpeed', () => {
+      expect(upAccel(g.scmSpeed * 2, false)).toBeCloseTo(0, 0);
+    });
+
+    it('tapers monotonically once above scmSpeed', () => {
+      const aAtCap = upAccel(g.scmSpeed, false);
+      const aQuarterOver = upAccel(g.scmSpeed * 1.25, false);
+      const aHalfOver = upAccel(g.scmSpeed * 1.5, false);
+      const aDouble = upAccel(g.scmSpeed * 2, false);
+      expect(aAtCap).toBeGreaterThan(aQuarterOver);
+      expect(aQuarterOver).toBeGreaterThan(aHalfOver);
+      expect(aHalfOver).toBeGreaterThan(aDouble);
+    });
+  });
+
+  it('does not affect the countering role', () => {
+    // Existing upward velocity, strafe commanded DOWN against it -> countering, not aligned.
+    // Forward speed kept a bit under boostSpeedForward so the combined-speed governor doesn't
+    // also bleed velocity this tick and contaminate the reading.
+    const body = bodyMoving({ z: g.boostSpeedForward * 0.9, y: -50 });
+    const before = body.vel.y;
+    integrateFlight(body, { ...inputs, strafeY: -1 }, 1 / 120);
+    const decel = (body.vel.y - before) * 120; // downward decel magnitude, +y
+    expect(decel).toBeCloseTo(g.boostCounterThrust.verticalDown / g.mass, 1);
   });
 });

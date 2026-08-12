@@ -9,10 +9,12 @@ import type { AngularState, WeaponType } from '../../core/types';
 // primitives so the tuning invariants hold by construction (see buildShipType.ts).
 //
 // Design notes:
-//   - This mirrors `ShipType` field-for-field EXCEPT angularThrust/boostAngularThrust, which are
+//   - This mirrors `ShipType` field-for-field EXCEPT angularThrust/boostAngularThrust and the three
+//     boosted-linear fields (boostLinearThrust/boostCounterThrust/boostLinearDrag), which are
 //     DROPPED here — they are computed outputs of buildShipType, never hand-authored (that was the
 //     one hand-duplicated redundancy in the old flat data). maxAngVel/boostMaxAngVel + angularDrag
-//     are the authored primitives.
+//     are the authored angular primitives; linearThrust + the three boost*Multiplier/Overshoot
+//     ratios below are the authored linear ones.
 //   - `name` is the canonical lookup key (== compiled ShipType.name). Replay clips serialize it
 //     (replay/types.ts) and the registry keys by it — NEVER rename a ship's `name` once clips
 //     reference it.
@@ -105,8 +107,18 @@ export interface RawShipMeasurement {
 
   boostSpeedForward: number;
   boostSpeedBack: number;
-  boostLinearDrag: number;
-  boostLinearThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
+  // The three boost-linear PRIMITIVES. Everything boosted-linear is derived from these plus
+  // linearThrust/mass/the speed caps, so authoring a new ship means entering measurable quantities
+  // (mass, thrust, top speeds) rather than re-fitting abstract drag coefficients:
+  //   boostLinearThrust  = linearThrust * boostThrustMultiplier          (ALIGNED role, has drag)
+  //   boostCounterThrust = linearThrust * boostCounterMultiplier         (COUNTERING role, flat)
+  //   boostLinearDrag    = boostLinearThrust / (mass * boostGovernorOvershoot * that axis's cap)
+  // See linearInvariant.ts for the derivation and core/types.ts for what each output means.
+  boostThrustMultiplier: number;   // aligned boost thrust as a multiple of the unboosted thruster
+  boostCounterMultiplier: number;  // countering (braking/reversing) boost thrust, same basis
+  // How far past its cap's drag-equilibrium point aligned boost thrust sits, i.e. asymptote / cap.
+  // Must be > 1 or that axis becomes drag-limited below its own cap and the cap goes decorative.
+  boostGovernorOvershoot: number;
   // Boosted lateral+vertical top speed — separate from, and lower than, boostSpeedForward/Back (see
   // core/types.ts's ShipType.boostManeuveringSpeedCap doc).
   boostManeuveringSpeedCap: number;

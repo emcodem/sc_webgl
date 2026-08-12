@@ -56,10 +56,17 @@ main.ts        bootstrap + RAF loop (dt clamped to 50ms, matching the original)
 - **The flight model in `physics/flightModel.ts` and the stats in `physics/shipTypes.ts` are ported
   VERBATIM from the original and fit to frame-counted real-Star-Citizen measurements.** Every
   constant matters. Do NOT "clean up" or retune without re-measuring. The key invariants
-  (`angularThrust == maxAngVel*angularDrag`, the boost-thrust derivation, negligible `linearDrag`
+  (`angularThrust == maxAngVel*angularDrag`, the boost-thrust derivations, negligible `linearDrag`
   with a governor cap, flat `coastDecel`, three separate spool delays) are documented in
-  `shipTypes.ts` and guarded by `tests/shipTuning.test.ts`. The original's CLAUDE.md has the full
-  "why".
+  `physics/ships/gladius.ts` and guarded by `tests/shipTuning.test.ts`. The original's CLAUDE.md has
+  the full "why".
+  - **Boosted linear thrust has TWO regimes** (measured 2026-08-02, this project's own capture — not
+    ported): **aligned** (extending motion, 2.09x the unboosted thruster, with real per-axis drag) and
+    **countering** (braking/reversing an existing velocity, 1.30x, dead flat, no drag). Collapsing them
+    back into one thrust per axis is the specific mistake that made boosted reverse braking ~3x too
+    strong. Nothing boosted-linear is authored — it derives from `linearThrust`, `mass`, the speed caps
+    and three ratios via `physics/ships/linearInvariant.ts`, so a new ship needs only measurable
+    quantities. See `RETRO.md` and `physics/flightModel.ts`'s role block.
 - **Quaternion-only ship attitude, body-frame integration** (`math/quaternion.ts`). Never Euler.
 - **Floating origin = fully camera-relative rendering.** The sim moves things in absolute f64 space;
   `render/renderer.ts` is the *only* place that rebases — every frame it subtracts the camera's

@@ -174,12 +174,20 @@ shape finding (no SCM-plateau) is unambiguous from the data already in hand (no 
 
 Surfaced while auditing; each is separate from the overspeed bug.
 
+> **Superseded numbers (2026-08-02):** the specific `boostLinearThrust`/`boostLinearDrag` values quoted
+> in gap #2/#3 and §7 step 4 below no longer exist. Boosted linear thrust and drag are now DERIVED from
+> three ratios, and every axis has two regimes (aligned vs countering) rather than one thrust value —
+> see `RETRO.md` §8 and `physics/ships/linearInvariant.ts`. The *findings* recorded here still stand
+> (boosted strafe/vertical needed implementing; the 394 maneuvering cap is real); only the constants
+> they produced were replaced.
+
 | # | Gap | Evidence | Severity |
 |---|---|---|---|
 | 1 | ~~`boostMaxAngVel.pitch = 1.431` rad/s (82 °/s) is a leftover uniform ×1.2, should drop to ratio 1.064 (≈68.92 °/s)~~ — **retracted, see note below.** | `MEASUREMENTS.md` "Pitch afterburner ratio — repeat reps" | **Unresolved** — needs re-measurement, not a known mismatch |
 | 2 | ~~Boosted strafe/vertical not implemented.~~ **APPLIED 2026-07-25** (per user go-ahead). `flightModel.ts` now reads `t.boostLinearThrust.strafe`/`verticalUp`/`verticalDown` while `body.boosting`. | `physics/ships/gladius.ts` `boostLinearThrust`; `tests/shipTuning.test.ts` | Resolved |
 | 3 | ~~The measured ~385 m/s boosted maneuvering cap doesn't exist in the model.~~ **APPLIED 2026-07-25.** New `ShipType.boostManeuveringSpeedCap` (385) governs the lateral+vertical (non-longitudinal) velocity component independently — the existing forward/back governor still only bounds the longitudinal component (520/268). Same bounded-bleed-rate shape, added as its own block in `flightModel.ts` right after the existing governor. | `physics/flightModel.ts`'s new maneuvering-cap block; `tests/shipTuning.test.ts`'s `boostManeuveringSpeedCap` tests | Resolved |
 | 4 | Boost bypasses thruster spool entirely (`spooledUp = body.boosting \|\| ...`, same for vertical). The code comment admits no data supports this. A standing-start boost reaches full thrust in one tick. | `flightModel.ts` spool block | Low — unverified assumption, not a known mismatch |
+| 5 | ~~Lateral/vertical thrust used its full rate regardless of current forward speed — strafing while flying fast gave far more strafe than real SC, both boosted (near top speed) and, less obviously, unboosted (only reachable by coasting above scmSpeed on residual boost momentum).~~ **APPLIED 2026-08-04** (rough estimate, per user go-ahead) — two DIFFERENT taper shapes, not one formula with a swapped reference: boosted tapers across its whole 0..boostSpeedForward range, unboosted stays full up to scmSpeed and only tapers once coasting above it. See `MEASUREMENTS.md`'s "Boosted lateral/vertical authority vs. current forward speed" section and `flightModel.ts`'s `lateralSpeedAuthority`. | `physics/flightModel.ts`'s `lateralSpeedAuthority`; `tests/shipTuning.test.ts`'s "lateral/vertical thrust authority tapers with forward speed" | Resolved (rough fit — flagged for re-derivation against cleaner captures) |
 
 **Retraction note on gap #1 (added 2026-07-25):** the 68.92 °/s / 1.064 ratio is the boosted
 **pitch-DOWN** short-hold reading (0.7s/0.15s dwell/ramp) — not a full 360° turn. The same

@@ -184,7 +184,18 @@ export interface ShipType {
   // to be a HUD display bug, not a real asymmetry).
   throttleRampRate: number;
   linearDrag: number;               // negligible for the Gladius — governor-cap does the limiting
-  boostLinearDrag: number;
+  // DERIVED per axis (physics/ships/linearInvariant.ts, called from buildShipType) as
+  // boostLinearThrust / (mass * boostGovernorOvershoot * that axis's own boost speed cap) — NOT
+  // authored, so it can't drift from the thrust it's paired with. Only read on an axis firing an
+  // ALIGNED boosted thruster (see boostCounterThrust below and flightModel.ts's drag branch): a
+  // COUNTERING axis is measured dead flat, so drag must not touch it.
+  //
+  // Per-axis rather than one scalar because the axes genuinely differ once thrust does: main's
+  // asymptote has to clear its own 520 cap, while the maneuvering axes settle near 440. Deriving it
+  // from the cap makes the "boost is governor-limited, not drag-limited" invariant structural — the
+  // asymptote is boostGovernorOvershoot * cap for every axis by construction, so a future ship can't
+  // silently reintroduce the drag-limited bug that hit strafe/vertical before 2026-07-28.
+  boostLinearDrag: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
   coastDecel: number;               // informational/legacy only — flightModel.ts's coast branch derives
                                      // the real per-(axis,direction) decel from linearThrust/mass instead
                                      // (see physics/ships/gladius.ts's coastDecel doc comment)
@@ -248,7 +259,27 @@ export interface ShipType {
   // damping (measured, not just the steady-state rate), so these are independent values, not derived.
   boostAngularSpoolOmega: { pitch: number; yaw: number };
   boostAngularSpoolZeta: { pitch: number; yaw: number };
+  // The three authored boost-linear PRIMITIVES, kept on the compiled type (like maxAngVel/angularDrag
+  // are) so the derivations below can be asserted structurally rather than against magic numbers.
+  boostThrustMultiplier: number;   // aligned boost thrust as a multiple of the unboosted thruster
+  boostCounterMultiplier: number;  // countering (braking/reversing) boost thrust, same basis
+  boostGovernorOvershoot: number;  // aligned asymptote / that axis's cap; must be > 1 (see boostLinearDrag)
+  // Boosted thrust in the ALIGNED role — pushing further along an axis's existing velocity, or from
+  // rest. DERIVED as linearThrust * boostThrustMultiplier per axis (see linearInvariant.ts). Paired
+  // with boostLinearDrag above: this role has real proportional drag and curves to an asymptote above
+  // the speed cap, exactly matching boosted main's own dense 2026-07-15 trace.
   boostLinearThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
+  // Boosted thrust in the COUNTERING role — opposing an existing velocity on that axis (braking or
+  // reversing). DERIVED as linearThrust * boostCounterMultiplier per axis. Held in THRUST units, not
+  // m/s^2, so it substitutes directly for boostLinearThrust in flightModel.ts's assembly.
+  //
+  // This is a genuinely separate regime, not a scaling of the above: measured 2026-08-02 on four
+  // independent axes (retro/strafe/up/down), countering is a FLAT constant decel with NO drag at all
+  // (linear-fit RMS 0.3-0.9 m/s across an entire 222->2 m/s range — any real drag term would visibly
+  // bend that line) at ~1.30x the unboosted opposing thruster, versus ~2.09x WITH drag when aligned.
+  // One thrust value per axis could not fit both roles, which is why boosted reverse braking was ~3x
+  // too strong before this split. See flightModel.ts's countering block and RETRO.md.
+  boostCounterThrust: { main: number; retro: number; strafe: number; verticalUp: number; verticalDown: number };
   // Boosted lateral+vertical (non-longitudinal) top speed — separate from and lower than
   // boostSpeedForward/Back, which govern only the forward-axis component. Without this, boosted
   // sideways/vertical flight was ungoverned up to the much higher forward boost cap (see
