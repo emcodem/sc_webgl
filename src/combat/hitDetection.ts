@@ -29,6 +29,26 @@ function sweepHitsSphere(prev: Vec3, pos: Vec3, center: Vec3, radius: number): V
   return dot(d, d) <= radius * radius ? closest : null;
 }
 
+// sweepHitsSphere's `hit` is the round's closest approach to the hull CENTER, which for a
+// precisely-aimed shot can land anywhere inside the sphere, including almost exactly at the
+// center — not confined to the hull surface at `radius`. That's fine for damage (any point inside
+// counts as a hit) but wrong for the visual: a laser impact should spark where the beam struck the
+// hull, and for a hit on the PLAYER's own ship, the pilot camera sits at that same center in
+// first-person view, so a near-center impact origin puts the spark burst essentially on top of the
+// camera — which blew the GPU spark shader's perspective size scaling out to cover the whole screen
+// (see render/impactEffects.ts). Project back onto the hull surface so the effect always spawns at
+// a consistent `radius` distance from center, regardless of how close to dead-center the shot was.
+function hullSurfaceImpact(hit: Vec3, center: Vec3, radius: number): [Vec3, Vec3] {
+  const toHit = sub(hit, center);
+  // A hit landing exactly at (or within floating-point noise of) dead-center makes the direction to
+  // project along undefined — normalize()'s own zero-length fallback returns a zero vector here, not
+  // a unit one, which would leave the "surface" point right back at center. Rare (a real shot is
+  // never bit-exact on the center), but arbitrarily pick a fixed direction rather than let that
+  // degenerate case slip through.
+  const normal = dot(toHit, toHit) < 1e-9 ? { x: 0, y: 1, z: 0 } : normalize(toHit);
+  return [add(center, scale(normal, radius)), normal];
+}
+
 // Enemy-owned rounds damage the player ship, player-owned rounds damage whichever alive enemy their
 // path crosses. Consumed rounds are removed. Generic over the `enemies` array so more opponents
 // later needs no changes here. `onImpact` fires at the contact point for every landed hit (both
@@ -52,7 +72,7 @@ export function resolveHits(
           applyDamage(playerShip.health, WEAPON_DAMAGE);
           playerShip.hitFlash = 1;
           onPlayerHit?.();
-          onImpact?.(hit, normalize(sub(hit, playerShip.pos)));
+          onImpact?.(...hullSurfaceImpact(hit, playerShip.pos, playerShip.type.hullRadius));
           projectiles.splice(i, 1);
         }
       }
@@ -66,7 +86,7 @@ export function resolveHits(
         const destroyed = applyDamage(enemy.health, WEAPON_DAMAGE);
         onEnemyHit?.(enemy);
         if (destroyed) onEnemyDestroyed?.(enemy);
-        onImpact?.(hit, normalize(sub(hit, enemy.pos)));
+        onImpact?.(...hullSurfaceImpact(hit, enemy.pos, enemy.type.hullRadius));
         projectiles.splice(i, 1);
         break;
       }
@@ -89,7 +109,7 @@ export function resolveObjectHits(
     for (const body of bodies) {
       const hit = sweepHitsSphere(pr.prevPos, pr.pos, body.pos, body.radius);
       if (hit) {
-        onImpact?.(hit, normalize(sub(hit, body.pos)));
+        onImpact?.(...hullSurfaceImpact(hit, body.pos, body.radius));
         projectiles.splice(i, 1);
         break;
       }

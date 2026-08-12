@@ -133,15 +133,27 @@ const sparkVertexShader = /* glsl */`
 
     vec3 pos = position + displacement;
 
-    float alive = step(0.0, age) * step(age, aLifetime);
-    vAlive = alive;
-
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mvPosition;
 
-    // Shrink as they cool/burn out; scale with distance so far sparks don't vanish to sub-pixel.
+    // A hit on the player's OWN hull spawns its burst at hullRadius from the eye (the pilot camera
+    // sits at the ship's position), unlike every other burst (enemy hits, explosions) which lands
+    // far from the camera. The actual "screen-covering white blowout on hit" bug turned out to be
+    // one level up (combat/hitDetection.ts's hullSurfaceImpact: a hit could land almost exactly AT
+    // the ship's center, not out at hullRadius, putting the burst right on top of the camera) --
+    // fixed there. This guard is defense-in-depth for the same class of failure (the old raw-depth
+    // size falloff below blows up toward infinity as a particle nears the camera plane, mvPosition.z
+    // close to or past 0), in case anything else ever spawns a burst that close.
+    float inFrontOfEye = step(0.05, -mvPosition.z);
+    float alive = step(0.0, age) * step(age, aLifetime) * inFrontOfEye;
+    vAlive = alive;
+
+    // Shrink as they cool/burn out; scale with true distance to the eye (not raw view-space depth,
+    // which understates distance for anything off-axis) so far/oblique sparks don't vanish to
+    // sub-pixel, and near/oblique ones can't blow up past a sane size either.
     float sizeCurve = mix(1.0, 0.15, lifeT);
-    gl_PointSize = aSize * sizeCurve * alive * (uPixelRatio * 460.0 / max(-mvPosition.z, 0.001));
+    float camDist = max(length(mvPosition.xyz), 0.5);
+    gl_PointSize = aSize * sizeCurve * alive * (uPixelRatio * 460.0 / camDist);
 
     #include <logdepthbuf_vertex>
   }
