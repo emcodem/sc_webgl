@@ -136,15 +136,48 @@ export function initInput(canvas: HTMLCanvasElement): void {
   window.addEventListener('keyup', (e) => { held.delete(e.code); });
 
   // click to capture the mouse (pointer lock); once captured, movement drives look/aim
+  let captureRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let wantsCapture = false;
   canvas.addEventListener('click', () => {
-    if (!captured) canvas.requestPointerLock();
+    if (captured) return;
+    wantsCapture = true;
+    canvas.requestPointerLock();
+  });
+  // Chrome enforces a short cooldown (~1s) after an Escape-triggered unlock before granting a new
+  // lock — an anti-abuse measure so a page can't instantly re-lock the pointer the moment a user
+  // presses Escape to get out. A click right after dismissing the "Leave site?" dialog (whose
+  // Escape force-exits pointer lock as a side effect) lands in that window and is silently denied:
+  // no exception, no pointerlockchange, `captured` just never goes true again — which also leaves
+  // the beforeunload safety net below permanently disarmed with no visible symptom, since flight
+  // input itself doesn't depend on capture. Retry once after the cooldown instead of leaving it stuck.
+  document.addEventListener('pointerlockerror', () => {
+    if (!wantsCapture) return;
+    wantsCapture = false;
+    flashCtrlWarning('Click blocked briefly after Escape — click the view again');
+    if (captureRetryTimer) clearTimeout(captureRetryTimer);
+    captureRetryTimer = setTimeout(() => {
+      if (!captured) canvas.requestPointerLock();
+    }, 1300);
   });
   document.addEventListener('pointerlockchange', () => {
     captured = document.pointerLockElement === canvas;
     // Keyboard lock is also requested/released by buttonBar.ts's fullscreenchange handler — only
     // release here if fullscreen isn't independently holding it too.
-    if (captured) requestKeyboardLock();
-    else if (!document.fullscreenElement) releaseKeyboardLock();
+    if (captured) {
+      wantsCapture = false;
+      if (captureRetryTimer) { clearTimeout(captureRetryTimer); captureRetryTimer = null; }
+      requestKeyboardLock();
+    } else {
+      if (!document.fullscreenElement) releaseKeyboardLock();
+      // Escape always force-exits pointer lock (spec-mandated, can't be prevented) — including the
+      // Escape used to dismiss the browser's own "Leave site?" beforeunload prompt (e.g. an
+      // accidental Ctrl+W). That prompt doesn't reliably fire `blur` the way alert()/confirm() do,
+      // and whatever was physically held when it appeared (Ctrl+W itself) gets its keyup delivered
+      // to the browser chrome, never this page — so without this, held.has('ControlLeft') (bound to
+      // Strafe Down) would stay stuck true forever, e.g. Escape-driven exit from a stuck Ctrl+W
+      // dialog. Clear on every pointer-lock loss, not just that path, same as the existing blur clear.
+      held.clear();
+    }
   });
   document.addEventListener('mousemove', (e) => {
     if (!captured) return;
@@ -156,7 +189,13 @@ export function initInput(canvas: HTMLCanvasElement): void {
   // protection it no longer has. buttonBar.ts's toggleFullscreen() re-sets it true on a fresh
   // fullscreen entry that successfully requests it again.
   document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement) fullscreenKeyboardLockArmed = false;
+    if (!document.fullscreenElement) {
+      fullscreenKeyboardLockArmed = false;
+      // Same stuck-key risk as pointer-lock loss above (Escape force-exits fullscreen too, and can
+      // be the same "dismiss the Leave-site? dialog" Escape whose matching keyup never reaches the
+      // page) — only relevant when not also pointer-locked, since that path already clears held.
+      if (!captured) held.clear();
+    }
   });
 
   // dropping focus/visibility clears held keys so nothing sticks "on"
