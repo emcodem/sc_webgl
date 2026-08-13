@@ -11,7 +11,7 @@ import {
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
 import {
-  spawnProjectileFrom, updateProjectiles, WEAPON, tryFireWeapon, freshCapacitors, freshCapacitorCooldowns
+  spawnProjectileFrom, updateProjectiles, WEAPON, NUM_GUNS, tryFireWeapon, freshCapacitors, freshCapacitorCooldowns
 } from '../combat/weapons';
 import { findActivePip } from '../combat/pipTargeting';
 import { computeLeadPoint } from '../combat/leadIndicator';
@@ -62,10 +62,13 @@ function spawnEnemyFromConfig(spawn: EnemySpawnConfig, config: ScenarioConfig): 
 }
 
 export function startScenario(world: World, config: ScenarioConfig): void {
-  // Tear down a previously-active PIP Trainer run the same way switching to Free Flight or a
-  // fresh PIP Trainer run already does — otherwise it keeps ticking/rendering underneath this
-  // scenario (see main.ts's unconditional `if (world.pipTrainer) updatePipTrainer(...)`).
+  // Tear down a previously-active PIP Trainer/Roll Trainer run the same way switching to Free
+  // Flight or a fresh PIP/Roll Trainer run already does — otherwise it keeps ticking/rendering
+  // underneath this scenario (see main.ts's unconditional `if (world.pipTrainer) ...` /
+  // `if (world.rollTrainer) ...`), which is what left Roll Trainer's ghost hull + HUD overlay
+  // stuck on screen over a newly-started scenario.
   world.pipTrainer = null;
+  world.rollTrainer = null;
   const ship = world.player.ship;
   // Full reset to SPAWN (not just health/vel like the original) — sc_webgl's player can be
   // anywhere (out at the moon, etc.) when the menu opens, and every scenario's enemy spawn
@@ -149,7 +152,11 @@ export function updateScenario(world: World, dt: number): void {
 
   const player = world.player.ship;
   const playerFiredThisTick = firePlayerWeaponIfRequested(world, dt);
-  if (playerFiredThisTick) runtime.stats.shotsFired++;
+  // Counts individual rounds, not trigger-pulls: every successful volley spawns NUM_GUNS projectiles
+  // (the Panther S3's 3 barrels firing together — see weapons.ts's tryFireWeapon), and hitsLanded
+  // below likewise increments once per projectile that connects. Counting shotsFired per volley
+  // instead would let a single 3-barrel hit read as 300% accuracy.
+  if (playerFiredThisTick) runtime.stats.shotsFired += NUM_GUNS;
   // stepCombat (free-flight) decays this every frame; updateScenario needs its own copy since the
   // two step functions are mutually exclusive (main.ts runs one or the other, never both) — without
   // it, a scenario hit sets hitFlash=1 once in resolveHits below and it never comes back down.
