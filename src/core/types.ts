@@ -72,8 +72,11 @@ export type EnemyBehavior = 'turret' | 'fighter' | 'chaser' | 'orbiter' | 'drift
 
 // 'orbiter' behavior memory — a drone circling a fixed center on a randomized plane, ported from
 // the original project's combat/enemyAI.ts. respawnTimer counts UP elapsed dead-time (see
-// scenarios/runtime.ts's orbiter branch for why, and combat/ai/orbiterDrifterAI.ts for the roll
-// flourish fields).
+// scenarios/runtime.ts's orbiter branch for why). center/radius/angularSpeed/planeRight/planeUp
+// describe the imaginary ring the drone chases via real steering, NOT its literal position — see
+// combat/ai/orbiterDrifterAI.ts's orbiterThink, which reads the drone's OWN current position to
+// find where it is on that ring rather than trusting phase to track it once it's actually flying.
+// phase itself is only read once, by seedOrbiterPose, to place a freshly (re)spawned drone.
 export interface OrbitState {
   center: Vec3;
   radius: number;
@@ -82,10 +85,6 @@ export interface OrbitState {
   planeRight: Vec3;
   planeUp: Vec3;
   respawnTimer: number;
-  rollTimer?: number;
-  rollCooldown?: number;
-  rollAxisRight?: Vec3;
-  rollAxisUp?: Vec3;
 }
 
 // A single in-progress "bank into a U-turn" maneuver for a 'drifter' that has flown out of range —

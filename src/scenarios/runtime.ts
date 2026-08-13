@@ -7,7 +7,8 @@ import { firePlayerWeaponIfRequested } from '../combat/combatSystem';
 import { canFire, canFireWithinTolerance, spawnFighterAI, think } from '../combat/enemyAI';
 import { CHASER_TUNING, chaserThink, cruiseThink } from '../combat/ai/simpleAI';
 import {
-  ORBITER_TUNING, DRIFTER_TUNING, driftThink, orbiterThink, spawnDriftState, spawnOrbitState
+  ORBITER_TUNING, DRIFTER_TUNING, driftThink, orbiterThink, seedOrbiterPose, spawnDriftState,
+  spawnOrbitState
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
 import {
@@ -104,6 +105,7 @@ export function startScenario(world: World, config: ScenarioConfig): void {
   for (const enemy of enemies) {
     if (enemy.behavior === 'orbiter') {
       enemy.orbit = spawnOrbitState(ship.pos, aggressiveness);
+      seedOrbiterPose(enemy);
     } else if (enemy.behavior === 'drifter') {
       const s = spawnDriftState(ship, aggressiveness);
       enemy.pos = s.pos;
@@ -288,11 +290,20 @@ export function updateScenario(world: World, dt: number): void {
             if (enemy.orbit.respawnTimer >= ORBITER_TUNING.respawnDelaySec) {
               enemy.health = createHealth(runtime.config.hitsToKillEnemy);
               enemy.orbit = spawnOrbitState(player.pos, runtime.config.droneAggressiveness ?? 0.5);
+              seedOrbiterPose(enemy);
             }
           }
           break;
         }
-        orbiterThink(enemy, player, dt);
+        const orbiterDecision = orbiterThink(enemy, player, dt);
+        const orbiterBoost = resolveBoost(
+          enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, orbiterDecision.boostRequested, dt
+        );
+        enemy.boostMeter = orbiterBoost.boostMeter;
+        enemy.boosting = orbiterBoost.boosting;
+        enemy.boostCooldownTimer = orbiterBoost.cooldownTimer;
+        integrateFlight(enemy, orbiterDecision.inputs, dt);
+        enemy.lastInputs = orbiterDecision.inputs;
         break;
       }
 

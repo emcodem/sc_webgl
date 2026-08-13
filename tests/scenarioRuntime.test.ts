@@ -69,11 +69,16 @@ describe('startScenario — placeholder spawn overrides', () => {
     expect(evasive.evasive).toBeDefined();
   });
 
-  it('resolves an orbiter into a real orbit position once ticked, not left at the placeholder', () => {
+  it('resolves an orbiter onto its ring immediately (seedOrbiterPose), not left at the placeholder', () => {
     const world = makeWorld();
     startScenario(world, buildAimTrainingScenario({ droneCount: 2, aggressiveness: 0.5, durationSec: null }));
     const orbiter = world.enemies.find(e => e.behavior === 'orbiter')!;
     expect(orbiter.orbit).toBeDefined();
+    // already on the ring right after startScenario returns — no one-tick pop-in
+    const distBefore = Math.hypot(
+      orbiter.pos.x - orbiter.orbit!.center.x, orbiter.pos.y - orbiter.orbit!.center.y, orbiter.pos.z - orbiter.orbit!.center.z
+    );
+    expect(distBefore).toBeCloseTo(orbiter.orbit!.radius, 6);
     updateScenario(world, 1 / 60);
     const dist = Math.hypot(orbiter.pos.x, orbiter.pos.y, orbiter.pos.z);
     expect(dist).toBeGreaterThan(100); // orbit radius is 150-400m

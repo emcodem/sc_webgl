@@ -1,7 +1,9 @@
-import type { DriftTurnState, HelixState, Quat, Vec3 } from '../../core/types';
+import type { DriftTurnState, HelixState, OrbitState, Quat, Vec3 } from '../../core/types';
 import type { EnemyShip, ShipBody } from '../../core/world';
-import { computeAxes, lookAtQuat, quatMultiply } from '../../math/quaternion';
+import type { FlightInputs } from '../../physics/flightModel';
+import { lookAtQuat, quatMultiply } from '../../math/quaternion';
 import { clamp, cross, dot, normalize, rotateAboutAxis } from '../../math/vec';
+import { steeringToward } from '../enemyAI';
 
 // ===========================================================================
 // OrbiterAI / DrifterAI — harmless practice targets for the Aim Training drill (see
@@ -21,6 +23,39 @@ export const ORBITER_TUNING = {
   // keeps trying to stay within roughly 500m instead of drifting off forever.
   leashDistance: 500,
   centerFollowRate: 0.5
+};
+
+// Tuning for HOW an orbiter chases its ring (see orbiterThink) — kept separate from ORBITER_TUNING
+// above so the radius/speed/leash knobs that set the drill's difficulty stay untouched by this.
+export const ORBITER_STEER_TUNING = {
+  steerGain: 6, // proportional steering gain fed to steeringToward — gentler than CHASER_TUNING's 5
+                // or FIGHTER_TUNING_ACE's 7, since orientation here only ever has to track the ring's
+                // own (slowly rotating) tangent direction, never a jumpy target — see below
+  // Orientation and radial position are controlled by two INDEPENDENT thrusters, not one blended
+  // steering target — two earlier approaches that tried to fold radial correction into orientation
+  // both failed (verified empirically, not just reasoned about):
+  //   1. Chasing a "carrot" point some fixed angle further around the ring (a classic pursuit-curve
+  //      lead) settles into whatever radius makes ITS OWN steering error self-consistent — generally
+  //      NOT the tuned radius (it stabilized at ~2.2x tuned radius; raising steerGain barely moved
+  //      it, since that's a structural property of pursuit curves, not an undertuned gain).
+  //   2. Commanding a single steerDir that blends the tangent with a radial bias (or, worse, points
+  //      straight at the full velocity-error vector) makes the TARGET DIRECTION swing wildly whenever
+  //      a large radial correction is needed at the same time as holding tangential speed — the
+  //      flight model's real turn-rate lag can't track a target that gyrates that fast, so the nose
+  //      chases an inaccurate compromise and the ship settles into a wrong equilibrium radius instead
+  //      of the tuned one (or oscillates back and forth across it).
+  // The fix: keep orientation dead simple — nose = the ring's own tangent, bank = toward center — and
+  // let it converge cleanly (this alone verified stable). Radial correction happens on a SEPARATE
+  // axis: the ship's own vertical strafe thruster, which (once banked) already points along the
+  // radial axis regardless of which way the nose is turned, exactly like a real RCS thruster fires
+  // independent of main engine orientation. Tangent and radial-out are geometrically perpendicular by
+  // construction, so "nose on tangent, up toward center" is always simultaneously and exactly
+  // achievable — no compromise between the two the way blending them into one direction required.
+  radialGainPerSec: 0.4,     // 1/s — desired inward/outward correction speed per meter of radius
+                              // error, e.g. 100m too far out asks for 40 m/s of inward closing speed
+  radialVelBandMps: 60,      // m/s of radial velocity error at which strafeY reaches full ±1.0
+  speedBandMps: 40,          // m/s of tangential-speed deficit at which throttle reaches full 1.0
+  brakeOverspeedMps: 40      // m/s of tangential speed above target at which the space brake engages
 };
 
 export const DRIFTER_TUNING = {
@@ -44,71 +79,6 @@ const TURN_TUNING = {
 
 function randRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
-}
-
-// Occasional barrel roll, purely cosmetic — a real barrel roll isn't just spinning in place, it's
-// holding a constant "up-strafe" while rolling, so as the roll turns that thrust through a full
-// circle the flight path corkscrews sideways around the original line of travel before rejoining
-// it. We reproduce that kinematically: `offset` traces a circle in the plane perpendicular to the
-// direction of travel *at roll-start* (fixed for the whole maneuver, not re-rotated with the
-// drone's own spin — re-rotating it would just cancel back out to spinning in place), parameterized
-// by the same roll angle used to spin the model, so the corkscrew and the visual roll stay in sync.
-// The circle starts and ends at zero offset (cos(0)-1=0, sin(0)=0 ... same at 2π), so it blends
-// into and out of the base flight path with no positional pop. Shared by orbiterThink/driftThink
-// via their respective (structurally identical) roll fields.
-const BARREL_ROLL_DURATION = 1.1;              // seconds for a full 360
-const BARREL_ROLL_TRIGGER_CHANCE_PER_SEC = 0.3; // ~once every few seconds of eligible flight
-const BARREL_ROLL_COOLDOWN = 2;                // seconds before another roll may trigger
-const BARREL_ROLL_RADIUS = 15;                 // meters — lateral sweep of the corkscrew
-
-interface BarrelRollState {
-  rollTimer?: number;
-  rollCooldown?: number;
-  rollAxisRight?: Vec3;
-  rollAxisUp?: Vec3;
-}
-
-interface BarrelRollResult {
-  angle: number;  // radians about the local forward axis to apply this tick — 0 while not rolling
-  offset: Vec3;   // world-space corkscrew displacement to apply this tick, on top of the base flight path
-}
-
-// Advances a drone's roll state by dt. Mutates `state` in place. `axes` should be the drone's
-// current (un-rolled) forward-facing orientation, i.e. computeAxes(lookAtQuat(vel)) — its
-// right/up are captured as the corkscrew's fixed reference frame the moment a new roll triggers.
-function advanceBarrelRoll(state: BarrelRollState, axes: { right: Vec3; up: Vec3 }, dt: number): BarrelRollResult {
-  let rollTimer = state.rollTimer ?? 0;
-  let rollCooldown = state.rollCooldown ?? 0;
-
-  if (rollTimer > 0) {
-    rollTimer = Math.max(0, rollTimer - dt);
-  } else {
-    rollCooldown -= dt;
-    if (rollCooldown <= 0 && Math.random() < BARREL_ROLL_TRIGGER_CHANCE_PER_SEC * dt) {
-      rollTimer = BARREL_ROLL_DURATION;
-      rollCooldown = BARREL_ROLL_COOLDOWN;
-      state.rollAxisRight = axes.right;
-      state.rollAxisUp = axes.up;
-    }
-  }
-  state.rollTimer = rollTimer;
-  state.rollCooldown = rollCooldown;
-
-  if (rollTimer <= 0 || !state.rollAxisRight || !state.rollAxisUp) {
-    return { angle: 0, offset: { x: 0, y: 0, z: 0 } };
-  }
-  const angle = (1 - rollTimer / BARREL_ROLL_DURATION) * Math.PI * 2;
-  const { rollAxisRight: right, rollAxisUp: up } = state;
-  const cosTerm = BARREL_ROLL_RADIUS * (Math.cos(angle) - 1);
-  const sinTerm = BARREL_ROLL_RADIUS * Math.sin(angle);
-  return {
-    angle,
-    offset: {
-      x: cosTerm * up.x + sinTerm * right.x,
-      y: cosTerm * up.y + sinTerm * right.y,
-      z: cosTerm * up.z + sinTerm * right.z
-    }
-  };
 }
 
 // Rotation-only quaternion about the local forward axis (+Z in computeAxes' base convention) — the
@@ -148,17 +118,64 @@ export function spawnOrbitState(center: Vec3, aggressiveness: number = 0.5) {
   };
 }
 
-// Advances the orbit and re-derives pos/vel/quat from it around the (mostly) fixed `orbit.center`
-// (set at spawn/respawn — see spawnOrbitState) — NOT the player's live position every tick, so
-// flying toward or away from the ring still changes the distance to it within a pass instead of
-// the orbit re-centering underneath you and holding you at `radius` forever. The center does ease
-// toward the player (see ORBITER_TUNING.centerFollowRate) once the drone strays past leashDistance,
-// so a player who wanders off doesn't leave the ring behind arbitrarily far away. vel is the
-// analytic derivative of the position formula (the tangential orbit term), not a finite difference,
-// so computeLeadPoint gets a real velocity to lead against instead of one frame of jitter.
-export function orbiterThink(enemy: EnemyShip, player: ShipBody, dt: number): void {
+// The pos/vel a drone sitting exactly at `phase` on the ring would have — a straight lift of the
+// old closed-form orbit formula, now just a lookup used two ways: orbiterThink evaluates it at a
+// LEAD phase (ahead of the drone's own) to get a pursuit target, and seedOrbiterPose evaluates it
+// at the current phase to place a freshly (re)spawned drone exactly on the ring.
+function computeOrbitPose(
+  orbit: Pick<OrbitState, 'center' | 'radius' | 'angularSpeed' | 'planeRight' | 'planeUp'>,
+  phase: number
+): { pos: Vec3; vel: Vec3 } {
+  const cosP = Math.cos(phase), sinP = Math.sin(phase);
+  const { center, planeRight: r, planeUp: u, radius, angularSpeed } = orbit;
+  const pos = {
+    x: center.x + radius * (cosP * r.x + sinP * u.x),
+    y: center.y + radius * (cosP * r.y + sinP * u.y),
+    z: center.z + radius * (cosP * r.z + sinP * u.z)
+  };
+  const tangential = radius * angularSpeed;
+  const vel = {
+    x: tangential * (-sinP * r.x + cosP * u.x),
+    y: tangential * (-sinP * r.y + cosP * u.y),
+    z: tangential * (-sinP * r.z + cosP * u.z)
+  };
+  return { pos, vel };
+}
+
+// Places a freshly (re)spawned orbiter exactly on its ring, with the correct tangential velocity
+// and a bank toward the orbit center — so it starts out already flying the pursuit curve instead
+// of popping in from wherever spawnEnemyFromConfig's placeholder pos left it.
+export function seedOrbiterPose(enemy: EnemyShip): void {
   const orbit = enemy.orbit;
   if (!orbit) return;
+  const { pos, vel } = computeOrbitPose(orbit, orbit.phase);
+  enemy.pos = pos;
+  enemy.vel = vel;
+  const toCenter = { x: orbit.center.x - pos.x, y: orbit.center.y - pos.y, z: orbit.center.z - pos.z };
+  const bankHint = Math.hypot(toCenter.x, toCenter.y, toCenter.z) > 1 ? normalize(toCenter) : undefined;
+  enemy.quat = lookAtQuat(vel, bankHint);
+}
+
+export interface OrbiterDecision {
+  inputs: FlightInputs;
+  boostRequested: boolean;
+}
+
+// Flies the drone around its ring with two independent thrusters (see ORBITER_STEER_TUNING's doc
+// comment for why this replaces two earlier, structurally broken designs): the nose always tracks
+// the ring's own analytic tangent direction at the drone's CURRENT angular position (read off its
+// actual pos, projected onto the orbit plane), banked toward the orbit center — that's the ONLY
+// source of roll now, no separate scripted flourish — while the MAIN engine (throttle) regulates
+// tangential speed and the VERTICAL STRAFE thruster (strafeY) independently regulates radial
+// position/velocity, since once banked its axis already points along the radial line regardless of
+// which way the nose is turned. The center eases toward the player (see
+// ORBITER_TUNING.centerFollowRate) once the drone strays past leashDistance, so a player who wanders
+// off doesn't leave the ring behind arbitrarily far away. `orbit.phase` is only used once now, by
+// seedOrbiterPose, to place a freshly (re)spawned drone.
+export function orbiterThink(enemy: EnemyShip, player: ShipBody, dt: number): OrbiterDecision {
+  const idleInputs: FlightInputs = { throttle: 0, pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0, brake: false, decoupled: false };
+  const orbit = enemy.orbit;
+  if (!orbit) return { inputs: idleInputs, boostRequested: false };
 
   const distToPlayer = Math.hypot(
     enemy.pos.x - player.pos.x, enemy.pos.y - player.pos.y, enemy.pos.z - player.pos.z
@@ -170,31 +187,46 @@ export function orbiterThink(enemy: EnemyShip, player: ShipBody, dt: number): vo
     orbit.center.z += (player.pos.z - orbit.center.z) * t;
   }
 
-  orbit.phase += orbit.angularSpeed * dt;
+  const toShip = { x: enemy.pos.x - orbit.center.x, y: enemy.pos.y - orbit.center.y, z: enemy.pos.z - orbit.center.z };
+  const actualRadius = Math.hypot(toShip.x, toShip.y, toShip.z);
+  const currentAngle = Math.atan2(dot(toShip, orbit.planeUp), dot(toShip, orbit.planeRight));
 
-  const cosP = Math.cos(orbit.phase), sinP = Math.sin(orbit.phase);
-  const { center, planeRight: r, planeUp: u, radius, angularSpeed } = orbit;
-  enemy.pos = {
-    x: center.x + radius * (cosP * r.x + sinP * u.x),
-    y: center.y + radius * (cosP * r.y + sinP * u.y),
-    z: center.z + radius * (cosP * r.z + sinP * u.z)
+  // unit tangent to the ring at the drone's own current angular position, in the direction of travel
+  // (the derivative of computeOrbitPose's position formula w.r.t. phase, sign-flipped for a
+  // negative angularSpeed so it always points the way this orbit actually rotates)
+  const dirSign = orbit.angularSpeed < 0 ? -1 : 1;
+  const sinA = Math.sin(currentAngle), cosA = Math.cos(currentAngle);
+  const tangent = normalize({
+    x: dirSign * (-sinA * orbit.planeRight.x + cosA * orbit.planeUp.x),
+    y: dirSign * (-sinA * orbit.planeRight.y + cosA * orbit.planeUp.y),
+    z: dirSign * (-sinA * orbit.planeRight.z + cosA * orbit.planeUp.z)
+  });
+  const radialOut = actualRadius > 1 ? { x: toShip.x / actualRadius, y: toShip.y / actualRadius, z: toShip.z / actualRadius } : orbit.planeRight;
+
+  const bankHint = { x: -radialOut.x, y: -radialOut.y, z: -radialOut.z }; // banks toward center
+  const steer = steeringToward(enemy.quat, tangent, ORBITER_STEER_TUNING.steerGain, bankHint);
+
+  // Throttle: regulate the TANGENTIAL velocity component only, via the main engine (nose ≈ tangent).
+  const tangentialSpeed = dot(enemy.vel, tangent);
+  const targetTangentialSpeed = orbit.radius * Math.abs(orbit.angularSpeed);
+  const brake = tangentialSpeed - targetTangentialSpeed > ORBITER_STEER_TUNING.brakeOverspeedMps;
+  const throttle = brake ? 0 : clamp((targetTangentialSpeed - tangentialSpeed) / ORBITER_STEER_TUNING.speedBandMps, 0, 1);
+
+  // strafeY: regulate the RADIAL velocity component independently, via the vertical RCS thruster.
+  // Once banked, local "up" ≈ -radialOut (toward center), so POSITIVE strafeY thrusts inward — see
+  // ShipBody's verticalUp/verticalDown convention in physics/flightModel.ts.
+  const currentRadialVel = dot(enemy.vel, radialOut); // positive = moving outward
+  const targetRadialVel = -(actualRadius - orbit.radius) * ORBITER_STEER_TUNING.radialGainPerSec; // negative (inward) when too far out
+  const radialVelError = targetRadialVel - currentRadialVel; // positive => need more outward push; negative => need inward push
+  const strafeY = clamp(-radialVelError / ORBITER_STEER_TUNING.radialVelBandMps, -1, 1);
+
+  return {
+    inputs: {
+      throttle, pitch: steer.pitch, yaw: steer.yaw, roll: steer.roll,
+      strafeX: 0, strafeY, brake, decoupled: false
+    },
+    boostRequested: false
   };
-  const tangential = radius * angularSpeed;
-  enemy.vel = {
-    x: tangential * (-sinP * r.x + cosP * u.x),
-    y: tangential * (-sinP * r.y + cosP * u.y),
-    z: tangential * (-sinP * r.z + cosP * u.z)
-  };
-  enemy.quat = lookAtQuat(enemy.vel);
-  // pos/vel above are fully recomputed from the orbit formula every tick (not integrated), so the
-  // corkscrew offset can just be added on top here with no delta-tracking against last tick's value
-  const roll = advanceBarrelRoll(orbit, computeAxes(enemy.quat), dt);
-  if (roll.angle > 0) {
-    enemy.quat = quatMultiply(enemy.quat, rollQuat(roll.angle));
-    enemy.pos.x += roll.offset.x;
-    enemy.pos.y += roll.offset.y;
-    enemy.pos.z += roll.offset.z;
-  }
 }
 
 // Aims roughly back at the player from `fromPos`, offset sideways by a random miss distance so the
@@ -218,9 +250,9 @@ function pickMissAimedFlightDir(fromPos: Vec3, player: ShipBody, aggressiveness:
 }
 
 // A drifter's cruise segment is never a straight line — it's ALWAYS a continuous corkscrew around
-// its base heading (constant roll, "holding a constant up-strafe while rolling" — see the old
-// BARREL_ROLL doc comment above, same physical idea, just continuous instead of an occasional
-// triggered flourish). Roll rate is a fraction of a fixed max rate: a gentle 25% normally, escalating
+// its base heading: a real barrel roll isn't just spinning in place, it's holding a constant
+// "up-strafe" while rolling, so as the roll turns that thrust through a full circle the flight path
+// corkscrews sideways around the base heading. Roll rate is a fraction of a fixed max rate: a gentle 25% normally, escalating
 // to a hard 75% only while genuinely under threat (see isAggressiveEscalation) — it never reaches a
 // full 100% snap-roll. Forward speed and the corkscrew's own lateral/vertical STRAFE SPEED are NOT
 // scaled by that fraction: "100% upstrafe/forward acceleration/boost while rolling" is always-on

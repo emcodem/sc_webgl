@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { freshCapacitors, freshCapacitorCooldowns } from '../src/combat/weapons';
 import {
-  ORBITER_TUNING, DRIFTER_TUNING, spawnOrbitState, orbiterThink, spawnDriftState, driftThink
+  ORBITER_TUNING, DRIFTER_TUNING, spawnOrbitState, seedOrbiterPose, orbiterThink, spawnDriftState,
+  driftThink
 } from '../src/combat/ai/orbiterDrifterAI';
 import { createHealth } from '../src/combat/health';
 import { getShipType } from '../src/physics/ships';
+import { integrateFlight } from '../src/physics/flightModel';
+import { computeAxes } from '../src/math/quaternion';
+import { dot, normalize } from '../src/math/vec';
 import type { EnemyShip, ShipBody } from '../src/core/world';
 
 const TYPE = getShipType('Gladius');
@@ -60,7 +64,6 @@ describe('spawnOrbitState / spawnDriftState — field ranges', () => {
 
 describe('orbiterThink', () => {
   it('eases the orbit center toward the player once the drone strays past leashDistance', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.99); // avoid the barrel-roll trigger roll
     const farCenter = { x: ORBITER_TUNING.leashDistance + 1000, y: 0, z: 0 };
     const enemy = makeEnemy(farCenter); // distToPlayer is measured from the drone's current pos
     enemy.orbit = {
@@ -75,7 +78,6 @@ describe('orbiterThink', () => {
   });
 
   it('leaves the orbit center alone while within leashDistance of the player', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.99);
     const enemy = makeEnemy();
     const center = { x: 100, y: 0, z: 0 };
     enemy.orbit = {
@@ -84,6 +86,77 @@ describe('orbiterThink', () => {
     };
     orbiterThink(enemy, makePlayer(), 1 / 60);
     expect(enemy.orbit.center.x).toBeCloseTo(center.x, 6);
+  });
+});
+
+describe('orbiterThink — pursuit-curve flight', () => {
+  it('steers and throttles toward the lead carrot when facing away from it', () => {
+    const orbit = {
+      center: { x: 0, y: 0, z: 0 }, radius: 200, angularSpeed: 0.2, phase: 0,
+      planeRight: { x: 1, y: 0, z: 0 }, planeUp: { x: 0, y: 0, z: 1 }, respawnTimer: 0
+    };
+    // placed exactly on the ring at phase 0, i.e. (200, 0, 0), where the ring's tangent (and thus
+    // the lead carrot) sits roughly along +Z — but facing -Z (180 degrees off), so steering has
+    // real work to do rather than coincidentally already pointing the right way
+    const enemy = makeEnemy({ x: 200, y: 0, z: 0 });
+    enemy.quat = { x: 0, y: 1, z: 0, w: 0 };
+    enemy.orbit = orbit;
+    const decision = orbiterThink(enemy, makePlayer(), 1 / 60);
+    expect(decision.boostRequested).toBe(false);
+    expect(decision.inputs.throttle).toBeGreaterThan(0);
+    expect(Math.abs(decision.inputs.pitch) + Math.abs(decision.inputs.yaw)).toBeGreaterThan(0.05);
+  });
+
+  it('seedOrbiterPose places the enemy exactly on the ring with the correct tangential speed', () => {
+    const player = makePlayer({ x: 0, y: 0, z: 0 });
+    const enemy = makeEnemy();
+    enemy.orbit = spawnOrbitState(player.pos, 0.5);
+    seedOrbiterPose(enemy);
+    const distFromCenter = Math.hypot(
+      enemy.pos.x - enemy.orbit.center.x, enemy.pos.y - enemy.orbit.center.y, enemy.pos.z - enemy.orbit.center.z
+    );
+    expect(distFromCenter).toBeCloseTo(enemy.orbit.radius, 6);
+    const speed = Math.hypot(enemy.vel.x, enemy.vel.y, enemy.vel.z);
+    expect(speed).toBeCloseTo(enemy.orbit.radius * Math.abs(enemy.orbit.angularSpeed), 6);
+  });
+
+  it('converges to and holds roughly the tuned radius while flying real physics over time', () => {
+    // fixed (non-degenerate) random draw for a reproducible, mid-range orbit — this test asserts a
+    // physical convergence property, not a specific radius/speed, so any non-degenerate draw works
+    vi.spyOn(Math, 'random').mockReturnValue(0.6);
+    const player = makePlayer({ x: 0, y: 0, z: 0 });
+    const enemy = makeEnemy();
+    enemy.orbit = spawnOrbitState(player.pos, 0.5);
+    seedOrbiterPose(enemy);
+    vi.restoreAllMocks();
+
+    const dt = 1 / 60;
+    const totalSec = 90;
+    const transientSec = 5;
+    let sampled = 0, withinTolerance = 0, aligned = 0;
+    for (let t = 0; t < totalSec; t += dt) {
+      const decision = orbiterThink(enemy, player, dt);
+      integrateFlight(enemy, decision.inputs, dt);
+      if (t < transientSec) continue;
+      sampled++;
+      const distFromCenter = Math.hypot(
+        enemy.pos.x - enemy.orbit.center.x, enemy.pos.y - enemy.orbit.center.y, enemy.pos.z - enemy.orbit.center.z
+      );
+      // the radial correction is proportional-only (no integral term), so it settles into a stable
+      // orbit at a steady but nonzero offset from the tuned radius rather than exactly on it — this
+      // just guards against real divergence (spiraling to the center or flying off to infinity), not
+      // exactness; a 40% offset is still well inside ORBITER_TUNING's own 150-400m spawn-radius range
+      if (Math.abs(distFromCenter - enemy.orbit.radius) / enemy.orbit.radius < 0.4) withinTolerance++;
+      const speed = Math.hypot(enemy.vel.x, enemy.vel.y, enemy.vel.z);
+      if (speed > 1) {
+        const velDir = normalize(enemy.vel);
+        const forward = computeAxes(enemy.quat).forward;
+        if (dot(velDir, forward) > 0.8) aligned++;
+      }
+    }
+    expect(sampled).toBeGreaterThan(0);
+    expect(withinTolerance / sampled).toBeGreaterThan(0.9);
+    expect(aligned / sampled).toBeGreaterThan(0.9);
   });
 });
 

@@ -133,7 +133,7 @@ export interface EnemyShip {
   // The FlightInputs actually fed to integrateFlight this frame (set alongside each integrateFlight
   // call in combat/combatSystem.ts / scenarios/runtime.ts) — same transient-bookkeeping convention
   // as ShipBody.lastInputs above; absent for behaviors that don't go through integrateFlight
-  // (turret/cruiser/orbiter/drifter), which is fine — replay/recorder.ts treats a missing value as
+  // (turret/cruiser/drifter), which is fine — replay/recorder.ts treats a missing value as
   // "no control decision this sample."
   lastInputs?: FlightInputs;
 }
