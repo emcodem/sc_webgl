@@ -855,7 +855,6 @@ body.touch #capture-hint, body.touch #ctrl-flash-warning { display: none !import
 .touch-btn-fire { border-color: var(--hud-danger); color: var(--hud-danger); min-width: 72px; min-height: 72px; border-radius: 50%; }
 
 /* Pilot-only rows (BOOST/BRAKE/DE-CPL/GYRO/UP/DOWN/FIRE) vs the on-foot-only JUMP button — kept
-   in sync with world.player.mode by touchControls.ts's syncTouchControls(). F (interact) has
-   neither class: it applies in both modes. */
+   in sync with world.player.mode by touchControls.ts's syncTouchControls(). */
 #touch-controls.mode-onfoot .touch-pilot-only { display: none; }
 #touch-controls:not(.mode-onfoot) .touch-foot-only { display: none; }

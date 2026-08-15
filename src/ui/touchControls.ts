@@ -211,7 +211,6 @@ export function initTouchControls(): void {
   bindHold('touch-btn-up', 'strafeUp');
   bindHold('touch-btn-down', 'strafeDown');
   bindHold('touch-btn-decouple', 'decoupleToggle');
-  bindHold('touch-btn-interact', 'interact');
   bindHold('touch-btn-jump', 'jump');
   bindHold('touch-btn-fire', 'primaryFire');
   initGyroButton();
