@@ -776,3 +776,86 @@ html, body {
   color: var(--hud-fg);
   white-space: nowrap;
 }
+
+/* ============================================================================================
+   Touch/mobile controls — see ui/touchControls.ts. `body.touch` is the sole gate (added only on a
+   touch-primary device, see ui/deviceDetect.ts's isTouchPrimary()); nothing below shows on a
+   mouse/keyboard session. Ported from the original project's touch CSS, restyled to this
+   project's HUD palette; the on-foot JUMP row (toggled via .mode-onfoot) is new. ============================================================================================ */
+#touch-controls { display: none; position: fixed; inset: 0; z-index: 18; pointer-events: none; }
+body.touch #touch-controls { display: block; }
+
+/* Mouse/keyboard-only affordances that don't apply to touch (no pointer-lock capture, no
+   physical-Ctrl-key risk) — hidden outright rather than left showing dead instructions. */
+body.touch #capture-hint, body.touch #ctrl-flash-warning { display: none !important; }
+
+.joy-zone {
+  position: fixed;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: rgba(143, 211, 199, 0.06);
+  border: 1px solid rgba(143, 211, 199, 0.25);
+  display: none;
+  pointer-events: none;
+}
+.joy-zone.active { display: block; }
+.joy-stick {
+  position: absolute;
+  left: 50px;
+  top: 50px;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  background: rgba(143, 211, 199, 0.3);
+  border: 1px solid rgba(143, 211, 199, 0.7);
+}
+
+#touch-hint-left, #touch-hint-right {
+  position: fixed;
+  bottom: 130px;
+  opacity: 0.35;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--hud-fg);
+}
+#touch-hint-left { left: 24px; }
+#touch-hint-right { right: 24px; text-align: right; }
+
+#touch-buttons-left, #touch-buttons-center, #touch-buttons-right {
+  position: fixed;
+  bottom: 20px;
+  display: flex;
+  gap: 8px;
+  pointer-events: none; /* re-enabled per-button below so the row itself never eats a stick touch */
+}
+#touch-buttons-left { left: 24px; flex-direction: column; }
+#touch-buttons-center { left: 50%; transform: translateX(-50%); }
+#touch-buttons-right { right: 24px; flex-direction: column; align-items: flex-end; }
+
+.touch-btn {
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 6px 14px;
+  background: rgba(5, 10, 12, 0.7);
+  border: 1px solid rgba(143, 211, 199, 0.35);
+  border-radius: 6px;
+  color: var(--hud-fg);
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+.touch-btn.on { border-color: var(--hud-on); color: var(--hud-on); }
+.touch-btn-boost { border-color: var(--hud-accent); color: var(--hud-accent); }
+.touch-btn-fire { border-color: var(--hud-danger); color: var(--hud-danger); min-width: 72px; min-height: 72px; border-radius: 50%; }
+
+/* Pilot-only rows (BOOST/BRAKE/DE-CPL/GYRO/UP/DOWN/FIRE) vs the on-foot-only JUMP button — kept
+   in sync with world.player.mode by touchControls.ts's syncTouchControls(). F (interact) has
+   neither class: it applies in both modes. */
+#touch-controls.mode-onfoot .touch-pilot-only { display: none; }
+#touch-controls:not(.mode-onfoot) .touch-foot-only { display: none; }

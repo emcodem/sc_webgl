@@ -6,12 +6,14 @@ import * as Keybinds from '../input/keybinds';
 import * as MouseLook from '../input/mouseLook';
 import * as MouseButtons from '../input/mouseButtons';
 import * as Joystick from '../input/joystickMap';
+import * as Touch from '../input/touchInput';
 import * as EspAssist from '../combat/espAssist';
 import { findActivePip } from '../combat/pipTargeting';
 
 // Pilot controller: combines keyboard (rebindable actions), mouse (absolute virtual-joystick aim
-// — see input/mouseLook.ts — plus rebindable mouse buttons for boost/brake), and an optional
-// joystick/gamepad axis (additive, never exclusive — the stick is always optional) into
+// — see input/mouseLook.ts — plus rebindable mouse buttons for boost/brake), an optional
+// joystick/gamepad axis, and an optional touch dual-stick (input/touchInput.ts, fed by
+// ui/touchControls.ts on a touch-primary device) — all additive, never exclusive, into
 // FlightInputs, then runs one tick of the ported Newtonian flight model. ESP (combat/espAssist.ts)
 // dampens the combined pitch/yaw once the crosshair nears a locked target, same as the original.
 //
@@ -26,7 +28,7 @@ export function stepPilot(world: World, dt: number): void {
   const ship = world.player.ship;
 
   // boost meter bookkeeping (drains held, recharges idle)
-  const boostRequested = Keybinds.isActive('boost') || Joystick.isButtonPressed('boost') || MouseButtons.isPressed('boost');
+  const boostRequested = Keybinds.isActive('boost') || Joystick.isButtonPressed('boost') || MouseButtons.isPressed('boost') || Touch.isButtonPressed('boost');
   const boost = resolveBoost(ship.type, ship.boostMeter, ship.boosting, ship.boostCooldownTimer, boostRequested, dt);
   ship.boostMeter = boost.boostMeter;
   ship.boosting = boost.boosting;
@@ -38,16 +40,16 @@ export function stepPilot(world: World, dt: number): void {
   // throttle isn't an instant digital 0-to-full; see core/types.ts's ShipType.throttleRampRate doc
   // and capture/MEASUREMENTS.md's "Throttle input ramp" section (measured ~0.20s for a full 0..1
   // traversal, same rate in both directions and on both activating and releasing).
-  const throttleTarget = clamp(Keybinds.digitalAxis('strafeBack', 'strafeForward') + Joystick.readAxis('strafeLongitudinal'), -1, 1);
+  const throttleTarget = clamp(Keybinds.digitalAxis('strafeBack', 'strafeForward') + Joystick.readAxis('strafeLongitudinal') + Touch.readAxis('strafeLongitudinal'), -1, 1);
   const maxThrottleDelta = ship.type.throttleRampRate * dt;
   ship.throttle += clamp(throttleTarget - ship.throttle, -maxThrottleDelta, maxThrottleDelta);
 
-  const roll = Keybinds.digitalAxis('rollLeft', 'rollRight') + Joystick.readAxis('roll');
-  let yawInput = Keybinds.digitalAxis('yawLeft', 'yawRight') + mouse.yaw + Joystick.readAxis('yaw');
-  let pitchInput = Keybinds.digitalAxis('pitchUp', 'pitchDown') + mouse.pitch + Joystick.readAxis('pitch');
+  const roll = Keybinds.digitalAxis('rollLeft', 'rollRight') + Joystick.readAxis('roll') + Touch.readAxis('roll');
+  let yawInput = Keybinds.digitalAxis('yawLeft', 'yawRight') + mouse.yaw + Joystick.readAxis('yaw') + Touch.readAxis('yaw');
+  let pitchInput = Keybinds.digitalAxis('pitchUp', 'pitchDown') + mouse.pitch + Joystick.readAxis('pitch') + Touch.readAxis('pitch');
 
-  const strafeX = Keybinds.digitalAxis('strafeLeft', 'strafeRight') + Joystick.readAxis('strafeLateral');
-  const strafeY = Keybinds.digitalAxis('strafeDown', 'strafeUp') + Joystick.readAxis('strafeVertical');
+  const strafeX = Keybinds.digitalAxis('strafeLeft', 'strafeRight') + Joystick.readAxis('strafeLateral') + Touch.readAxis('strafeLateral');
+  const strafeY = Keybinds.digitalAxis('strafeDown', 'strafeUp') + Joystick.readAxis('strafeVertical') + Touch.readAxis('strafeVertical');
 
   // ESP: dampen the already-combined pitch/yaw purely by crosshair-to-PIP proximity (see
   // espAssist.ts's module doc comment) — stepped every tick, PIP or not, so the smoothed
@@ -61,7 +63,7 @@ export function stepPilot(world: World, dt: number): void {
   pitchInput *= factor;
   yawInput *= factor;
 
-  ship.spaceBrakeOn = Keybinds.isActive('spaceBrake') || Joystick.isButtonPressed('spaceBrake') || MouseButtons.isPressed('spaceBrake');
+  ship.spaceBrakeOn = Keybinds.isActive('spaceBrake') || Joystick.isButtonPressed('spaceBrake') || MouseButtons.isPressed('spaceBrake') || Touch.isButtonPressed('spaceBrake');
 
   const inputs = {
     throttle: ship.throttle,

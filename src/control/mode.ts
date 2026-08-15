@@ -4,6 +4,7 @@ import { add, clone, length, normalize, projectOntoPlane, scale, sub } from '../
 import { nearestWalkable } from '../physics/characterController';
 import * as Keybinds from '../input/keybinds';
 import * as Joystick from '../input/joystickMap';
+import * as Touch from '../input/touchInput';
 import * as Input from '../input/input';
 import * as MouseLook from '../input/mouseLook';
 import { saveDecoupledPreference } from '../input/decoupledPreference';
@@ -36,13 +37,13 @@ export function getStatusMessage(): string {
 export function handleEdgeActions(world: World): void {
   const p = world.player;
 
-  const decoupleToggled = Keybinds.justPressed('decoupleToggle') || Joystick.buttonJustPressed('decoupleToggle');
+  const decoupleToggled = Keybinds.justPressed('decoupleToggle') || Joystick.buttonJustPressed('decoupleToggle') || Touch.buttonJustPressed('decoupleToggle');
   if (decoupleToggled && p.mode === 'pilot') {
     p.ship.decoupled = !p.ship.decoupled;
     saveDecoupledPreference(p.ship.decoupled);
   }
 
-  const interacted = Keybinds.justPressed('interact') || Joystick.buttonJustPressed('interact');
+  const interacted = Keybinds.justPressed('interact') || Joystick.buttonJustPressed('interact') || Touch.buttonJustPressed('interact');
   if (interacted) {
     if (!EVA_ENABLED) {
       if (document.pointerLockElement) document.exitPointerLock();

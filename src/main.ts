@@ -16,6 +16,7 @@ import { updateHUD } from './hud/hud';
 import { sampleFrame } from './hud/fpsTracker';
 import { updatePerfHint } from './hud/perfHint';
 import { initUI, isPaused } from './ui';
+import { syncTouchControls } from './ui/touchControls';
 import { tickReplayPanelUI } from './ui/replayPanel';
 import * as Gamepad from './input/gamepad';
 import * as AxisCurve from './input/axisCurve';
@@ -163,6 +164,7 @@ function loop(now: number): void {
 
     renderer.render(world);
     updateHUD(world);
+    syncTouchControls(world);
     tickReplayPanelUI();
   } catch (err) {
     console.error('Frame error (continuing):', err);

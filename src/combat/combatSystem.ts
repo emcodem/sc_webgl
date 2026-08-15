@@ -7,6 +7,7 @@ import * as Keybinds from '../input/keybinds';
 import * as Joystick from '../input/joystickMap';
 import * as MouseButtons from '../input/mouseButtons';
 import * as MouseLook from '../input/mouseLook';
+import * as Touch from '../input/touchInput';
 import { think } from './enemyAI';
 import { createHealth } from './health';
 import { resolveHits, resolveObjectHits } from './hitDetection';
@@ -35,7 +36,7 @@ export function firePlayerWeaponIfRequested(world: World, dt: number): boolean {
   // canvas just captures the mouse instead of also firing
   const mouseReady = MouseLook.isCaptured();
   const firing = Keybinds.isActive('primaryFire') || Joystick.isButtonPressed('primaryFire') ||
-    (mouseReady && MouseButtons.isPressed('primaryFire'));
+    (mouseReady && MouseButtons.isPressed('primaryFire')) || Touch.isButtonPressed('primaryFire');
   const weapon = ship.type.weaponType;
   const requested = player.mode === 'pilot' && firing;
   return tryFireWeapon(weapon, ship, requested, dt, (mount) => {

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Vector — WebGL Universe</title>
     <style>html, body { background: #05070a; }</style>
   </head>
@@ -56,6 +56,40 @@
 
     <!-- Click-to-capture hint / mode banner -->
     <div id="capture-hint">Click to capture mouse — WASD/arrows fly, <b>F</b> to exit ship</div>
+
+    <!-- Touch/mobile virtual controls — shown only on touch-primary devices (ui/touchControls.ts
+         adds body.touch, the sole CSS gate for all of this; see ui/deviceDetect.ts's
+         isTouchPrimary()). Two floating dual-sticks materialize wherever each thumb first lands,
+         split at screen-center (left = move/strafe, right = aim/pitch-yaw or on-foot look), plus a
+         button cluster whose pilot-only/on-foot-only rows toggle via the mode-onfoot class (see
+         touchControls.ts's syncTouchControls() and this file's own CSS rules below). Ported from
+         the original project's index.html touch markup + input/touchInput.ts's analog stick model;
+         the UP/DOWN vertical-strafe buttons and the on-foot JUMP button are new (the original is
+         ship-only and left vertical strafe unmapped on touch — see touchInput.ts's doc comment). -->
+    <div id="touch-controls">
+      <div class="joy-zone" id="joy-zone-left"><div class="joy-stick"></div></div>
+      <div class="joy-zone" id="joy-zone-right"><div class="joy-stick"></div></div>
+      <div id="touch-hint-left">MOVE</div>
+      <div id="touch-hint-right">AIM</div>
+
+      <div id="touch-buttons-left">
+        <button type="button" class="touch-btn touch-pilot-only" id="touch-btn-up">UP</button>
+        <button type="button" class="touch-btn touch-pilot-only" id="touch-btn-down">DOWN</button>
+      </div>
+
+      <div id="touch-buttons-center">
+        <button type="button" class="touch-btn touch-pilot-only" id="touch-btn-decouple">DE-CPL</button>
+        <button type="button" class="touch-btn touch-pilot-only" id="touch-btn-brake">BRAKE</button>
+        <button type="button" class="touch-btn touch-pilot-only" id="touch-btn-gyro">GYRO</button>
+        <button type="button" class="touch-btn touch-foot-only" id="touch-btn-jump">JUMP</button>
+        <button type="button" class="touch-btn" id="touch-btn-interact">F</button>
+      </div>
+
+      <div id="touch-buttons-right">
+        <button type="button" class="touch-btn touch-btn-boost touch-pilot-only" id="touch-btn-boost">BOOST</button>
+        <button type="button" class="touch-btn touch-btn-fire touch-pilot-only" id="touch-btn-fire">FIRE</button>
+      </div>
+    </div>
 
     <!-- Flashed by input/input.ts on Ctrl presses whenever Ctrl+W isn't actually safe from the
          browser — both while blocked (not playing) and while live but unprotected (playing,

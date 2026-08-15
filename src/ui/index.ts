@@ -3,12 +3,14 @@ import { initButtonBar } from './buttonBar';
 import { initMainMenu, isMenuOpen } from './mainMenu';
 import { initControlsPanel } from './controlsPanel';
 import { initReplayPanel, isReplayPanelOpen } from './replayPanel';
+import { initTouchControls } from './touchControls';
 
 export function initUI(world: World): void {
   initButtonBar(world);
   initMainMenu(world);
   initControlsPanel();
   initReplayPanel(world);
+  initTouchControls();
 }
 
 // True while the F3 main menu or F6 replay panel is up — main.ts's loop freezes sim stepping (but
