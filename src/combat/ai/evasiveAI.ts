@@ -433,25 +433,18 @@ export function evasiveThink(
   }
 
   // Nose always faces the player (aimDir) — no more chase/watch hysteresis (see this file's top doc
-  // comment). Bank always aligns to the committed candidate's own bank angle (never the player's) —
-  // rolling the drone's OWN "up" axis to point along the jink's full world direction, so
-  // biasVelocityServo routes the lateral/vertical bias through the strong up-thruster at whatever the
-  // committed bank angle is, rather than an unrolled hull splitting thrust across two axes.
-  const jinkWorldDir: Vec3 = {
-    x: playerRight.x * ai.jinkStrafeX + playerUp.x * ai.jinkStrafeY,
-    y: playerRight.y * ai.jinkStrafeX + playerUp.y * ai.jinkStrafeY,
-    z: playerRight.z * ai.jinkStrafeX + playerUp.z * ai.jinkStrafeY
-  };
-  const jinkWorldDirMag = Math.hypot(jinkWorldDir.x, jinkWorldDir.y, jinkWorldDir.z);
-  // Beyond maxRangeM there's no jink to bank into (see the strafeX/strafeY override below) — bank
-  // flat (matching the player's own roll) rather than committing to a bank angle for thrust that's
-  // no longer being applied.
-  const bankHint = overRange || jinkWorldDirMag <= 1e-3
-    ? playerUp
-    : { x: jinkWorldDir.x / jinkWorldDirMag, y: jinkWorldDir.y / jinkWorldDirMag, z: jinkWorldDir.z / jinkWorldDirMag };
-
+  // comment). Bank targets the PLAYER's own up axis, never the committed jink's bank angle — 2026-08-16:
+  // this used to roll the hull to align the jink's bank angle with the strong up-thruster (routing the
+  // lateral/vertical bias through one strong axis instead of splitting it across two), but
+  // physics/flightModel.ts's pitch/yaw/roll draw from ONE SHARED rotational-authority budget
+  // (`inputMag = hypot(rawPitch, rawYaw, rawRoll)`, scaled down together once it exceeds 1) — committing
+  // hard to a ±90°/±135° bank target genuinely steals pitch/yaw authority from converging the nose onto
+  // aimDir, which is exactly what made the drone read as "nose never really on me." Since strafe and
+  // up-thrust are nearly equal in magnitude (145 vs 147, see this file's earlier top doc comment), an
+  // unrolled two-axis split costs almost nothing in thrust efficiency — the roll was only ever buying
+  // legibility, not performance, and legibility is worth far less than an actual firing solution.
   const steerDir = aimDir;
-  const steer = steeringToward(enemy.quat, steerDir, EVASIVE_TUNING.steerGain, bankHint);
+  const steer = steeringToward(enemy.quat, steerDir, EVASIVE_TUNING.steerGain, playerUp);
 
   // ai.jinkStrafeX/Y/jinkFwd are the committed PLAYER-frame bias (see biasVelocityServo's doc
   // comment) — recomputed into actual throttle/strafeX/strafeY every tick, not just at the moment
