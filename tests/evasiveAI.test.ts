@@ -32,60 +32,72 @@ function makePlayer(vel = ZERO): ShipBody {
 }
 function makeAI(overrides: Partial<EvasiveAIMemory> = {}): EvasiveAIMemory {
   return {
-    jinkStrafeX: 0, jinkStrafeY: 0, jinkReplanTimer: 999,
-    mode: 'block', modeTimer: 0, wasThreatened: false, chasing: false,
-    chaseStruggleTimer: 0, chaseCooldownTimer: 0,
-    forcedBreakTimer: 999, passThroughTimer: 0, ...overrides
+    jinkStrafeX: 0, jinkStrafeY: 0, jinkFwd: 0, jinkReplanTimer: 999,
+    mode: 'block', modeTimer: 0, wasThreatened: false, ...overrides
   };
 }
 
 // Enemy exactly at standoff distance dead ahead, matching player velocity along the same axis, so
-// velDeficitMag collapses to exactly |playerSpeed - enemySpeed| (forwardShortfall/lateral/vertical
-// all zero) — lets tests pick a precise velDeficitMag without hand-deriving the full formula.
+// the forward-axis deficit collapses to exactly |playerSpeed - enemySpeed| (forwardShortfall/
+// lateral/vertical all zero) — lets tests pick a precise deficit without hand-deriving the full formula.
 function withPlayerSpeed(speed: number): { enemy: EnemyShip; player: ShipBody } {
   return { enemy: makeEnemy(), player: makePlayer({ x: 0, y: 0, z: speed }) };
 }
 
-describe('evasiveThink — chase/watch hysteresis', () => {
-  it('enters chasing once the velocity deficit exceeds chaseEnterVelDeficit', () => {
-    const { enemy, player } = withPlayerSpeed(EVASIVE_TUNING.chaseEnterVelDeficit + 5);
+describe('evasiveThink — unified forward/lateral/vertical bias servo', () => {
+  it('commands positive (closing) throttle when the enemy has fallen behind the standoff point', () => {
+    // player cruising fast, enemy not yet matching that speed -> needs to accelerate forward to keep
+    // its 50m-ahead station -> throttle should be strongly positive (closing/main thrust)
+    const { enemy, player } = withPlayerSpeed(120);
     const ai = makeAI();
-    evasiveThink(enemy, ai, player, 0.1, false);
-    expect(ai.chasing).toBe(true);
+    const decision = evasiveThink(enemy, ai, player, 0.1, false);
+    expect(decision.inputs.throttle).toBeGreaterThan(0.5);
   });
 
-  it('stays chasing while the deficit sits between chaseExitVelDeficit and chaseEnterVelDeficit (hysteresis band)', () => {
-    const ai = makeAI({ chasing: true });
-    const midBand = (EVASIVE_TUNING.chaseExitVelDeficit + EVASIVE_TUNING.chaseEnterVelDeficit) / 2;
-    const { enemy, player } = withPlayerSpeed(midBand);
-    evasiveThink(enemy, ai, player, 0.1, false);
-    expect(ai.chasing).toBe(true);
-  });
-
-  it('exits chasing once the deficit drops below chaseExitVelDeficit', () => {
-    const ai = makeAI({ chasing: true });
-    const { enemy, player } = withPlayerSpeed(EVASIVE_TUNING.chaseExitVelDeficit - 5);
-    evasiveThink(enemy, ai, player, 0.1, false);
-    expect(ai.chasing).toBe(false);
-  });
-
-  it('gives up and forces a break after chaseStruggleLimitSec of failing to close a large, sustained deficit', () => {
-    // deficit stays above chaseEnterVelDeficit (and therefore above chaseEnterVelDeficit*
-    // chaseStruggleTolerance too, since that tolerance is < 1) the whole time, so it never "closes
-    // the gap" and struggle time keeps accumulating instead of resetting.
-    const strugglingSpeed = EVASIVE_TUNING.chaseEnterVelDeficit + 5;
+  it('commands negative (opening) throttle when the enemy has overshot ahead of the standoff point', () => {
+    // enemy well past the standoff distance, player stationary -> needs to fall back -> throttle
+    // should be strongly negative (retro thrust)
+    const enemy = makeEnemy({ x: 0, y: 0, z: EVASIVE_TUNING.standoffDistance + 200 });
+    const player = makePlayer();
     const ai = makeAI();
-    const dt = 0.1;
-    let broke = false;
-    for (let i = 0; i < 40 && !broke; i++) {
-      const { enemy, player } = withPlayerSpeed(strugglingSpeed);
-      evasiveThink(enemy, ai, player, dt, false);
-      if (i > 0 && !ai.chasing) broke = true; // first call only enters chasing, never struggles yet
-    }
-    expect(broke).toBe(true);
-    expect(ai.chasing).toBe(false);
-    expect(ai.chaseCooldownTimer).toBeCloseTo(EVASIVE_TUNING.chaseCooldownSec, 5);
-    expect(ai.chaseStruggleTimer).toBe(0);
+    const decision = evasiveThink(enemy, ai, player, 0.1, false);
+    expect(decision.inputs.throttle).toBeLessThan(-0.5);
+  });
+
+  it('always steers the nose toward the player (aimDir), regardless of the forward deficit', () => {
+    // large forward deficit used to swing the nose away to 'chase' — it should never do that now
+    const { enemy, player } = withPlayerSpeed(500);
+    const ai = makeAI();
+    const decision = evasiveThink(enemy, ai, player, 0.1, false);
+    const toEnemy = { x: enemy.pos.x - player.pos.x, y: enemy.pos.y - player.pos.y, z: enemy.pos.z - player.pos.z };
+    const mag = Math.hypot(toEnemy.x, toEnemy.y, toEnemy.z);
+    expect(decision.aimDir.x).toBeCloseTo(-toEnemy.x / mag, 5);
+    expect(decision.aimDir.y).toBeCloseTo(-toEnemy.y / mag, 5);
+    expect(decision.aimDir.z).toBeCloseTo(-toEnemy.z / mag, 5);
+  });
+
+  it('suppresses the MPC bank/forward bias once beyond maxRangeM, leaving only the baseline correction', () => {
+    // enemy drifted far sideways (the common way distance actually grows — forward is tightly
+    // servo-held continuously) with a committed bias fighting the recovery in every axis
+    const enemy = makeEnemy({ x: EVASIVE_TUNING.maxRangeM + 50, y: 0, z: EVASIVE_TUNING.standoffDistance });
+    const player = makePlayer();
+    const withBias = evasiveThink(enemy, makeAI({ jinkStrafeX: -1, jinkStrafeY: 1, jinkFwd: -1 }), player, 0.1, false);
+    const noBias = evasiveThink(enemy, makeAI({ jinkStrafeX: 1, jinkStrafeY: -1, jinkFwd: 1 }), player, 0.1, false);
+    // whatever the committed bias was, the overRange override should produce the SAME baseline-only
+    // correction — i.e. the committed candidate no longer matters once beyond maxRangeM
+    expect(withBias.inputs.throttle).toBeCloseTo(noBias.inputs.throttle, 5);
+    expect(withBias.inputs.strafeX).toBeCloseTo(noBias.inputs.strafeX, 5);
+    expect(withBias.inputs.strafeY).toBeCloseTo(noBias.inputs.strafeY, 5);
+    // and it should be pulling back toward the player's nose-line (negative lateral strafe, since
+    // the enemy drifted to +right)
+    expect(withBias.inputs.strafeX).toBeLessThan(-0.3);
+  });
+
+  it('commits jinkFwd to one of the searched forward-bias levels after a replan', () => {
+    const { enemy, player } = withPlayerSpeed(50);
+    const ai = makeAI({ jinkReplanTimer: 0 });
+    evasiveThink(enemy, ai, player, 0.1, false);
+    expect([-1, 0, 1]).toContain(ai.jinkFwd);
   });
 });
 

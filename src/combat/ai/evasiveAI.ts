@@ -12,72 +12,53 @@ import { steeringToward } from '../enemyAI';
 // ===========================================================================
 // EvasivePilotAI — the 'evasive' EnemyShip behavior, used only by the Evasive Pilot drill (see
 // scenarios/definitions.ts). This project's own receding-horizon MPC dodge planner, not a verbatim
-// port. Two mostly-independent halves:
+// port.
 //
-// FORWARD AXIS (standoff-holding) — a plain velocity-servo: match the player's own forward speed
-// (feed-forward) plus a correction proportional to the standoffDistance shortfall. Not re-rolled or
-// randomized (the target is just "stay standoffDistance ahead"), so it converges cleanly and doesn't
-// have the achievability problems the lateral/vertical axis used to.
+// 2026-08-15 redesign: earlier versions split this into two mostly-independent halves — a plain,
+// always-on velocity-servo for the FORWARD axis (standoff-holding) outside the search entirely, and
+// an MPC search over LATERAL/VERTICAL bank angles only. That split was structurally guaranteed to
+// read as "flies in one straight line": whenever the forward deficit got large, a 'chase' facing
+// hack swung the nose away from the player to put the strongest thruster (main, 201, boosted ~2x) on
+// the deficit, and nothing bounded how long that commitment could run beyond an escape-hatch timer —
+// a chase that was WORKING could run for seconds, main thrust dominating the comparatively weak
+// strafe (145/147) throughout. Multiple band-aids (forcedBreakIntervalSec, chaseStruggleLimitSec,
+// chaseMaxDurationSec, a "pass-through" full-throttle merge) each patched one symptom of this while
+// introducing a new predictable rhythm, and a headless capture still showed 700+m excursions with a
+// moving player even with all of them in place.
 //
-// LATERAL/VERTICAL AXES (the break) — receding-horizon MODEL PREDICTIVE CONTROL over exactly one
-// maneuver, always flown the way a real pilot breaks off a gun pass: bank the hull 45° or 90° (either
-// direction — 4 possible bank angles, see MPC_JINK_DIRECTIONS) and push full boosted thrust through
-// the STRONG up-thruster, rather than an unrolled hull splitting thrust across two weaker/independent
-// axes (2026-07-25: previously the candidate set also included a "hold formation" option and a
-// straight, unrolled up/down push, which is exactly what read as a flat, non-evasive slide — see
-// spawnEvasiveState's doc comment). There is no hold option and no unrolled push anymore — the drone
-// is always mid-break. Concretely:
-//   1. Builds the 4 candidate bank angles, each implicitly boosted — real evasive pilots hit the
-//      afterburner mid-break, not as a rare last resort, so boost is no longer a separate searched
-//      dimension.
-//   2. For EACH candidate, clones the drone's current state and forward-simulates it through the
-//      SAME real flight model (physics/flightModel.ts's integrateFlight) the whole game runs on, for
-//      a short horizon — this is "the AI" quite literally driving its own physics sim as a predictor,
-//      not a separate approximation of it.
-//   3. Scores each candidate's resulting trajectory: reward ending up hard for the player's CURRENT
-//      aim to hit (via the same closestApproachIfFiredNow the player's own PIP color uses), reward
-//      ending up with a velocity that's substantially DIFFERENT from its current one (the actual
-//      "jerk"/PIP-defeating quantity), and penalize drifting far from the standoff distance.
-//   4. Commits to the winning candidate's bank angle for a short window (re-planning more often — a
-//      receding horizon — rather than committing to a long, unverified maneuver), then repeats.
-//      Reacting to a detected threat forces an immediate replan instead of waiting out the window,
-//      same idea as the old design's "break now" rule.
-// Orientation is held FIXED for the (short, ~1s) planning horizon — a real reorientation takes
-// several seconds at this ship's turn rate (see the chase/watch split below), so freezing it for the
-// much shorter planning window is a reasonable approximation, not a meaningful source of error. It's
-// also a reasonable approximation of the bank itself: strafe and up-thrust are nearly equal in
-// magnitude (145 vs 147), so a full-power single-axis push after rolling and a fractional two-axis
-// push before rolling land at nearly the same resultant velocity — what the roll actually buys is
-// legibility (a deliberate break, not a flat slide), not thrust efficiency.
+// The actual fix: put the FORWARD axis under the SAME MPC search as lateral/vertical, and keep the
+// nose ALWAYS pointed at the player (aimDir) — a real gun-defensive pilot keeps a firing solution on
+// you while jinking, using strafe/retro to hold station, not swinging their whole nose (and guns)
+// away to chase with main thrust. Concretely, every replan:
+//   1. Builds a candidate set that's a bank direction (6 options at 45° increments around the full
+//      circle, including the weak down-leaning ones — a real pilot uses the weak thruster BECAUSE
+//      it's unexpected) CROSSED with a forward bias level (close hard / hold / open hard) — 18
+//      candidates total, each a full 3-axis velocity bias on top of the standoff-tracking baseline.
+//   2. For EACH candidate, clones the drone's current state and forward-simulates its whole
+//      trajectory (not just the endpoint) through the SAME real flight model
+//      (physics/flightModel.ts's integrateFlight) the whole game runs on.
+//   3. Scores each trajectory: the dominant term is predicted hit-miss distance against a
+//      TURN-RATE-LIMITED TRACKER model of the player (the player's aim is simulated re-aiming toward
+//      the drone's predicted position every substep, not frozen at its current bearing — a static
+//      aim assumption is exactly what let "just keep pushing" look safe to a one-shot lookahead),
+//      evaluated at its WORST point across the whole trajectory, not just where it ends up. Also
+//      rewards ending up with a bias combination substantially DIFFERENT from the currently-committed
+//      one (the "jerk" that actually defeats a lead/lag pip), and penalizes drifting far from the
+//      standoff point.
+//   4. Commits to the winning candidate for a short window (a receding horizon, re-planning often
+//      rather than committing to a long unverified maneuver), then repeats. A detected threat forces
+//      an immediate replan instead of waiting out the window.
+// Orientation is held FIXED for the (short, ~1s) planning horizon, same reasoning as before: a real
+// reorientation takes seconds at this ship's turn rate, and the nose is already settling toward
+// aimDir in real play, so freezing it for the much shorter planning window is a reasonable
+// approximation, not a meaningful source of error.
 //
-// 2026-07-25: the jink above only ever governed the LATERAL/VERTICAL axes — the FORWARD axis
-// (standoff-holding, below) is its own smooth, never-randomized velocity-servo with no break of its
-// own, so a player closing very slowly (a gentle sustained turn, never a big enough velocity spike to
-// trip the chase-struggle escape hatch) could hold the drone in one continuous main-thrust-dominated
-// flee indefinitely — the lateral jink alternating underneath doesn't change that the STRONGEST
-// thruster (main, 201) just keeps pushing one way. EVASIVE_TUNING.forcedBreakIntervalSec is a hard,
-// unconditional ceiling on that: every ~1s, regardless of threat/chase state, it forces a fresh jink
-// replan and, some fraction of the time, punches the throttle to full forward for a beat (a real
-// evasive pilot doesn't only ever retreat — sometimes the break is closing distance to blow past).
-//
-// Nose facing is a hysteresis switch between two modes, not a permanent lock:
-//   'watch' (default) — nose on the player (aimDir), so it reads as an opponent fighting you, not a
-//              target flying formation with its back turned, and so it can see you for MPC's threat
-//              detection. This is mechanically fine MOST of the time: once its own velocity has
-//              converged to match yours, the remaining forward-axis correction is small, so it
-//              doesn't matter that main thrust now points the "wrong" way (at you) for that axis.
-//   'chase'    — nose swung to point along the player's OWN forward axis instead, entered only once
-//              the forward-axis velocity deficit gets large (e.g. you just boosted away). Facing the
-//              player for that correction would mean using this ship's weak retro thrust (63) against
-//              a large deficit instead of its main thrust (201) — which is exactly what made the drone
-//              read as sluggish/"flies in one straight line" once nose-lock kept it retro-only for its
-//              single largest, most common correction. Hysteresis (separate enter/exit thresholds)
-//              stops it flip-flopping facing every tick right at the boundary.
-// Bank is fed to `upHint` on steeringToward regardless of which of the two the nose is doing (2026-
-// 07-25: this used to slave bank to the player's own roll except while correcting a downward jink —
-// "always roll matches the player" — but that's exactly what made every non-down jink read as an
-// unrolled, flat slide; bank now always follows the committed jink's own bank angle instead, per the
-// "roll 45/90 and push up" maneuver above).
+// Nose ALWAYS faces the player (aimDir) — no more chase/watch hysteresis. This means the forward
+// axis only ever gets the ship's WEAK retro thrust (63, vs main's 201) when it needs to open range
+// (fall back / let the player catch up), same physical limit a real head-on gun duel has: you can't
+// out-accelerate away from someone you're also trying to keep your nose on. That's an accepted,
+// realistic limitation now, not a bug — it reads as the drone straining to hold station while still
+// fighting you, never as it turning tail to run in a straight line.
 //
 // The AI only ever issues thruster commands through the same realistic flight model as everything
 // else, so the actual G-loading and reversal snap the player sees is bounded by real thrust/speed,
@@ -85,72 +66,29 @@ import { steeringToward } from '../enemyAI';
 // ===========================================================================
 export const EVASIVE_TUNING = {
   standoffDistance: 50,        // meters directly ahead of the player's nose it tries to hold station at
-  maxRangeM: 200,               // 2026-07-25: hard leash — once actual 3D distance to the player exceeds
-                                // this, evasiveThink overrides chase/passthrough to force nose-on-player
-                                // + full closing throttle until back inside it (see its use below). The
-                                // jink's constant 55 m/s bias (jinkMagnitude, never "hold" anymore — see
-                                // MPC_JINK_DIRECTIONS) plus the occasional pass-through's own full-forward
-                                // override can otherwise random-walk the drone well past a sensible
-                                // fighting range before the (proportional, not hard-capped) standoff/
-                                // centering corrections alone rein it back in.
+  maxRangeM: 100,               // hard leash — once actual 3D distance to the player exceeds this,
+                                // evasiveThink overrides the committed candidate to fwd=+1 (max
+                                // closing bias) with lateral/vertical bias suppressed, so all
+                                // authority goes to reeling itself back in rather than fighting itself
+                                // with an equally-strong sideways push while trying to close.
   steerGain: 7,
   positionCorrectionGain: 1.2,   // 1/s — how much of the standoffDistance shortfall (meters, forward
                                   // axis only) gets added to the player's own velocity as the desired
-                                  // closing speed — see the forward-axis doc comment above
+                                  // baseline closing speed, before any MPC-chosen forward bias is added
   velocityBand: 30,               // m/s of velocity error (desired vs. actual) that maps to full
-                                   // throttle deflection on the forward axis
-  chaseEnterVelDeficit: 45,      // m/s of forward-axis deficit that triggers the 'chase' facing (see
-                                 // the doc comment above) — set above velocityBand so it only kicks in
-                                 // once the deficit is genuinely too large for the 'watch' facing's
-                                 // (weak, retro-only) authority to plausibly correct
-  chaseExitVelDeficit: 15,       // releases back to 'watch' once the deficit drops below this — kept
-                                 // well below chaseEnterVelDeficit (hysteresis) so it doesn't
-                                 // flip-flop facing every tick right at one threshold
-  chaseStruggleTolerance: 0.8,   // 'chasing' only counts as genuinely helping once it's shrunk the
-                                 // deficit to at most this fraction of chaseEnterVelDeficit — if it's
-                                 // still above that after chaseStruggleLimitSec, the drone's own max
-                                 // turn rate can't out-rotate whatever the player is doing (a real
-                                 // physical limit when both fly the same ship — see the "give up
-                                 // chasing" doc comment), so continuing to chase is a losing battle
-  chaseStruggleLimitSec: 1.2,    // seconds of chasing without meaningful improvement before giving up
-                                 // and forcing an immediate break instead — see chaseStruggleTolerance
-  chaseCooldownSec: 1.0,         // seconds 'chasing' stays disabled after a forced break, so it
-                                 // doesn't immediately re-enter the same losing chase it just gave up
-  forcedBreakIntervalSec: 1.0,   // 2026-07-25: hard, unconditional ceiling on sustained one-direction
-                                 // travel, independent of mpcReplanSec/mpcThreatReplanSec above. Those
-                                 // only govern the LATERAL/VERTICAL jink's bank angle — the FORWARD
-                                 // axis (standoff-holding, see its doc comment) is a plain, smooth,
-                                 // never-randomized velocity-servo with no periodic break of its own.
-                                 // A player closing very slowly (a gentle sustained turn, not a big
-                                 // velocity spike) can hold the drone in one continuous main-thrust-
-                                 // dominated flee for as long as the closure lasts, since nothing ever
-                                 // interrupts that axis specifically — the lateral jink alternating
-                                 // underneath it doesn't change the fact that the DOMINANT, strongest
-                                 // thruster (main, 201 vs strafe/up's 145/147) just keeps pushing one
-                                 // way. This timer forces a break regardless of velDeficitMag, chase
-                                 // state, or threat — see its use in evasiveThink.
-  passThroughChance: 0.4,        // fraction of forced breaks (see forcedBreakIntervalSec) that also
-                                 // punch the throttle to full forward for passThroughDurationSec,
-                                 // overriding the standoff servo — a real evasive pilot doesn't only
-                                 // ever retreat; sometimes the break is closing distance and blowing
-                                 // past for a merge instead of running.
-  passThroughDurationSec: 0.6,   // how long a triggered pass-through's forced full-throttle lasts
-  threatMarginMultiplier: 2.5,  // MPC's hit-risk term activates once a candidate's predicted miss
-                                 // distance would be within this many hull radii, not only once it
-                                 // would already technically connect — lets it react before a shot
-                                 // actually lands, not only after
-  mpcHorizonSec: 0.4,            // how far ahead each jink candidate is forward-simulated — short on
-                                  // purpose: a long horizon lets a LOT of drift accumulate regardless
-                                  // of which candidate is chosen once already moving fast (reversing
-                                  // can't fully arrest hundreds of m/s within the same window a
-                                  // continued push would have moved it further), which let the
-                                  // standoff-drift cost's sheer scale swamp the direction-change
-                                  // reward and made it look "safer" (in a single 1-shot lookahead) to
-                                  // just keep going. A shorter horizon keeps each decision's predicted
-                                  // drift small enough that the direction-change reward can actually
-                                  // compete, and the receding-horizon replanning (mpcReplanSec below)
-                                  // is what provides the longer-term correction, not any one horizon.
-  mpcStepSec: 0.08,                // physics step size used for that simulation (5 steps/horizon)
+                                   // throttle/strafe deflection on any axis
+  threatMarginMultiplier: 2.5,  // MPC's hit-risk term (and the live "threatened" check driving replan
+                                 // urgency) activates once a predicted miss distance would be within
+                                 // this many hull radii, not only once it would already technically
+                                 // connect — lets it react before a shot actually lands, not only after
+  mpcHorizonSec: 1.0,             // 2026-08-15: lengthened from 0.4s now that survival (predicted
+                                  // hit-miss distance against a turn-rate-limited player tracker) is
+                                  // the dominant score term instead of a raw jerk reward — a longer
+                                  // horizon is exactly what lets the planner see that a sustained push
+                                  // gets it killed, where the old short horizon existed specifically
+                                  // to stop unbounded drift from swamping a direction-change reward
+                                  // that no longer needs protecting now the reward is survival-based.
+  mpcStepSec: 0.05,                // physics step size used for that simulation (20 steps/horizon)
   mpcReplanSec: 0.75,             // baseline cadence for re-running the candidate evaluation — a
                                    // receding horizon, not a one-shot plan committed to indefinitely.
                                    // 2026-07-25: 3x'd from 0.25s (200% longer per user report the
@@ -161,10 +99,20 @@ export const EVASIVE_TUNING = {
                                  // from 0.08s 2026-07-25, same reasoning as mpcReplanSec above.
   mpcStandoffWeight: 9.0,        // cost weight — keep the jink from drifting far off the standoff
                                  // POINT (forward distance AND lateral/vertical position both, meters
-                                 // — see scoreJinkCandidate's doc comment for why this is linear, not squared)
-  jinkMagnitude: 55,              // m/s — how much EXTRA lateral/vertical velocity (beyond just
-                                  // tracking the standoff point's own motion) the jink bias adds —
-                                  // see jinkVelocityServo's doc comment
+                                 // — see scoreCandidate's doc comment for why this is linear, not squared)
+  jinkMagnitude: 55,              // m/s — how much EXTRA velocity (beyond just tracking the standoff
+                                  // point's own motion) each MPC-chosen bias axis adds — see
+                                  // biasVelocityServo's doc comment. 2026-08-15: tried nearly doubling
+                                  // this to read as more strafe-heavy — measured WORSE: strafe was
+                                  // already saturating at full authority the entire time even at 55
+                                  // (velocityBand is only 30, so any bias this large already clamps
+                                  // strafeX/Y to ±1), so raising it doesn't add any real thrust — it
+                                  // just holds the SAME full-authority push toward a harder-to-reach
+                                  // target for longer each half-cycle (mpcReplanSec), which is pure
+                                  // drift distance (speed × time), not more visible strafing. A
+                                  // headless capture confirmed this alone pushed the runaway from ~90m
+                                  // to 700+m. lateralCenteringGain is the real "more strafe, less
+                                  // drift" lever — a stiffer restoring force, not a bigger push.
   lateralCenteringGain: 0.6,     // 1/s — continuous proportional pull back toward zero lateral/
                                  // vertical offset from the player's nose-line, blended into the
                                  // baseline BEFORE the jink bias is added — the forward axis already
@@ -173,11 +121,21 @@ export const EVASIVE_TUNING = {
                                  // judgment, which wasn't enough on its own to prevent runaway drift
                                  // once the standoff point itself was moving fast
   mpcHitRiskWeight: 2.0,          // cost weight — strongly avoid predicted-hit outcomes
-  mpcUnpredictabilityWeight: 150, // reward weight (0..2 scale) — favor candidates that push in a
-                                  // DIFFERENT direction than the currently-committed one. This is the
-                                  // dominant term whenever no candidate is under real hit-risk, which
-                                  // is what keeps it actively reversing direction instead of settling
-                                  // into one sustained push
+  mpcUnpredictabilityWeight: 150, // reward weight — favor candidates whose full (bank + forward-bias)
+                                  // combination differs from the currently-committed one. Dominant
+                                  // whenever no candidate is under real hit-risk, which is what keeps
+                                  // it actively reversing direction instead of settling into one push
+  playerTrackTurnRateRadPerSec: 1.0, // 2026-08-15: how fast the player-tracker model used for MPC's
+                                      // hit-risk scoring can re-aim toward the drone's predicted
+                                      // position, per horizon substep — modeling a turn-rate-limited
+                                      // opponent instead of freezing their aim at its CURRENT bearing
+                                      // (the old assumption, which is exactly what let "just keep
+                                      // pushing in one direction" score as safe: a frozen aim can't
+                                      // ever catch a target that's merely moving away in a straight
+                                      // line, so the old scorer never penalized that). ~Gladius
+                                      // pitch/yaw maxAngVel (1.19/0.91 rad/s, see gladius.ts) — roll
+                                      // doesn't reorient the aim point, so it's excluded from this
+                                      // estimate.
   shootbackChancePerSec: 0.15,  // 'block' -> 'shootback' trigger rate once its cooldown has cleared
   shootbackDurationSec: 1.2,    // how long it holds a firing window
   shootbackCooldownSec: 1.5,    // minimum gap between shootback windows
@@ -185,40 +143,46 @@ export const EVASIVE_TUNING = {
   fireLateralTolerance: 6
 };
 
-// The 4 bank angles the break maneuver ever executes: ±45° and ±90° off vertical (playerUp), in the
-// (player's) right/up plane — (x, y) = (sin(bankAngle), cos(bankAngle)), so evasiveThink's bankHint
-// (always aligned to whichever of these is committed — see its doc comment) rolls the hull by exactly
-// that angle before pushing thrust "up" through it. Deliberately excludes straight up (0°, no roll —
-// the flat slide this whole redesign was fixing), straight down and the two down-leaning diagonals
-// (135°/-135° — the weak half-strength verticalDown thruster), and "hold formation" (never a valid
-// pick — the drone is always mid-break, never a straight line). Full deflection only: MPC already
-// picks WHICH bank angle is best, so there's no need to also search partial magnitudes — a hard,
-// complete break is what actually produces jerk.
+// The 6 bank directions the break maneuver can commit to: ±45°, ±90°, and ±135° off vertical
+// (playerUp), in the (player's) right/up plane — (x, y) = (sin(bankAngle), cos(bankAngle)), so
+// evasiveThink's bankHint (always aligned to whichever of these is committed) rolls the hull by
+// exactly that angle before pushing thrust "up" through it. Deliberately excludes straight up (0°,
+// no roll — the flat slide the original redesign was fixing) and straight down (180°) — always
+// banked, never a flat push — but 2026-08-15 now INCLUDES the ±135° down-leaning pair (the weak
+// half-strength verticalDown thruster) rather than excluding them outright: since MPC now scores
+// candidates by their genuinely simulated (through the real, asymmetric thrust) outcome rather than
+// by a hand-picked exclusion rule, a weaker-but-more-unexpected direction can legitimately win, same
+// as a real PVP pilot using the "wrong" thruster because it's the one you don't expect.
 const MPC_JINK_DIRECTIONS: ReadonlyArray<{ x: number; y: number }> = [
-  { x: 0.7071, y: 0.7071 },   // +45°
-  { x: -0.7071, y: 0.7071 },  // -45°
-  { x: 1, y: 0 },             // +90°
-  { x: -1, y: 0 }             // -90°
+  { x: 0.7071, y: 0.7071 },    // +45°
+  { x: -0.7071, y: 0.7071 },   // -45°
+  { x: 1, y: 0 },              // +90°
+  { x: -1, y: 0 },             // -90°
+  { x: 0.7071, y: -0.7071 },   // +135° (weak down-leaning)
+  { x: -0.7071, y: -0.7071 }   // -135° (weak down-leaning)
 ];
 
-// Opens the drill already mid-break — a random bank angle committed immediately, held for one full
+// The forward-bias levels MPC searches, on top of the always-on standoff-tracking baseline (see
+// biasVelocityServo's doc comment) — close hard, hold the baseline, or open hard. 2026-08-15: this is
+// the forward axis's whole share of the MPC candidate space (see this file's top doc comment for why
+// it's no longer a separate always-on servo outside the search).
+const MPC_FWD_LEVELS: ReadonlyArray<number> = [-1, 0, 1];
+
+// Opens the drill already mid-break — a random candidate committed immediately, held for one full
 // baseline replan window (mpcReplanSec) before the MPC planner takes over — rather than defaulting to
 // a zero/"hold" bias that would read as a flat, unrolled upstrafe the instant the player turns toward
-// it (the exact complaint this redesign fixes; see the top-of-file doc comment).
+// it (the exact complaint the original redesign fixed; see the top-of-file doc comment).
 export function spawnEvasiveState(): EvasiveAIMemory {
   const dir = MPC_JINK_DIRECTIONS[Math.floor(Math.random() * MPC_JINK_DIRECTIONS.length)];
+  const fwd = MPC_FWD_LEVELS[Math.floor(Math.random() * MPC_FWD_LEVELS.length)];
   return {
     jinkStrafeX: dir.x,
     jinkStrafeY: dir.y,
+    jinkFwd: fwd,
     jinkReplanTimer: EVASIVE_TUNING.mpcReplanSec,
     mode: 'block',
     modeTimer: 0,
-    wasThreatened: false,
-    chasing: false,
-    chaseStruggleTimer: 0,
-    chaseCooldownTimer: 0,
-    forcedBreakTimer: EVASIVE_TUNING.forcedBreakIntervalSec,
-    passThroughTimer: 0
+    wasThreatened: false
   };
 }
 
@@ -237,47 +201,58 @@ interface PlanningBody {
   verticalSpoolTime: number;
 }
 
-// Converts a jink bias direction (PLAYER-frame) into actual body-relative strafeX/strafeY via a
-// velocity-servo: desired = baseline + dir*jinkMagnitude, error = desired - actual (computed in
-// world space), then that error is projected onto whichever axes are CURRENTLY available. `baseline`
-// is the standoff point's own current velocity along the player's right/up axes — critically, this
-// includes the ROTATIONAL contribution (see evasiveThink's targetVel doc comment), not just the
-// player's translational velocity. A committed jink direction can persist across many replans while
-// the nose keeps slowly re-aiming and the player keeps rotating, so recomputing this from scratch
-// every call (not just once when the direction was chosen) is what keeps it tracking a genuinely
-// moving reference frame instead of a fixed command that quietly goes stale.
-function jinkVelocityServo(
-  dirX: number, dirY: number, baselineLateralVel: number, baselineVerticalVel: number,
-  actualVel: Vec3, playerRight: Vec3, playerUp: Vec3, bodyRight: Vec3, bodyUp: Vec3
-): { strafeX: number; strafeY: number } {
+// Converts a candidate's (forward, lateral, vertical) bias — all in PLAYER-frame — into actual
+// body-relative throttle/strafeX/strafeY via a velocity-servo: desired = baseline + bias*jinkMagnitude
+// per axis, error = desired - actual (computed in world space), then that error is projected onto
+// whichever body axes are CURRENTLY available. `baseline*Vel` is the standoff point's own current
+// velocity along the player's forward/right/up axes — critically, this includes the ROTATIONAL
+// contribution (see evasiveThink's targetVel doc comment), not just the player's translational
+// velocity. A committed bias can persist across many replans while the nose keeps slowly re-aiming
+// and the player keeps rotating, so recomputing this from scratch every call (not just once when the
+// bias was chosen) is what keeps it tracking a genuinely moving reference frame instead of a fixed
+// command that quietly goes stale. 2026-08-15: extended to cover the FORWARD axis too (previously
+// lateral/vertical only, with forward handled by a separate always-on servo outside the MPC search —
+// see this file's top doc comment) — same servo, one more axis, now also feeding `throttle`.
+function biasVelocityServo(
+  fwdBias: number, dirX: number, dirY: number,
+  baselineFwdVel: number, baselineLateralVel: number, baselineVerticalVel: number,
+  actualVel: Vec3, playerForward: Vec3, playerRight: Vec3, playerUp: Vec3,
+  bodyForward: Vec3, bodyRight: Vec3, bodyUp: Vec3
+): { throttle: number; strafeX: number; strafeY: number } {
+  const desiredFwdVel = baselineFwdVel + fwdBias * EVASIVE_TUNING.jinkMagnitude;
   const desiredLateralVel = baselineLateralVel + dirX * EVASIVE_TUNING.jinkMagnitude;
   const desiredVerticalVel = baselineVerticalVel + dirY * EVASIVE_TUNING.jinkMagnitude;
+  const actualFwdVel = actualVel.x * playerForward.x + actualVel.y * playerForward.y + actualVel.z * playerForward.z;
   const actualLateralVel = actualVel.x * playerRight.x + actualVel.y * playerRight.y + actualVel.z * playerRight.z;
   const actualVerticalVel = actualVel.x * playerUp.x + actualVel.y * playerUp.y + actualVel.z * playerUp.z;
+  const fwdError = desiredFwdVel - actualFwdVel;
   const lateralError = desiredLateralVel - actualLateralVel;
   const verticalError = desiredVerticalVel - actualVerticalVel;
   const errorWorld: Vec3 = {
-    x: playerRight.x * lateralError + playerUp.x * verticalError,
-    y: playerRight.y * lateralError + playerUp.y * verticalError,
-    z: playerRight.z * lateralError + playerUp.z * verticalError
+    x: playerForward.x * fwdError + playerRight.x * lateralError + playerUp.x * verticalError,
+    y: playerForward.y * fwdError + playerRight.y * lateralError + playerUp.y * verticalError,
+    z: playerForward.z * fwdError + playerRight.z * lateralError + playerUp.z * verticalError
   };
   return {
+    throttle: clamp((errorWorld.x * bodyForward.x + errorWorld.y * bodyForward.y + errorWorld.z * bodyForward.z) / EVASIVE_TUNING.velocityBand, -1, 1),
     strafeX: clamp((errorWorld.x * bodyRight.x + errorWorld.y * bodyRight.y + errorWorld.z * bodyRight.z) / EVASIVE_TUNING.velocityBand, -1, 1),
     strafeY: clamp((errorWorld.x * bodyUp.x + errorWorld.y * bodyUp.y + errorWorld.z * bodyUp.z) / EVASIVE_TUNING.velocityBand, -1, 1)
   };
 }
 
-// Forward-simulates holding a fixed jink bias direction (PLAYER-frame)/throttle for
-// EVASIVE_TUNING.mpcHorizonSec, through the real flight model — re-running the velocity-servo above
-// every substep (not just once at the start), so the simulation reacts to its own evolving velocity
-// the same way the real per-tick application does. Orientation is frozen (zero angVel, zero
-// pitch/yaw/roll input) for the duration — see this section's doc comment for why that's a reasonable
-// approximation over a horizon this short. Always boosted (see EVASIVE_TUNING's doc comment on why
-// boost is no longer a separate searched candidate dimension).
+// Forward-simulates holding a fixed (forward, lateral, vertical) bias for EVASIVE_TUNING.mpcHorizonSec,
+// through the real flight model — re-running the velocity-servo above every substep (not just once at
+// the start), so the simulation reacts to its own evolving velocity the same way the real per-tick
+// application does. Orientation is frozen (zero angVel, zero pitch/yaw/roll input, nose always aimDir
+// in the real per-tick application) for the duration — see this section's doc comment for why that's
+// a reasonable approximation over a horizon this short. Always boosted (the drone is always mid-break).
+// Returns the WHOLE trajectory (not just the endpoint) — scoreCandidate needs to evaluate hit-risk at
+// its worst point across the horizon, not only where it happens to end up.
 function simulateJinkCandidate(
-  enemy: EnemyShip, throttle: number, dirX: number, dirY: number,
-  playerRight: Vec3, playerUp: Vec3, baselineLateralVel: number, baselineVerticalVel: number
-): { pos: Vec3; vel: Vec3 } {
+  enemy: EnemyShip, fwdBias: number, dirX: number, dirY: number,
+  playerForward: Vec3, playerRight: Vec3, playerUp: Vec3,
+  baselineFwdVel: number, baselineLateralVel: number, baselineVerticalVel: number
+): Array<{ pos: Vec3; vel: Vec3 }> {
   const body: PlanningBody = {
     type: enemy.type,
     pos: { x: enemy.pos.x, y: enemy.pos.y, z: enemy.pos.z },
@@ -289,63 +264,93 @@ function simulateJinkCandidate(
     throttleSpoolTime: 0,
     verticalSpoolTime: enemy.verticalSpoolTime
   };
-  const { right: bodyRight, up: bodyUp } = computeAxes(body.quat);
+  const { forward: bodyForward, right: bodyRight, up: bodyUp } = computeAxes(body.quat);
   const steps = Math.round(EVASIVE_TUNING.mpcHorizonSec / EVASIVE_TUNING.mpcStepSec);
+  const trajectory: Array<{ pos: Vec3; vel: Vec3 }> = [];
   for (let i = 0; i < steps; i++) {
-    const { strafeX, strafeY } = jinkVelocityServo(dirX, dirY, baselineLateralVel, baselineVerticalVel, body.vel, playerRight, playerUp, bodyRight, bodyUp);
+    const { throttle, strafeX, strafeY } = biasVelocityServo(
+      fwdBias, dirX, dirY, baselineFwdVel, baselineLateralVel, baselineVerticalVel,
+      body.vel, playerForward, playerRight, playerUp, bodyForward, bodyRight, bodyUp
+    );
     const inputs: FlightInputs = { throttle, pitch: 0, yaw: 0, roll: 0, strafeX, strafeY, brake: false, decoupled: false };
     integrateFlight(body, inputs, EVASIVE_TUNING.mpcStepSec);
+    trajectory.push({ pos: { x: body.pos.x, y: body.pos.y, z: body.pos.z }, vel: { x: body.vel.x, y: body.vel.y, z: body.vel.z } });
   }
-  return { pos: body.pos, vel: body.vel };
+  return trajectory;
 }
 
-// Lower is better. Combines: staying near the standoff point (both the forward distance AND the
-// lateral/vertical drift off the player's nose-line — the latter is what strafeX/strafeY actually
-// control, and an earlier version of this only penalized the forward axis, leaving nothing at all to
-// bound how far sideways a "maximize unpredictability" candidate could run), avoiding a predicted hit
-// against the player's CURRENT aim/velocity (frozen for the horizon — the player's own future intent
-// isn't known, but "would my predicted position still be where you're aimed" is still a meaningful,
-// real signal), and rewarding a candidate whose PUSH DIRECTION differs from the currently-committed
-// one. That last term is deliberately a direction comparison, not a comparison of resulting
-// velocities: an earlier version rewarded "how much did the predicted velocity change from right
-// now", which a candidate that just KEEPS ACCELERATING the same way already in progress satisfies
-// perfectly (velocity keeps growing every horizon as long as there's room left before some natural
-// ceiling) — sustained one-directional acceleration is zero jerk, not high jerk, even though the
-// velocity itself is changing a lot. Jerk is specifically the ACCELERATION vector changing direction,
-// so rewarding "this candidate pushes a different way than what I'm currently committed to" is the
-// direct, correct signal, and it's what actually made the MPC-driven jink alternate hard instead of
-// picking one direction and coasting on it for seconds at a time (a real, observed failure mode of
-// the velocity-comparison version).
-function scoreJinkCandidate(
-  finalPos: Vec3, finalVel: Vec3, dirX: number, dirY: number, prevDirX: number, prevDirY: number,
-  player: ShipBody, playerForward: Vec3, playerRight: Vec3, playerUp: Vec3, hullRadius: number
+// Spherically rotates `current` (a unit vector) toward `target` (a unit vector) by at most `maxAngle`
+// radians — used to model the player as a TURN-RATE-LIMITED TRACKER during MPC scoring (see
+// scoreCandidate's doc comment) rather than an opponent whose aim is frozen at its current bearing.
+function rotateTowardUnit(current: Vec3, target: Vec3, maxAngle: number): Vec3 {
+  if (maxAngle <= 0) return current;
+  const dot = clamp(current.x * target.x + current.y * target.y + current.z * target.z, -1, 1);
+  const angle = Math.acos(dot);
+  if (angle < 1e-6) return current;
+  const sinAngle = Math.sin(angle);
+  if (sinAngle < 1e-6) return target; // current/target nearly opposite — no well-defined slerp axis
+  const t = Math.min(1, maxAngle / angle);
+  const a = Math.sin((1 - t) * angle) / sinAngle;
+  const b = Math.sin(t * angle) / sinAngle;
+  return normalize({ x: current.x * a + target.x * b, y: current.y * a + target.y * b, z: current.z * a + target.z * b });
+}
+
+// Lower is better. Combines: predicted hit-miss distance against a player TRACKER model (see below),
+// staying near the standoff point (both the forward distance AND the lateral/vertical drift off the
+// player's nose-line), and rewarding a candidate whose full (bank + forward-bias) combination differs
+// from the currently-committed one.
+//
+// The hit-risk term is evaluated at its WORST point across the WHOLE trajectory, not just the
+// endpoint, against a player forward vector that's simulated RE-AIMING toward the drone's predicted
+// position every substep (rotateTowardUnit, capped at playerTrackTurnRateRadPerSec) rather than frozen
+// at the player's CURRENT bearing. 2026-08-15: this is the single most important change from the
+// original design — a frozen-aim assumption can NEVER be threatened by a target that's merely moving
+// away in a straight line (the aim line and the target diverge, so predicted miss distance only ever
+// grows), which is exactly what let "just keep pushing in one direction" score as perfectly safe to a
+// one-shot lookahead. A turn-rate-limited TRACKER keeps closing the aim gap over the horizon, so a
+// sustained linear push genuinely does start reading as dangerous once the horizon is long enough for
+// the tracker to catch up — which is also why mpcHorizonSec was lengthened alongside this change.
+//
+// The standoff-drift term is LINEAR (not squared) in the drift distance — deliberately so. A squared
+// cost lets a large existing drift dominate every other consideration, but clamping introduces a worse
+// problem: once past the clamp, EVERY candidate reads as the same saturated cost, so the term stops
+// discriminating "getting better" from "getting worse" at exactly the drift levels where a restoring
+// pull matters most. Linear cost never explodes but also never fully saturates — it keeps pulling
+// toward the standoff point at every distance, proportionally, without ever swamping the
+// unpredictability reward on its own.
+function scoreCandidate(
+  trajectory: Array<{ pos: Vec3; vel: Vec3 }>, dirX: number, dirY: number, fwdBias: number,
+  prevDirX: number, prevDirY: number, prevFwdBias: number,
+  player: ShipBody, playerForwardNow: Vec3, playerRight: Vec3, playerUp: Vec3, hullRadius: number
 ): number {
-  const toFinal: Vec3 = { x: finalPos.x - player.pos.x, y: finalPos.y - player.pos.y, z: finalPos.z - player.pos.z };
-  const forwardSepFinal = toFinal.x * playerForward.x + toFinal.y * playerForward.y + toFinal.z * playerForward.z;
+  const margin = hullRadius * EVASIVE_TUNING.threatMarginMultiplier;
+  const maxTurnPerStep = EVASIVE_TUNING.playerTrackTurnRateRadPerSec * EVASIVE_TUNING.mpcStepSec;
+  let trackedForward = playerForwardNow;
+  let worstHitRiskShortfall = 0;
+  for (const step of trajectory) {
+    const desiredAim = normalize({ x: step.pos.x - player.pos.x, y: step.pos.y - player.pos.y, z: step.pos.z - player.pos.z });
+    trackedForward = rotateTowardUnit(trackedForward, desiredAim, maxTurnPerStep);
+    const missDistance = closestApproachIfFiredNow(
+      player.pos, player.vel, trackedForward, step.pos, step.vel, WEAPON.muzzleSpeed, WEAPON.lifetime
+    );
+    worstHitRiskShortfall = Math.max(worstHitRiskShortfall, Math.max(0, margin - missDistance));
+  }
+  const hitRiskCost = worstHitRiskShortfall * worstHitRiskShortfall;
+
+  const final = trajectory[trajectory.length - 1];
+  const toFinal: Vec3 = { x: final.pos.x - player.pos.x, y: final.pos.y - player.pos.y, z: final.pos.z - player.pos.z };
+  const forwardSepFinal = toFinal.x * playerForwardNow.x + toFinal.y * playerForwardNow.y + toFinal.z * playerForwardNow.z;
   const lateralFinal = toFinal.x * playerRight.x + toFinal.y * playerRight.y + toFinal.z * playerRight.z;
   const verticalFinal = toFinal.x * playerUp.x + toFinal.y * playerUp.y + toFinal.z * playerUp.z;
-  // LINEAR (not squared) in the drift distance — deliberately so. A squared cost lets a large
-  // existing drift dominate every other consideration, but clamping introduces a worse problem: once
-  // past the clamp, EVERY candidate reads as the same saturated cost, so the term stops
-  // discriminating "getting better" from "getting worse" at exactly the drift levels where a
-  // restoring pull matters most. Linear cost never explodes (100m of extra drift always costs the
-  // same fixed amount more, not a quadratically larger one) but also never fully saturates — it keeps
-  // pulling toward the standoff point at every distance, proportionally, without ever swamping the
-  // direction-change reward on its own.
   const standoffError = forwardSepFinal - EVASIVE_TUNING.standoffDistance;
   const standoffCost = Math.abs(standoffError) + Math.abs(lateralFinal) + Math.abs(verticalFinal);
 
-  const missDistance = closestApproachIfFiredNow(
-    player.pos, player.vel, playerForward, finalPos, finalVel, WEAPON.muzzleSpeed, WEAPON.lifetime
-  );
-  const margin = hullRadius * EVASIVE_TUNING.threatMarginMultiplier;
-  const hitRiskShortfall = Math.max(0, margin - missDistance);
-  const hitRiskCost = hitRiskShortfall * hitRiskShortfall;
-
-  // 0 (same bank angle as currently committed) .. 2 (fully reversed); both dir vectors are always
-  // unit length (every candidate is one of the 4 bank angles — see MPC_JINK_DIRECTIONS — never zero),
-  // so this is a plain cosine-similarity comparison.
-  const directionChangeReward = 1 - (dirX * prevDirX + dirY * prevDirY);
+  // Average similarity across bank (cosine, both unit vectors) and forward bias (product of two
+  // values in {-1,0,1}) against the currently-committed candidate, each in [-1, 1] — scaled to match
+  // the original bank-only reward's [0, 2] range so mpcUnpredictabilityWeight didn't need re-tuning.
+  const bankSim = dirX * prevDirX + dirY * prevDirY;
+  const fwdSim = fwdBias * prevFwdBias;
+  const directionChangeReward = 1 - (bankSim + fwdSim) / 2;
 
   return EVASIVE_TUNING.mpcStandoffWeight * standoffCost
     + EVASIVE_TUNING.mpcHitRiskWeight * hitRiskCost
@@ -380,30 +385,15 @@ export function evasiveThink(
   ai.wasThreatened = threatened;
   if (justThreatened) ai.jinkReplanTimer = 0; // break immediately instead of waiting out the current window
 
-  // ---- forced break (see EVASIVE_TUNING.forcedBreakIntervalSec's doc comment) ----
-  // Unconditional: fires regardless of threatened/chasing/velDeficitMag, since those all gate OTHER
-  // mechanisms that can otherwise leave the forward axis pushing one sustained direction indefinitely
-  // (e.g. a player closing very slowly never trips the large-deficit chase-struggle escape hatch).
-  ai.forcedBreakTimer -= dt;
-  if (ai.forcedBreakTimer <= 0) {
-    ai.jinkReplanTimer = 0;
-    ai.forcedBreakTimer = EVASIVE_TUNING.forcedBreakIntervalSec;
-    // never schedule a NEW pass-through while already beyond maxRangeM — overRange's own throttle
-    // override below already forces full closing thrust, so a pass-through here would be redundant
-    // at best (and along whatever direction the nose happened to be facing at worst).
-    if (!overRange && Math.random() < EVASIVE_TUNING.passThroughChance) ai.passThroughTimer = EVASIVE_TUNING.passThroughDurationSec;
-  }
-  if (ai.passThroughTimer > 0) ai.passThroughTimer -= dt;
-
   // The standoff point isn't carried along by the player's TRANSLATIONAL velocity alone — it also
   // sweeps through an arc purely from the player's own ROTATION (holding a pitch/yaw input while
   // barely moving forward spins the point 50m ahead around the player just as fast as a real orbit
   // at that radius would). Using only player.vel as feed-forward is blind to that entirely. The fix
   // is the standard rigid-body point-velocity formula: velocity of a point rigidly attached to the
   // player at its current offset = player.vel + (player's world-space angular velocity) x (offset).
-  // This feeds BOTH the forward axis below and the jink's baseline — the rotational term is often
-  // nearly perpendicular to the forward axis (since the drone sits roughly along it), meaning most of
-  // its effect actually shows up as lateral/vertical motion, not forward/back, so both need it.
+  // This feeds the baseline for ALL THREE axes below — the rotational term is often nearly
+  // perpendicular to the forward axis (since the drone sits roughly along it), meaning most of its
+  // effect actually shows up as lateral/vertical motion, not forward/back, so all three need it.
   const playerWorldAngVel = rotateVecByQuat({ x: player.angVel.pitch, y: player.angVel.yaw, z: player.angVel.roll }, player.quat);
   const rotationalVel = cross(playerWorldAngVel, toEnemy);
   const targetVel: Vec3 = {
@@ -411,74 +401,22 @@ export function evasiveThink(
     y: player.vel.y + rotationalVel.y,
     z: player.vel.z + rotationalVel.z
   };
-  // lateral/vertical also get a continuous, proportional pull back toward zero offset from the
-  // player's nose-line, same idea as the forward axis's forwardShortfall below — without this, the
-  // only thing bounding lateral/vertical drift was MPC's periodic (and, on its own, insufficient)
-  // per-replan drift-cost judgment.
+  // lateral/vertical get a continuous, proportional pull back toward zero offset from the player's
+  // nose-line, same idea as the forward axis's forwardShortfall below — without this, the only thing
+  // bounding lateral/vertical drift was MPC's periodic (and, on its own, insufficient) drift-cost
+  // judgment.
   const lateralNow = toEnemy.x * playerRight.x + toEnemy.y * playerRight.y + toEnemy.z * playerRight.z;
   const verticalNow = toEnemy.x * playerUp.x + toEnemy.y * playerUp.y + toEnemy.z * playerUp.z;
-  const playerLateralVel = (targetVel.x * playerRight.x + targetVel.y * playerRight.y + targetVel.z * playerRight.z) - lateralNow * EVASIVE_TUNING.lateralCenteringGain;
-  const playerVerticalVel = (targetVel.x * playerUp.x + targetVel.y * playerUp.y + targetVel.z * playerUp.z) - verticalNow * EVASIVE_TUNING.lateralCenteringGain;
+  const baselineLateralVel = (targetVel.x * playerRight.x + targetVel.y * playerRight.y + targetVel.z * playerRight.z) - lateralNow * EVASIVE_TUNING.lateralCenteringGain;
+  const baselineVerticalVel = (targetVel.x * playerUp.x + targetVel.y * playerUp.y + targetVel.z * playerUp.z) - verticalNow * EVASIVE_TUNING.lateralCenteringGain;
 
-  // ---- forward axis: plain velocity-servo ----
+  // forward axis baseline: match the player's own forward speed (feed-forward) plus a correction
+  // proportional to the standoffDistance shortfall — the MPC-chosen forward bias (ai.jinkFwd) rides
+  // on top of this, same as lateral/vertical (see biasVelocityServo's doc comment).
   const forwardSep = toEnemy.x * playerForward.x + toEnemy.y * playerForward.y + toEnemy.z * playerForward.z;
   const forwardShortfall = EVASIVE_TUNING.standoffDistance - forwardSep;
   const playerForwardVel = targetVel.x * playerForward.x + targetVel.y * playerForward.y + targetVel.z * playerForward.z;
-  const desiredTrackingVel = (playerForwardVel + forwardShortfall * EVASIVE_TUNING.positionCorrectionGain);
-
-  // Full 3D tracking need (forward correction + lateral/vertical baseline+centering, NOT including
-  // the jink bias — that's a separate, smaller wobble layered on top via jinkVelocityServo below),
-  // combined into one world-space vector. Its DIRECTION drives 'chase' facing (see below) instead of
-  // always assuming the need is along playerForward specifically — when the player is mostly
-  // ROTATING rather than translating, the actual dominant correction can point almost anywhere, and
-  // pointing main thrust at a hardcoded axis that isn't where the need actually is wastes it.
-  const desiredVelFull: Vec3 = {
-    x: playerForward.x * desiredTrackingVel + playerRight.x * playerLateralVel + playerUp.x * playerVerticalVel,
-    y: playerForward.y * desiredTrackingVel + playerRight.y * playerLateralVel + playerUp.y * playerVerticalVel,
-    z: playerForward.z * desiredTrackingVel + playerRight.z * playerLateralVel + playerUp.z * playerVerticalVel
-  };
-  const velDeficitFull: Vec3 = {
-    x: desiredVelFull.x - enemy.vel.x,
-    y: desiredVelFull.y - enemy.vel.y,
-    z: desiredVelFull.z - enemy.vel.z
-  };
-  const velDeficitMag = Math.hypot(velDeficitFull.x, velDeficitFull.y, velDeficitFull.z);
-  const chaseDir = velDeficitMag > 1e-3
-    ? { x: velDeficitFull.x / velDeficitMag, y: velDeficitFull.y / velDeficitMag, z: velDeficitFull.z / velDeficitMag }
-    : playerForward;
-
-  // ---- chase/watch facing hysteresis (see the doc comment above) ----
-  if (ai.chaseCooldownTimer > 0) ai.chaseCooldownTimer -= dt;
-  if (ai.chasing) {
-    if (velDeficitMag < EVASIVE_TUNING.chaseExitVelDeficit) {
-      ai.chasing = false;
-      ai.chaseStruggleTimer = 0;
-    } else if (velDeficitMag > EVASIVE_TUNING.chaseEnterVelDeficit * EVASIVE_TUNING.chaseStruggleTolerance) {
-      // chasing hasn't meaningfully closed the gap — accumulate struggle time. This is exactly what
-      // happens when the player holds a sustained turn/rotation at (or near) the drone's own max
-      // rate: both fly the same ship, so nose-chasing a continuously-moving target direction can
-      // never actually catch up — it's not a tuning problem, it's a real physical tie at best.
-      ai.chaseStruggleTimer += dt;
-      if (ai.chaseStruggleTimer > EVASIVE_TUNING.chaseStruggleLimitSec) {
-        // Give up trying to out-turn the player and force an immediate break instead. Real evasive
-        // pilots don't try to physically match an opponent's sustained turn rate at a fixed
-        // range — once out-rotated, the winning move is a sudden, unpredictable direction change
-        // (or bailing for the opponent's six), not grinding out a turn you can't win. Reverting to
-        // 'watch' stops main thrust fighting a losing reorientation, and forcing the jink planner to
-        // replan NOW (rather than waiting out its normal cadence) is the "suddenly change direction"
-        // half of that response — the MPC planner, now unburdened by a hopeless chase, is free to
-        // pick whatever break actually helps.
-        ai.chasing = false;
-        ai.chaseStruggleTimer = 0;
-        ai.chaseCooldownTimer = EVASIVE_TUNING.chaseCooldownSec;
-        ai.jinkReplanTimer = 0;
-      }
-    } else {
-      ai.chaseStruggleTimer = 0; // genuinely closing the gap — no struggle, keep chasing normally
-    }
-  } else if (velDeficitMag > EVASIVE_TUNING.chaseEnterVelDeficit && ai.chaseCooldownTimer <= 0) {
-    ai.chasing = true;
-  }
+  const baselineFwdVel = playerForwardVel + forwardShortfall * EVASIVE_TUNING.positionCorrectionGain;
 
   // ---- shootback mini state machine (only ever leaves 'block' when the drill option is enabled) ----
   if (ai.modeTimer > 0) ai.modeTimer -= dt;
@@ -494,12 +432,11 @@ export function evasiveThink(
     ai.modeTimer = EVASIVE_TUNING.shootbackDurationSec;
   }
 
-  // Bank always aligns to the committed jink's own bank angle (never the player's) — rolling the
-  // drone's OWN "up" axis to point along the jink's full world direction, so jinkVelocityServo routes
-  // the break through the strong up-thruster at whatever the committed ±45°/±90° bank angle is,
-  // rather than an unrolled hull splitting thrust across two axes. ai.jinkStrafeX/Y is never (0, 0)
-  // (see MPC_JINK_DIRECTIONS — no "hold" candidate), so jinkWorldDirMag is always well above the
-  // epsilon fallback in practice; the fallback exists purely for numerical safety.
+  // Nose always faces the player (aimDir) — no more chase/watch hysteresis (see this file's top doc
+  // comment). Bank always aligns to the committed candidate's own bank angle (never the player's) —
+  // rolling the drone's OWN "up" axis to point along the jink's full world direction, so
+  // biasVelocityServo routes the lateral/vertical bias through the strong up-thruster at whatever the
+  // committed bank angle is, rather than an unrolled hull splitting thrust across two axes.
   const jinkWorldDir: Vec3 = {
     x: playerRight.x * ai.jinkStrafeX + playerUp.x * ai.jinkStrafeY,
     y: playerRight.y * ai.jinkStrafeX + playerUp.y * ai.jinkStrafeY,
@@ -513,63 +450,52 @@ export function evasiveThink(
     ? playerUp
     : { x: jinkWorldDir.x / jinkWorldDirMag, y: jinkWorldDir.y / jinkWorldDirMag, z: jinkWorldDir.z / jinkWorldDirMag };
 
-  // nose faces the player by default, swings to face the ACTUAL direction of the combined tracking
-  // need while genuinely catching up (see chase/watch doc comment and chaseDir above — not a
-  // hardcoded axis), snaps to face the player for a shootback window regardless of chase state (a
-  // shot is more useful than a marginal thrust-efficiency gain), and snaps back to face the player
-  // whenever beyond maxRangeM too — closing distance takes priority over a losing chase out there.
-  const steerDir = (overRange || ai.mode === 'shootback' || !ai.chasing) ? aimDir : chaseDir;
+  const steerDir = aimDir;
   const steer = steeringToward(enemy.quat, steerDir, EVASIVE_TUNING.steerGain, bankHint);
 
-  // main thrust projected onto the drone's OWN current nose — this still works correctly regardless
-  // of which way the nose points (watch vs. chase), same reasoning jinkVelocityServo below needs for
-  // the jink: whatever axis is CURRENTLY available gets whatever fraction of the FULL tracking need
-  // it can actually deliver. Using the full 3D deficit (not just its forward-axis component) means
-  // main thrust pulls its actual weight even while chase is still turning to fully align. Overridden
-  // to full forward (closing on the player, since steerDir/nose above already snapped to aimDir)
-  // whenever beyond maxRangeM — takes priority over the pass-through override below, which would
-  // otherwise sometimes also force full throttle but along whatever direction the nose already
-  // happened to be facing, doing nothing to guarantee it's actually toward the player.
+  // ai.jinkStrafeX/Y/jinkFwd are the committed PLAYER-frame bias (see biasVelocityServo's doc
+  // comment) — recomputed into actual throttle/strafeX/strafeY every tick, not just at the moment
+  // they were chosen, since a committed bias can persist across many replans while both the nose
+  // keeps slowly re-aiming and the player keeps rotating in the meantime. Beyond maxRangeM, override
+  // to NO bias on any axis (just the baseline) rather than forcing a specific sign: the baseline
+  // (forwardShortfall/lateral/verticalNow-driven) is already correctly-signed for whichever
+  // correction is actually needed — closing if it fell behind, falling back if it overshot ahead, or
+  // (the common case, since forward is tightly servo-held continuously) recentering off a lateral/
+  // vertical drift. Forcing an assumed sign here was the earlier bug: it can fight the real
+  // correction instead of helping it. Suppressing the BIAS (not the baseline) still stops the bank
+  // jink from fighting the recovery — strafe/vertical thrust (145/147) is comparable in magnitude to
+  // main thrust (201), so leaving an extra sideways push active while trying to recover would have it
+  // fighting itself, which is exactly what let it wander past maxRangeM and keep going instead of
+  // ever visibly returning.
   const { forward: enemyForward, right: enemyRight, up: enemyUp } = computeAxes(enemy.quat);
-  const throttle = overRange
-    ? 1
-    : ai.passThroughTimer > 0
-      ? 1
-      : clamp((velDeficitFull.x * enemyForward.x + velDeficitFull.y * enemyForward.y + velDeficitFull.z * enemyForward.z) / EVASIVE_TUNING.velocityBand, -1, 1);
+  const { throttle, strafeX, strafeY } = overRange
+    ? biasVelocityServo(0, 0, 0, baselineFwdVel, baselineLateralVel, baselineVerticalVel, enemy.vel, playerForward, playerRight, playerUp, enemyForward, enemyRight, enemyUp)
+    : biasVelocityServo(ai.jinkFwd, ai.jinkStrafeX, ai.jinkStrafeY, baselineFwdVel, baselineLateralVel, baselineVerticalVel, enemy.vel, playerForward, playerRight, playerUp, enemyForward, enemyRight, enemyUp);
 
-  // ---- MPC jink replan (see this section's doc comment) ----
+  // ---- MPC replan (see this file's top doc comment) ----
   ai.jinkReplanTimer -= dt;
   if (ai.jinkReplanTimer <= 0) {
-    let bestCost = Infinity, bestX = MPC_JINK_DIRECTIONS[0].x, bestY = MPC_JINK_DIRECTIONS[0].y;
+    let bestCost = Infinity, bestX = MPC_JINK_DIRECTIONS[0].x, bestY = MPC_JINK_DIRECTIONS[0].y, bestFwd = MPC_FWD_LEVELS[0];
     for (const dir of MPC_JINK_DIRECTIONS) {
-      const outcome = simulateJinkCandidate(enemy, throttle, dir.x, dir.y, playerRight, playerUp, playerLateralVel, playerVerticalVel);
-      const cost = scoreJinkCandidate(outcome.pos, outcome.vel, dir.x, dir.y, ai.jinkStrafeX, ai.jinkStrafeY, player, playerForward, playerRight, playerUp, enemy.type.hullRadius);
-      if (cost < bestCost) {
-        bestCost = cost;
-        bestX = dir.x;
-        bestY = dir.y;
+      for (const fwd of MPC_FWD_LEVELS) {
+        const trajectory = simulateJinkCandidate(enemy, fwd, dir.x, dir.y, playerForward, playerRight, playerUp, baselineFwdVel, baselineLateralVel, baselineVerticalVel);
+        const cost = scoreCandidate(trajectory, dir.x, dir.y, fwd, ai.jinkStrafeX, ai.jinkStrafeY, ai.jinkFwd, player, playerForward, playerRight, playerUp, enemy.type.hullRadius);
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestX = dir.x;
+          bestY = dir.y;
+          bestFwd = fwd;
+        }
       }
     }
     ai.jinkStrafeX = bestX;
     ai.jinkStrafeY = bestY;
+    ai.jinkFwd = bestFwd;
     ai.jinkReplanTimer = threatened ? EVASIVE_TUNING.mpcThreatReplanSec : EVASIVE_TUNING.mpcReplanSec;
   }
 
-  // ai.jinkStrafeX/jinkStrafeY are the committed PLAYER-frame jink bias direction (see
-  // jinkVelocityServo's doc comment) — recomputed into actual strafeX/strafeY every tick, not just at
-  // the moment they were chosen, since a committed direction can persist across many replans while
-  // both the nose keeps slowly re-aiming and the player keeps moving/rotating in the meantime.
-  // Suppressed entirely beyond maxRangeM: strafe/vertical thrust (145/147) is comparable in magnitude
-  // to main thrust (201), so leaving the jink active while "closing" would have it fighting itself —
-  // nose-on and full main thrust doesn't actually close distance quickly if a near-equally-strong
-  // sideways push is fighting it the whole way, which is exactly what let it wander past maxRangeM
-  // and keep going instead of ever visibly returning.
-  const jink = overRange
-    ? { strafeX: 0, strafeY: 0 }
-    : jinkVelocityServo(ai.jinkStrafeX, ai.jinkStrafeY, playerLateralVel, playerVerticalVel, enemy.vel, playerRight, playerUp, enemyRight, enemyUp);
-
-  // Always boosted: the drone is always mid-break (no "hold" state — see MPC_JINK_DIRECTIONS), and a
-  // real evasive break is flown with the afterburner lit, not requested only as a last resort.
+  // Always boosted: the drone is always mid-break (no "hold" state), and a real evasive break is
+  // flown with the afterburner lit, not requested only as a last resort.
   const boostRequested = true;
 
   return {
@@ -578,8 +504,8 @@ export function evasiveThink(
       pitch: steer.pitch,
       yaw: steer.yaw,
       roll: steer.roll,
-      strafeX: clamp(jink.strafeX, -1, 1),
-      strafeY: clamp(jink.strafeY, -1, 1),
+      strafeX: clamp(strafeX, -1, 1),
+      strafeY: clamp(strafeY, -1, 1),
       brake: false,
       decoupled: false
     },

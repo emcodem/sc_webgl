@@ -138,22 +138,19 @@ export interface HitReactionState {
 // combat/ai/evasiveAI.ts). This project's own system, not a verbatim port. Every committed jink is
 // always boosted by design (see EVASIVE_TUNING's doc comment), so there's no separate boost flag.
 export interface EvasiveAIMemory {
+  // Committed MPC candidate: a lateral/vertical bank direction (jinkStrafeX/Y, PLAYER-frame unit
+  // vector) AND a forward bias level (jinkFwd, one of MPC_FWD_LEVELS) — 2026-08-15: the forward axis
+  // used to be a separate, always-on velocity-servo outside the MPC search entirely (see
+  // combat/ai/evasiveAI.ts's doc comment for why that structurally guaranteed long straight-line
+  // "chase" runs); it's now just a third searched dimension of the same candidate, scored the same
+  // way as the bank angle.
   jinkStrafeX: number;
   jinkStrafeY: number;
+  jinkFwd: number;
   jinkReplanTimer: number;
   mode: 'block' | 'shootback';
   modeTimer: number;
   wasThreatened: boolean;
-  chasing: boolean;
-  chaseStruggleTimer: number;
-  chaseCooldownTimer: number;
-  // Hard, unconditional ceiling on how long the forward-axis standoff servo may keep pushing the
-  // same sustained direction before a forced break — see EVASIVE_TUNING.forcedBreakIntervalSec's
-  // doc comment for why this exists independently of the (already sub-1s) jink replan cadence.
-  forcedBreakTimer: number;
-  // >0 while a forced break's occasional "fly forward to pass the player" override is active — see
-  // EVASIVE_TUNING.passThroughChance.
-  passThroughTimer: number;
 }
 
 // Full ship tuning — ported verbatim from the original project's ShipType. Every field carries a
