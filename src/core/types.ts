@@ -87,38 +87,21 @@ export interface OrbitState {
   respawnTimer: number;
 }
 
-// A single in-progress "bank into a U-turn" maneuver for a 'drifter' that has flown out of range —
-// see combat/ai/orbiterDrifterAI.ts's startDriftTurn/advanceDriftTurn.
-export interface DriftTurnState {
-  fromDir: Vec3;
-  axis: Vec3;
-  angleTotal: number;
-  speed: number;      // actual travel speed during the reversal (raw cruise speed, boosted once)
-  baseSpeed: number;  // the RAW (unboosted) cruise speed to resume the next helix at — do not derive
-                      // this from `speed`/enemy.vel after the turn, since both already carry the
-                      // boost multiplier; re-deriving from a boosted value would compound it further
-                      // every reversal (a real bug this field exists to prevent)
-  elapsed: number;
-  duration: number;
-  rollTurns: number;
-}
-
-// Continuous corkscrew for a 'drifter' flying its straight cruise segment (i.e. not mid
-// turn-around) — see combat/ai/orbiterDrifterAI.ts's spawnHelix/computeHelixVelocity. `right`/`up`
-// are a perpendicular frame and `baseDir`/`baseSpeed` the cruise heading/speed, all fixed at the
-// moment the current segment began (spawn, respawn, or the end of a turn-around) so the corkscrew
-// curves a stable heading rather than chasing itself. `angle` accumulates continuously (mod 2π) at
-// a rate set by `rollFraction` — the drone is always rolling, just harder when actively threatened.
-// `aggressiveTimer` is a hysteresis hold: >0 while the escalation conditions held recently enough to
-// still count as "under fire". `rollFraction` is the CURRENT, eased roll-rate fraction (0.25..0.75) —
-// it chases whatever aggressiveTimer implies at a limited rate rather than snapping instantly, so an
-// escalation ramps the roll rate up/down smoothly instead of a jarring one-tick "whip".
+// Continuous, always-boosted-forward corkscrew for a 'drifter' — see
+// combat/ai/orbiterDrifterAI.ts's driftThink. `baseDir` is the current target nose heading (world
+// space): fixed for a cruise pass, retargeted (not scripted-animated) once the drone has flown far
+// enough to trigger a turn-around, then re-approached under the real flight model's own turn-rate
+// lag via steeringToward — there is no separate scripted U-turn state anymore. `rollSign` is the
+// fixed spin direction (+1/-1) for the current pass, chosen once so the corkscrew doesn't flip mid-
+// roll. `aggressiveTimer` is a hysteresis hold: >0 while the escalation conditions held recently
+// enough to still count as "under fire". `rollFraction` is the CURRENT, eased roll-INPUT fraction
+// (0.25..0.75, fed straight to FlightInputs.roll) — it chases whatever aggressiveTimer implies at a
+// limited rate rather than snapping instantly, so an escalation ramps the roll rate up/down smoothly
+// instead of a jarring one-tick "whip"; the flight model's own roll spin-up/release then smooths the
+// actual angular response on top of that.
 export interface HelixState {
   baseDir: Vec3;
-  baseSpeed: number;
-  right: Vec3;
-  up: Vec3;
-  angle: number;
+  rollSign: number;
   aggressiveTimer: number;
   rollFraction: number;
 }
@@ -127,8 +110,28 @@ export interface HelixState {
 // around once it's flown too far, and repeats. respawnTimer counts UP, same convention as OrbitState.
 export interface DriftState {
   respawnTimer: number;
-  turn?: DriftTurnState;
   helix?: HelixState;
+}
+
+// Shared 'orbiter'/'drifter' counter-attack state, entered the instant either behavior takes a hit —
+// see combat/ai/orbiterDrifterAI.ts's triggerHitReaction/hitReactionThink. Permanent for the rest of
+// that drone's life (only cleared on respawn, alongside a fresh OrbitState/DriftState): once a
+// practice target has been shot at, it stops being harmless. Three phases, advanced in order and
+// never reverted within one life:
+//   'break'        — a startled boosted vertical break (see hitReactionThink) for a few random
+//                    seconds (breakTimer counts down)
+//   'faceAttacker' — turn to face the player as fast as the flight model allows
+//   'engaged'      — permanent from here on: dodge (strafe) within engageRangeM of the player, or
+//                    close back in beyond it — see hitReactionThink for the distance split.
+// dodgeStrafeX/Y is the CURRENT committed strafe bias (engaged+dodging only), re-picked every
+// dodgeTimer seconds from HIT_REACTION_TUNING's candidate set — never negative Y (never dives, only
+// climbs/strafes, per the "up/left/right" behavior these drones were asked to fly).
+export interface HitReactionState {
+  mode: 'break' | 'faceAttacker' | 'engaged';
+  breakTimer: number;
+  dodgeStrafeX: number;
+  dodgeStrafeY: number;
+  dodgeTimer: number;
 }
 
 // 'evasive' behavior memory — the receding-horizon MPC dodge planner's persistent state (see

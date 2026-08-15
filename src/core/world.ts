@@ -1,5 +1,5 @@
 import type {
-  DriftState, EnemyBehavior, EvasiveAIMemory, FighterAIMemory, Health, OrbitState, Quat, ShipType, Vec3
+  DriftState, EnemyBehavior, EvasiveAIMemory, FighterAIMemory, Health, HitReactionState, OrbitState, Quat, ShipType, Vec3
 } from './types';
 import type { ScenarioRuntime } from '../scenarios/types';
 import type { PipTrainerState } from '../combat/pipTrainer';
@@ -120,6 +120,7 @@ export interface EnemyShip {
   orbit?: OrbitState;         // 'orbiter' only
   drift?: DriftState;         // 'drifter' only
   evasive?: EvasiveAIMemory;  // 'evasive' only
+  hitReaction?: HitReactionState; // 'orbiter'/'drifter' only, once hit — see core/types.ts's doc comment
   fireCooldown: number;
   weaponCapacitors: number[];               // see ShipBody's field of the same name
   weaponCapacitorCooldownTimers: number[];  // see ShipBody's field of the same name
@@ -133,7 +134,7 @@ export interface EnemyShip {
   // The FlightInputs actually fed to integrateFlight this frame (set alongside each integrateFlight
   // call in combat/combatSystem.ts / scenarios/runtime.ts) — same transient-bookkeeping convention
   // as ShipBody.lastInputs above; absent for behaviors that don't go through integrateFlight
-  // (turret/cruiser/drifter), which is fine — replay/recorder.ts treats a missing value as
+  // (turret/cruiser), which is fine — replay/recorder.ts treats a missing value as
   // "no control decision this sample."
   lastInputs?: FlightInputs;
 }

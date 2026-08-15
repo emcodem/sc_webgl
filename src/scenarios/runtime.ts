@@ -7,8 +7,8 @@ import { firePlayerWeaponIfRequested } from '../combat/combatSystem';
 import { canFire, canFireWithinTolerance, spawnFighterAI, think } from '../combat/enemyAI';
 import { CHASER_TUNING, chaserThink, cruiseThink } from '../combat/ai/simpleAI';
 import {
-  ORBITER_TUNING, DRIFTER_TUNING, driftThink, orbiterThink, seedOrbiterPose, spawnDriftState,
-  spawnOrbitState
+  ORBITER_TUNING, DRIFTER_TUNING, driftThink, hitReactionThink, orbiterThink, seedOrbiterPose,
+  spawnDriftState, spawnOrbitState, triggerHitReaction
 } from '../combat/ai/orbiterDrifterAI';
 import { EVASIVE_TUNING, evasiveThink, spawnEvasiveState } from '../combat/ai/evasiveAI';
 import {
@@ -291,11 +291,14 @@ export function updateScenario(world: World, dt: number): void {
               enemy.health = createHealth(runtime.config.hitsToKillEnemy);
               enemy.orbit = spawnOrbitState(player.pos, runtime.config.droneAggressiveness ?? 0.5);
               seedOrbiterPose(enemy);
+              enemy.hitReaction = undefined; // fresh spawn is harmless again until next hit
             }
           }
           break;
         }
-        const orbiterDecision = orbiterThink(enemy, player, dt);
+        // hitReactionThink takes over completely once this drone's been hit at least once (see its
+        // doc comment) — orbiterThink only runs for a still-harmless, never-hit drone.
+        const orbiterDecision = hitReactionThink(enemy, player, dt) ?? orbiterThink(enemy, player, dt);
         const orbiterBoost = resolveBoost(
           enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, orbiterDecision.boostRequested, dt
         );
@@ -318,17 +321,26 @@ export function updateScenario(world: World, dt: number): void {
               enemy.vel = s.vel;
               enemy.quat = lookAtQuat(s.vel);
               enemy.drift.respawnTimer = 0;
-              enemy.drift.turn = undefined; // in case it died mid turn-around
               enemy.drift.helix = undefined; // fresh helix matched to the new post-respawn heading
+              enemy.hitReaction = undefined; // fresh spawn is harmless again until next hit
             }
           }
           break;
         }
-        // no out-of-range teleport here — driftThink itself banks into a turn-around once it's
-        // flown too far (see DRIFTER_TUNING.turnDist), so the same drone keeps making passes
-        // indefinitely
+        // no out-of-range teleport here — driftThink itself retargets its heading for a fresh pass
+        // once it's flown too far (see DRIFTER_TUNING.turnDist), so the same drone keeps making
+        // passes indefinitely. Same hitReactionThink-first precedence as the orbiter branch above.
         const isBeingFiredAt = playerFiredThisTick && activePip !== null && activePip.enemy === enemy && activePip.wouldHit;
-        driftThink(enemy, player, dt, runtime.config.droneAggressiveness ?? 0.5, isBeingFiredAt);
+        const driftDecision = hitReactionThink(enemy, player, dt)
+          ?? driftThink(enemy, player, dt, runtime.config.droneAggressiveness ?? 0.5, isBeingFiredAt);
+        const driftBoost = resolveBoost(
+          enemy.type, enemy.boostMeter, enemy.boosting, enemy.boostCooldownTimer, driftDecision.boostRequested, dt
+        );
+        enemy.boostMeter = driftBoost.boostMeter;
+        enemy.boosting = driftBoost.boosting;
+        enemy.boostCooldownTimer = driftBoost.cooldownTimer;
+        integrateFlight(enemy, driftDecision.inputs, dt);
+        enemy.lastInputs = driftDecision.inputs;
         break;
       }
 
@@ -346,7 +358,12 @@ export function updateScenario(world: World, dt: number): void {
     world.projectiles,
     player,
     world.enemies,
-    () => { runtime.stats.hitsLanded++; },
+    (enemy) => {
+      runtime.stats.hitsLanded++;
+      // 'orbiter'/'drifter' stop being harmless targets the instant they're actually hit — see
+      // triggerHitReaction's doc comment. No-op for every other behavior.
+      triggerHitReaction(enemy);
+    },
     (enemy) => {
       runtime.stats.kills++;
       spawnExplosion(world.effects, enemy.pos);

@@ -21,7 +21,11 @@
       "Bash(ffmpeg -f gdigrab -framerate 5 -i desktop -frames:v 1 -update 1 -y data/scratch/check_1600_1800.png)",
       "Bash(ffmpeg -f gdigrab -i desktop -frames:v 1 -update 1 -y data/scratch/state_after_interrupt.png)",
       "Bash(python -c ' *)",
-      "Bash(\"./node_modules/.bin/tsc.cmd\" -p tsconfig.json --noEmit+)"
+      "Bash(\"./node_modules/.bin/tsc.cmd\" -p tsconfig.json --noEmit+)",
+      "Bash(cp \"C:/Users/User/AppData/Local/Temp/claude/C--dev-sc-webgl/f3e96d43-874c-4217-b32b-907d6cd6e228/scratchpad/verify_spark2.mjs\" ./verify_spark2_tmp.mjs)",
+      "Bash(node verify_spark2_tmp.mjs before_fix_rear \"C:/Users/User/AppData/Local/Temp/claude/C--dev-sc-webgl/f3e96d43-874c-4217-b32b-907d6cd6e228/scratchpad/before_fix_rear.png\")",
+      "Bash(sed 's/await page.waitForTimeout\\(60\\);/await page.waitForTimeout\\(16\\);/' verify_spark2_tmp.mjs)",
+      "Bash(node verify_spark3_tmp.mjs before_fix_rear_fast \"C:/Users/User/AppData/Local/Temp/claude/C--dev-sc-webgl/f3e96d43-874c-4217-b32b-907d6cd6e228/scratchpad/before_fix_rear_fast.png\")"
     ]
   }
 }
